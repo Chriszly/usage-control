@@ -63,19 +63,31 @@ The hub asks each device for its usage every 5 seconds and keeps their history i
 
 ## Install it on Windows
 
-On Windows, usage-control only collects the PC's usage for a hub on Linux, such as a Raspberry Pi, which shows it and keeps its history. Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
+On Windows, usage-control by default only collects the PC's usage for a hub on Linux, such as a Raspberry Pi, which shows it and keeps its history. Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
 
 Running the installer:
 
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
-- turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
+- turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own, unless it is installed with `WEBSITE=1`
 - opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 
-Then add the PC on the hub's page, such as *Office PC* at `192.168.1.30:8080`. To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
+Then add the PC on the hub's page, such as *Office PC* at `192.168.1.30:8080`.
+
+To change the defaults, install from a command prompt run as administrator and add options:
 
 ```bat
-msiexec /i usage-control-1.2.3-x64.msi PORT=8090
+msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 ```
+
+| Option | Meaning |
+| --- | --- |
+| `PORT` | Port the PC is reachable on (default 8080) |
+| `WEBSITE` | `1` to show the website on this PC too and keep its history in `C:\ProgramData\Usage Control`, which uninstalling keeps; `0` to turn it off again (default off) |
+| `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *This device*) |
+| `HUB_DEVICES` | With `WEBSITE=1`, other devices this PC collects from, as on Linux ([hub mode](#several-devices-hub-mode)) |
+| `RETENTION_DAYS` | With `WEBSITE=1`, days of history to keep (default 30) |
+
+An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones.
 
 Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
 
