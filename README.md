@@ -53,6 +53,10 @@ Run before opening a pull request:
 
 ```bash
 bash ci/check-no-secrets.sh
-(cd backend && gofmt -l . && golangci-lint run && go test ./...)
-(cd frontend && npm run format:check && npm run lint && npm test && npm run build)
+(cd backend && gofmt -l . && golangci-lint run && go test ./... && go mod tidy -diff && go tool govulncheck ./...)
+(cd frontend && npm run format:check && npm run lint && npm audit --audit-level=high && npm test && npm run build)
 ```
+
+- Formatting: `gofumpt` and `goimports` for Go (`golangci-lint fmt` fixes it), Prettier for the frontend (`npm run format` fixes it)
+- Linting: `golangci-lint` with the settings in `backend/.golangci.yml`; ESLint in the frontend, which also fails on circular imports
+- Dependencies: `govulncheck` and `npm audit` fail on known vulnerabilities; `go mod tidy -diff` fails when `go.mod` or `go.sum` is out of date

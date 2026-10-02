@@ -44,7 +44,7 @@ func metricsHandler(collector Collector) http.HandlerFunc {
 
 func websiteHandler(site fs.FS) http.Handler {
 	if _, err := fs.Stat(site, "index.html"); err != nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "The website is not built. Run `npm run build` in frontend/ and build the backend again.", http.StatusNotFound)
 		})
 	}

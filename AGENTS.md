@@ -8,7 +8,7 @@ usage-control is a website that monitors the hardware it runs on: it reads the u
 
 ## Tech Stack
 
-- **Backend:** Go, reading hardware data with [gopsutil](https://github.com/shirou/gopsutil) (and `/sys/class/thermal` for temperature on Linux). Format with `gofmt`, lint with `golangci-lint`
+- **Backend:** Go, reading hardware data with [gopsutil](https://github.com/shirou/gopsutil) (and `/sys/class/thermal` for temperature on Linux). Format with `gofumpt` and `goimports` (run through `golangci-lint fmt`), lint with `golangci-lint`
 - **Frontend:** Angular with TypeScript, using standalone components and signals. The built app is embedded in the Go binary, so one binary serves both the API and the page
 - **Storage:** SQLite, one file on a volume. How long data is kept is set at setup with `RETENTION_DAYS`; older data is deleted automatically
 - **Multiple devices:** every device runs the same binary. By default it monitors only itself and serves a JSON API; in hub mode it also collects from the other devices on the local network and stores their data
@@ -43,8 +43,8 @@ Temperature is not available on every platform; where the OS does not expose it,
 Before submitting changes:
 - Run `bash ci/check-no-secrets.sh`
 - Run `bash -n` and `shellcheck` on every changed shell script
-- Backend, in `backend/`: `gofmt -l .` (must print nothing), `golangci-lint run` and `go test ./...`
-- Frontend, in `frontend/`: `npm run format:check`, `npm run lint`, `npm test` and `npm run build`
+- Backend, in `backend/`: `gofmt -l .` (must print nothing), `golangci-lint run`, `go test ./...`, `go mod tidy -diff` and `go tool govulncheck ./...`
+- Frontend, in `frontend/`: `npm run format:check`, `npm run lint` (includes the circular import check), `npm audit --audit-level=high`, `npm test` and `npm run build`
 - Add tests for new code
 - Keep CI fast: every check that runs on a pull request should finish within a few minutes
 
