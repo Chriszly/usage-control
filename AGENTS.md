@@ -9,7 +9,7 @@ usage-control is a website that monitors the hardware it runs on: it reads the u
 ## Tech Stack
 
 - **Backend:** Go, reading hardware data with [gopsutil](https://github.com/shirou/gopsutil) (and `/sys/class/thermal` for temperature on Linux). Format with `gofumpt` and `goimports` (run through `golangci-lint fmt`), lint with `golangci-lint`
-- **Frontend:** Angular with TypeScript, using standalone components and signals. The built app is embedded in the Go binary, so one binary serves both the API and the page. Translated with Angular's built-in i18n (`@angular/localize`) into German, French and Spanish, with English as the source language; every language is built into the same binary
+- **Frontend:** Angular with TypeScript, using standalone components and signals. The built app is embedded in the Go binary, so one binary serves both the API and the page. Translated into German, French and Spanish with a small signal-based `I18n` service (`src/app/i18n/`), with English as the source language, so the language switches in place without a reload
 - **Storage:** SQLite, one file on a volume. How long data is kept is set at setup with `RETENTION_DAYS`; older data is deleted automatically
 - **Multiple devices:** every device runs the same binary. By default it monitors only itself and serves a JSON API; in hub mode it also collects from the other devices on the local network and stores their data
 - **Network:** reachable on the local network only; the server rejects requests from outside the private address ranges
@@ -44,7 +44,7 @@ Before submitting changes:
 - Run `bash ci/check-no-secrets.sh`
 - Run `bash -n` and `shellcheck` on every changed shell script
 - Backend, in `backend/`: `gofmt -l .` (must print nothing), `golangci-lint run`, `go test ./...`, `go mod tidy -diff` and `go tool govulncheck ./...`
-- Frontend, in `frontend/`: `npm run format:check`, `npm run lint` (includes the circular import check), `npm audit --audit-level=high`, `npm test`, `npm run build` and `npm run extract-i18n` (must leave `src/locale/messages.json` unchanged)
+- Frontend, in `frontend/`: `npm run format:check`, `npm run lint` (includes the circular import check), `npm audit --audit-level=high`, `npm test` and `npm run build`
 - Add tests for new code
 - Keep CI fast: every check that runs on a pull request should finish within a few minutes
 

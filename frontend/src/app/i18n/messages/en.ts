@@ -1,0 +1,75 @@
+/**
+ * The website's text in English, the source language. Every other language
+ * must have the same keys, which the compiler checks through {@link Messages}.
+ * A {name} in a text is filled in by {@link I18n.t}.
+ */
+export const en = {
+  'app.switchToLight': 'Switch to light mode',
+  'app.switchToDark': 'Switch to dark mode',
+  'dashboard.unreachable': 'The backend cannot be reached. Showing the last known values.',
+  'dashboard.deviceUnreachable':
+    '{device} has not answered recently. Is usage-control running on it?',
+  'dashboard.cpu': 'CPU',
+  'dashboard.cpuUsage': 'CPU usage',
+  'dashboard.cores.one': '{count} core',
+  'dashboard.cores.other': '{count} cores',
+  'dashboard.memory': 'Memory',
+  'dashboard.memoryUsage': 'Memory usage',
+  'dashboard.usedOfTotal': '{used} of {total}',
+  'dashboard.disks': 'Disks',
+  'dashboard.diskUsage': 'Disk usage of {path}',
+  'dashboard.noDisk': 'No disk configured',
+  'dashboard.network': 'Network',
+  'dashboard.noNetwork': 'No network card found',
+  'dashboard.temperature': 'Temperature',
+  'dashboard.noTemperature': 'Not available on this machine',
+  'dashboard.uptime': 'Uptime',
+  'dashboard.loading': 'Loading…',
+  'dashboard.uptimeDays': '{days} d {hours} h',
+  'dashboard.uptimeHours': '{hours} h {minutes} min',
+  'devices.label': 'Device',
+  'devices.thisDevice': 'This device',
+  'history.title': 'History',
+  'history.unit': 'Unit of the time shown',
+  'history.range': 'Time shown',
+  'history.unreachableStale': 'The history cannot be read. Showing the last values read.',
+  'history.empty': 'No usage recorded for this time yet.',
+  'history.unreachable': 'The history cannot be read.',
+  'history.loading': 'Loading…',
+  'history.unitMinutes': 'Minutes',
+  'history.range1m': '1 min',
+  'history.range5m': '5 min',
+  'history.range10m': '10 min',
+  'history.range30m': '30 min',
+  'history.unitHours': 'Hours',
+  'history.range1h': '1 h',
+  'history.range3h': '3 h',
+  'history.range6h': '6 h',
+  'history.range12h': '12 h',
+  'history.unitDays': 'Days',
+  'history.range1d': '1 d',
+  'history.range7d': '7 d',
+  'history.range14d': '14 d',
+  'history.range30d': '30 d',
+  'history.rangeAll': 'All',
+  'history.cpuAndMemory': 'CPU and memory',
+  'history.cpu': 'CPU',
+  'history.memory': 'Memory',
+  'history.temperature': 'Temperature',
+  'history.network': 'Network',
+  'history.received': 'Received',
+  'history.sent': 'Sent',
+  'history.disks': 'Disks',
+  'languageSwitcher.label': 'Language',
+  'bytes.unit.b': 'B',
+  'bytes.unit.kib': 'KiB',
+  'bytes.unit.mib': 'MiB',
+  'bytes.unit.gib': 'GiB',
+  'bytes.unit.tib': 'TiB',
+} as const;
+
+/** The key of one text on the website. */
+export type MessageKey = keyof typeof en;
+
+/** All of the website's text in one language. */
+export type Messages = Record<MessageKey, string>;

@@ -1,22 +1,24 @@
-import { LOCALE_ID, Pipe, PipeTransform, inject } from '@angular/core';
+import { Pipe, PipeTransform } from '@angular/core';
 
-const UNITS = [
-  $localize`:Abbreviation for bytes@@bytes.unit.b:B`,
-  $localize`:Abbreviation for kibibytes@@bytes.unit.kib:KiB`,
-  $localize`:Abbreviation for mebibytes@@bytes.unit.mib:MiB`,
-  $localize`:Abbreviation for gibibytes@@bytes.unit.gib:GiB`,
-  $localize`:Abbreviation for tebibytes@@bytes.unit.tib:TiB`,
+import { LanguageCode, translate } from '../i18n/i18n';
+import { MessageKey } from '../i18n/messages/en';
+
+const UNITS: MessageKey[] = [
+  'bytes.unit.b',
+  'bytes.unit.kib',
+  'bytes.unit.mib',
+  'bytes.unit.gib',
+  'bytes.unit.tib',
 ];
 
 /**
- * Formats a number of bytes for people in the page's language, for example
- * 1536 as "1.5 KiB" in English and "1,5 KiB" in German.
+ * Formats a number of bytes for people in the given language, for example
+ * 1536 as "1.5 KiB" in English and "1,5 Kio" in French. Pass the page's
+ * language, `i18n.language()`, so the value updates when it switches.
  */
 @Pipe({ name: 'bytes' })
 export class BytesPipe implements PipeTransform {
-  private readonly locale = inject(LOCALE_ID);
-
-  transform(bytes: number): string {
+  transform(bytes: number, language: LanguageCode): string {
     let value = bytes;
     let unit = 0;
     while (value >= 1024 && unit < UNITS.length - 1) {
@@ -24,11 +26,11 @@ export class BytesPipe implements PipeTransform {
       unit++;
     }
     const digits = unit === 0 ? 0 : 1;
-    const number = new Intl.NumberFormat(this.locale, {
+    const number = new Intl.NumberFormat(language, {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
       useGrouping: false,
     }).format(value);
-    return `${number} ${UNITS[unit]}`;
+    return `${number} ${translate(language, UNITS[unit])}`;
   }
 }

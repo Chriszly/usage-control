@@ -32,13 +32,8 @@ func device(collector Collector, reader HistoryReader) []Device {
 }
 
 var site = fstest.MapFS{
-	"en/index.html":        {Data: []byte("page en")},
-	"en/main.js":           {Data: []byte("script en")},
-	"de/index.html":        {Data: []byte("page de")},
-	"de/main.js":           {Data: []byte("script de")},
-	"fr/index.html":        {Data: []byte("page fr")},
-	"fr/main.js":           {Data: []byte("script fr")},
-	"3rdpartylicenses.txt": {Data: []byte("MIT")},
+	"index.html": {Data: []byte("page")},
+	"main.js":    {Data: []byte("script")},
 }
 
 func get(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecorder {
@@ -162,9 +157,8 @@ func TestServesWebsite(t *testing.T) {
 	handler := New(device(fakeCollector{}, nil), 0, site)
 
 	for path, want := range map[string]string{
-		"/":                     "page en",
-		"/main.js":              "script en",
-		"/3rdpartylicenses.txt": "MIT",
+		"/":        "page",
+		"/main.js": "script",
 	} {
 		rec := get(handler, path, "10.0.0.5:5000")
 
@@ -274,70 +268,5 @@ func TestHistoryRefusesInvalidRanges(t *testing.T) {
 		if rec := get(handler, "/api/history"+query, "10.0.0.5:5000"); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET /api/history%s status = %d, want %d", query, rec.Code, http.StatusBadRequest)
 		}
-	}
-}
-
-func TestServesWebsiteInPreferredLanguageAtTheSameAddress(t *testing.T) {
-	tests := []struct {
-		name           string
-		acceptLanguage string
-		cookie         string
-		want           string
-	}{
-		{"no preference", "", "", "en"},
-		{"browser language", "de-DE,de;q=0.9,en;q=0.8", "", "de"},
-		{"first available by quality", "it, fr;q=0.5, de;q=0.7", "", "de"},
-		{"no translation", "it, ja;q=0.5", "", "en"},
-		{"picked in the switcher", "de", "fr", "fr"},
-		{"unknown picked language", "de", "../etc", "de"},
-	}
-	handler := New(device(fakeCollector{}, nil), 0, site)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for path, prefix := range map[string]string{"/": "page ", "/main.js": "script "} {
-				req := httptest.NewRequest(http.MethodGet, path, nil)
-				req.RemoteAddr = "192.168.1.20:5000"
-				if tt.acceptLanguage != "" {
-					req.Header.Set("Accept-Language", tt.acceptLanguage)
-				}
-				if tt.cookie != "" {
-					req.Header.Set("Cookie", languageCookie+"="+tt.cookie)
-				}
-				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
-
-				if rec.Code != http.StatusOK {
-					t.Fatalf("%s: status = %d, want %d", path, rec.Code, http.StatusOK)
-				}
-				if got, want := rec.Body.String(), prefix+tt.want; got != want {
-					t.Errorf("%s: body = %q, want %q", path, got, want)
-				}
-				if vary := rec.Header().Get("Vary"); vary != "Accept-Language, Cookie" {
-					t.Errorf("%s: Vary = %q, want the language headers", path, vary)
-				}
-			}
-		})
-	}
-}
-
-func TestAcceptedLanguages(t *testing.T) {
-	tests := []struct {
-		header string
-		want   []string
-	}{
-		{"", []string{}},
-		{"de-CH, fr;q=0.8, en;q=0.5", []string{"de", "fr", "en"}},
-		{"en;q=0.5, ES;q=0.9", []string{"es", "en"}},
-		{"fr;q=0, de", []string{"de"}},
-		{"*, de;q=0.1", []string{"de"}},
-		{"de;q=abc, fr", []string{"fr"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.header, func(t *testing.T) {
-			if got := acceptedLanguages(tt.header); !slices.Equal(got, tt.want) {
-				t.Errorf("acceptedLanguages(%q) = %q, want %q", tt.header, got, tt.want)
-			}
-		})
 	}
 }

@@ -1,6 +1,7 @@
 import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 
+import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import { Point } from '../metrics/metrics';
 
@@ -30,6 +31,8 @@ const HEIGHT = 100;
   styleUrl: './line-chart.css',
 })
 export class LineChart {
+  protected readonly i18n = inject(I18n);
+
   readonly lines = input.required<ChartLine[]>();
   readonly from = input.required<number>();
   readonly to = input.required<number>();

@@ -1,31 +1,24 @@
-import { LOCALE_ID } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
-
 import { BytesPipe } from './bytes.pipe';
 
-function pipeFor(locale: string): BytesPipe {
-  TestBed.configureTestingModule({ providers: [{ provide: LOCALE_ID, useValue: locale }] });
-  return TestBed.runInInjectionContext(() => new BytesPipe());
-}
-
 describe('BytesPipe', () => {
+  const pipe = new BytesPipe();
+
   it('shows small values in bytes', () => {
-    const pipe = pipeFor('en');
-    expect(pipe.transform(0)).toBe('0 B');
-    expect(pipe.transform(1023)).toBe('1023 B');
+    expect(pipe.transform(0, 'en')).toBe('0 B');
+    expect(pipe.transform(1023, 'en')).toBe('1023 B');
   });
 
   it('switches to the largest fitting unit', () => {
-    const pipe = pipeFor('en');
-    expect(pipe.transform(1536)).toBe('1.5 KiB');
-    expect(pipe.transform(8 * 1024 ** 3)).toBe('8.0 GiB');
+    expect(pipe.transform(1536, 'en')).toBe('1.5 KiB');
+    expect(pipe.transform(8 * 1024 ** 3, 'en')).toBe('8.0 GiB');
   });
 
   it('stays at the largest unit for huge values', () => {
-    expect(pipeFor('en').transform(2048 * 1024 ** 4)).toBe('2048.0 TiB');
+    expect(pipe.transform(2048 * 1024 ** 4, 'en')).toBe('2048.0 TiB');
   });
 
-  it("uses the page language's decimal separator", () => {
-    expect(pipeFor('de').transform(1536)).toBe('1,5 KiB');
+  it("uses the language's decimal separator and units", () => {
+    expect(pipe.transform(1536, 'de')).toBe('1,5 KiB');
+    expect(pipe.transform(1536, 'fr')).toBe('1,5 Kio');
   });
 });

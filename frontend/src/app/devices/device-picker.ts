@@ -3,7 +3,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { EMPTY, catchError } from 'rxjs';
 
-import { DeviceService, deviceName } from './devices';
+import { I18n } from '../i18n/i18n';
+import { Device, DeviceService, deviceName } from './devices';
 
 /**
  * Buttons to pick the device whose usage is shown. Only shown in hub mode,
@@ -17,7 +18,7 @@ import { DeviceService, deviceName } from './devices';
 })
 export class DevicePicker {
   protected readonly devices = inject(DeviceService);
-  protected readonly deviceName = deviceName;
+  protected readonly i18n = inject(I18n);
 
   constructor() {
     // Without the list only this device is shown, as without hub mode.
@@ -28,5 +29,9 @@ export class DevicePicker {
         takeUntilDestroyed(),
       )
       .subscribe((devices) => this.devices.devices.set(devices));
+  }
+
+  protected deviceName(device: Device): string {
+    return deviceName(device, this.i18n);
   }
 }
