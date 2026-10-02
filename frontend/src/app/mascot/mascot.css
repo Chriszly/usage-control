@@ -1,0 +1,45 @@
+/* The colors are tones of the theme palette, set as --mascot-* in styles.scss. */
+:host {
+  display: flex;
+}
+
+.fur {
+  fill: var(--mascot-fur);
+}
+
+.ear {
+  fill: var(--mascot-ear);
+}
+
+.eye {
+  fill: var(--mascot-eye);
+}
+
+.muzzle {
+  fill: var(--mascot-muzzle);
+}
+
+.dark {
+  fill: var(--mascot-dark);
+}
+
+.gauge {
+  fill: none;
+  stroke: var(--mascot-gauge);
+  stroke-width: 1.8;
+}
+
+.needle,
+.mouth {
+  fill: none;
+  stroke: var(--mascot-dark);
+  stroke-linecap: round;
+}
+
+.needle {
+  stroke-width: 1.9;
+}
+
+.mouth {
+  stroke-width: 1.2;
+}

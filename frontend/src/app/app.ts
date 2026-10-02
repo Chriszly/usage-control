@@ -5,11 +5,12 @@ import { DevicePicker } from './devices/device-picker';
 import { HistoryCharts } from './history/history';
 import { I18n } from './i18n/i18n';
 import { LanguageSwitcher } from './language/language-switcher';
+import { Mascot } from './mascot/mascot';
 import { ThemeService } from './theme/theme';
 
 @Component({
   selector: 'app-root',
-  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher],
+  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher, Mascot],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
