@@ -48,6 +48,15 @@ func New(devices []Device, retention time.Duration, site fs.FS) http.Handler {
 	return localNetworkOnly(mux)
 }
 
+// NewDataOnly returns the handler for a device that a hub collects from
+// without a website of its own: only GET /api/metrics, with the usage of the
+// machine it runs on. Requests from outside the local network are refused.
+func NewDataOnly(collector Collector) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/metrics", metricsHandler(Device{ID: hub.LocalID, Metrics: collector}))
+	return localNetworkOnly(mux)
+}
+
 // devicesHandler serves GET /api/devices: the devices the site shows.
 func devicesHandler(devices []Device) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {

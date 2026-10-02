@@ -1,0 +1,192 @@
+name: Windows installer
+
+# Builds the Windows installers (usage-control-<version>-x64.msi and -arm64.msi)
+# and checks on a Windows machine that the x64 one installs, starts the service
+# and serves the usage data. Pull requests and main keep the installers as a
+# workflow artifact; a version tag (v1.2.3) also attaches them to that GitHub release.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  # Only cancel superseded PR runs; let pushes to main and tags finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Go cross-compiles for Windows, so the programs are built on Linux, which is
+  # faster than on a Windows runner. They serve only the usage data for a hub
+  # (DATA_ONLY), so the website is not built into them.
+  programs:
+    name: Windows programs (x64 and arm64)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag v1.2.3 builds version 1.2.3; anything else 0.0.<run number>, so
+      # every newer build can be installed over an older one.
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3." >&2
+              exit 1
+            fi
+          else
+            version="0.0.$GITHUB_RUN_NUMBER"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # The test program runs the Windows-only tests on the Windows runner.
+      - name: Build the programs
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
+              go build -trimpath -ldflags="-s -w" -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
+          done
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-programs
+          path: dist/
+          retention-days: 1
+
+  installer:
+    name: Windows installer (x64 and arm64)
+    needs: programs
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.programs.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-programs
+          path: dist
+
+      - name: Run the Windows-only tests
+        run: |
+          # Quoted: PowerShell would split -test.v into -test and .v.
+          dist\tests\usage-control-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # WiX 5 is the last WiX release under the MS-RL license; later versions
+      # need the Open Source Maintenance Fee EULA accepted.
+      - name: Install WiX Toolset
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+          & "$env:USERPROFILE\.dotnet\tools\wix.exe" extension add --global WixToolset.Firewall.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Build the installers
+        run: |
+          foreach ($arch in @{ x64 = 'amd64'; arm64 = 'arm64' }.GetEnumerator()) {
+            wix build windows\usage-control.wxs -arch $arch.Key `
+              -d Version=$env:VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
+              -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext `
+              -o "msi\usage-control-$env:VERSION-$($arch.Key).msi"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          Get-ChildItem msi
+
+      # Installs on another port than the default, so the check also covers
+      # that the installer's settings reach the service.
+      - name: Install, ask for the usage data, uninstall
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path "msi\usage-control-$env:VERSION-x64.msi").Path
+          $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn PORT=8091 /l*v install.log" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            Get-Content install.log -Tail 80
+            throw "Installing failed with exit code $($install.ExitCode)"
+          }
+
+          $service = Get-Service UsageControl
+          if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
+
+          $metrics = $null
+          foreach ($try in 1..30) {
+            try { $metrics = Invoke-RestMethod http://127.0.0.1:8091/api/metrics; break } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $metrics) {
+            Get-Service UsageControl | Format-List
+            Get-EventLog -LogName Application -Source UsageControl -Newest 5 -ErrorAction SilentlyContinue | Format-List
+            throw 'The service did not answer on port 8091'
+          }
+          $metrics | ConvertTo-Json -Depth 4
+          if ($metrics.disks.Count -lt 1) { throw 'The system disk is missing from the metrics' }
+          $page = Invoke-WebRequest http://127.0.0.1:8091/ -UseBasicParsing -SkipHttpErrorCheck
+          if ($page.StatusCode -ne 404) { throw "The website answered $($page.StatusCode); the installer should turn it off" }
+
+          $rule = Get-NetFirewallRule -DisplayName 'Usage Control' | Get-NetFirewallPortFilter
+          if ($rule.LocalPort -ne '8091') { throw "The firewall rule opens port $($rule.LocalPort), not 8091" }
+          $networks = (Get-NetFirewallRule -DisplayName 'Usage Control').Profile
+          if ($networks -ne 'Private') { throw "The firewall rule applies to $networks networks, not only private ones" }
+
+          $uninstall = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            Get-Content uninstall.log -Tail 80
+            throw "Uninstalling failed with exit code $($uninstall.ExitCode)"
+          }
+          if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
+          if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: usage-control-${{ env.VERSION }}-windows
+          path: msi/*.msi
+          retention-days: 14
+
+  release:
+    name: Attach the installers to the release
+    if: github.ref_type == 'tag'
+    needs: [programs, installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: usage-control-${{ needs.programs.outputs.version }}-windows
+          path: msi
+
+      # Creates the release for the tag if there is none yet, then adds the
+      # installers, replacing ones from an earlier run of the same tag.
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" msi/*.msi --clobber
