@@ -112,6 +112,27 @@ cd frontend && npm ci && npm start
 
 `npm run build` in `frontend/` writes the website into `backend/internal/web/files/build/`, and `go build` embeds it, so one binary serves both.
 
+### Run from source
+
+To run usage-control on a computer without Docker or the installer, such as a PC that a hub on a Raspberry Pi should collect from, build the website once and then the binary. In PowerShell on Windows:
+
+```powershell
+cd frontend; npm ci; npm run build; cd ..
+cd backend; go build -o usage-control.exe ./cmd/usage-control
+$env:DEVICE_NAME = "Office PC"   # optional, see the settings below
+.\usage-control.exe
+```
+
+On Linux and macOS, build with `go build -o usage-control ./cmd/usage-control` and start it with `DEVICE_NAME="Office PC" ./usage-control`. The page is then at <http://localhost:8080>, and the history is kept in `usage-control.db` in the folder it was started from.
+
+The settings are environment variables, listed at the top of `backend/cmd/usage-control/main.go`. The ones that matter most outside Docker:
+
+- `LISTEN_ADDR`: the port, such as `:8090` (default `:8080`)
+- `DATABASE_PATH`: where the history is kept (default `usage-control.db` in the current folder)
+- `DATA_ONLY=true`: serve only the usage data for a hub, with no website and no history, like the Windows installer does
+
+To show this computer on a hub, open the hub's page, click *Devices* and add it with its address and port, such as `192.168.1.30:8080`. The hub and this computer must be on the same local network: usage-control answers only private, link-local and loopback addresses. On Windows, allow `usage-control.exe` on private networks when the firewall asks on the first start. Start the built binary rather than `go run`, which builds a new file each time, so the firewall asks again.
+
 ### Translations
 
 The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` is the source, and `de.ts`, `fr.ts` and `es.ts` must have the same keys, which the TypeScript compiler checks, so the build fails when a translation is missing. The `I18n` service holds the page's language as a signal, so switching it updates the page in place. The page starts in the language picked last time (kept in the browser's localStorage), else the browser's language, else English.
