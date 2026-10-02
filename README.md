@@ -9,9 +9,12 @@ It shows CPU and memory usage, temperature sensors and uptime so far, refreshed 
 ## Run it with Docker (Linux, Raspberry Pi)
 
 ```bash
-cp .env.example .env   # optional, to change the port
-docker compose up -d --build
+cp .env.example .env   # optional, to change the port or the image version
+docker compose pull
+docker compose up -d
 ```
+
+This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd64, so the Pi doesn't build anything. `IMAGE_TAG` picks the version: `main` (default) follows the main branch, and a release such as `1.2.3` stays fixed. To build the image from this checkout instead, run `docker compose up -d --build`.
 
 Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges.
 
