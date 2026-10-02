@@ -19,6 +19,11 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    ignore:
+      # Angular supports a fixed range of TypeScript versions; a new TypeScript
+      # major comes in with the Angular upgrade that supports it.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       angular:
         patterns:
