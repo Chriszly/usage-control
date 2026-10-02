@@ -2,6 +2,7 @@ import { formatDate } from '@angular/common';
 import { Component, Injector, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
 import { EMPTY, catchError, interval, startWith, switchMap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
@@ -11,12 +12,12 @@ import { Device, DeviceService, deviceName } from './devices';
 export const DEVICES_REFRESH_MS = 5000;
 
 /**
- * Buttons to pick the device whose usage is shown, once the hub collects from
+ * Chips to pick the device whose usage is shown, once the hub collects from
  * other devices, and a button that opens the list of devices to add or remove one.
  */
 @Component({
   selector: 'app-device-picker',
-  imports: [MatButtonModule],
+  imports: [MatButtonModule, MatChipsModule],
   templateUrl: './device-picker.html',
   styleUrl: './device-picker.css',
 })

@@ -6,25 +6,18 @@
   margin-bottom: 1.5rem;
 }
 
-/* One rounded button per device; the picked one is filled. */
-.devices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .manage {
   margin-left: auto;
 }
 
-/* A dot before the name: green while the device answers, red while it does not. */
+/* In place of a check mark, a dot before the name: green while the device answers, red while it does not. */
 .status {
   display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
   margin-right: 0.375rem;
   border-radius: 50%;
-  /* A ring in the page's color keeps the dot apart from a filled button. */
+  /* A ring in the page's color keeps the dot apart from the filled, picked chip. */
   box-shadow: 0 0 0 2px var(--mat-sys-surface);
   background: light-dark(#1b873f, #3fb950);
   vertical-align: middle;
