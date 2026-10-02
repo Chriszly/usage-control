@@ -1,34 +1,49 @@
 @if (unreachable()) {
-  <p class="warning" role="alert">The backend cannot be reached. Showing the last known values.</p>
+  <p class="warning" role="alert" i18n="@@dashboard.unreachable">
+    The backend cannot be reached. Showing the last known values.
+  </p>
 }
 
 @if (snapshot(); as s) {
   <div class="cards">
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>CPU</h2>
+        <h2 i18n="@@dashboard.cpu">CPU</h2>
         <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' }} %</p>
-        <mat-progress-bar mode="determinate" [value]="s.cpu.usagePercent" aria-label="CPU usage" />
-        <p class="detail">{{ s.cpu.cores }} cores</p>
+        <mat-progress-bar
+          mode="determinate"
+          [value]="s.cpu.usagePercent"
+          aria-label="CPU usage"
+          i18n-aria-label="@@dashboard.cpuUsage"
+        />
+        <p class="detail">
+          <ng-container i18n="@@dashboard.cores">{s.cpu.cores, plural,
+            =1 {1 core}
+            other {{{ s.cpu.cores // i18n(ph="count") }} cores}
+          }</ng-container>
+        </p>
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>Memory</h2>
+        <h2 i18n="@@dashboard.memory">Memory</h2>
         <p class="value">{{ s.memory.usedPercent | number: '1.0-1' }} %</p>
         <mat-progress-bar
           mode="determinate"
           [value]="s.memory.usedPercent"
           aria-label="Memory usage"
+          i18n-aria-label="@@dashboard.memoryUsage"
         />
-        <p class="detail">{{ s.memory.usedBytes | bytes }} of {{ s.memory.totalBytes | bytes }}</p>
+        <p class="detail" i18n="@@dashboard.usedOfTotal">
+          {{ s.memory.usedBytes | bytes }} of {{ s.memory.totalBytes | bytes }}
+        </p>
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>Disks</h2>
+        <h2 i18n="@@dashboard.disks">Disks</h2>
         @for (d of s.disks; track d.path) {
           <div class="disk">
             <p class="sensor">
@@ -38,19 +53,22 @@
             <mat-progress-bar
               mode="determinate"
               [value]="d.usedPercent"
-              [attr.aria-label]="'Disk usage of ' + d.path"
+              aria-label="Disk usage of {{ d.path }}"
+              i18n-aria-label="@@dashboard.diskUsage"
             />
-            <p class="detail">{{ d.usedBytes | bytes }} of {{ d.totalBytes | bytes }}</p>
+            <p class="detail" i18n="@@dashboard.usedOfTotal">
+              {{ d.usedBytes | bytes }} of {{ d.totalBytes | bytes }}
+            </p>
           </div>
         } @empty {
-          <p class="detail">No disk configured</p>
+          <p class="detail" i18n="@@dashboard.noDisk">No disk configured</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>Network</h2>
+        <h2 i18n="@@dashboard.network">Network</h2>
         @for (n of s.network; track n.name) {
           <div class="interface">
             <p class="name">{{ n.name }}</p>
@@ -60,32 +78,32 @@
             </p>
           </div>
         } @empty {
-          <p class="detail">No network card found</p>
+          <p class="detail" i18n="@@dashboard.noNetwork">No network card found</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>Temperature</h2>
+        <h2 i18n="@@dashboard.temperature">Temperature</h2>
         @for (t of s.temperatures; track t.sensor) {
           <p class="sensor">
             <span>{{ t.sensor }}</span
             ><span>{{ t.celsius | number: '1.0-1' }} °C</span>
           </p>
         } @empty {
-          <p class="detail">Not available on this machine</p>
+          <p class="detail" i18n="@@dashboard.noTemperature">Not available on this machine</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2>Uptime</h2>
+        <h2 i18n="@@dashboard.uptime">Uptime</h2>
         <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
       </mat-card-content>
     </mat-card>
   </div>
 } @else if (!unreachable()) {
-  <p>Loading…</p>
+  <p i18n="@@dashboard.loading">Loading…</p>
 }

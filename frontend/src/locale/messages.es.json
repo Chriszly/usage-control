@@ -1,0 +1,31 @@
+{
+  "locale": "es",
+  "translations": {
+    "app.switchToLight": "Cambiar al modo claro",
+    "app.switchToDark": "Cambiar al modo oscuro",
+    "dashboard.unreachable": " No se puede conectar con el backend. Se muestran los últimos valores conocidos. ",
+    "dashboard.cpu": "CPU",
+    "dashboard.cpuUsage": "Uso de CPU",
+    "dashboard.cores": "{VAR_PLURAL, plural, =1 {1 núcleo} other {{COUNT} núcleos}}",
+    "dashboard.memory": "Memoria",
+    "dashboard.memoryUsage": "Uso de memoria",
+    "dashboard.usedOfTotal": " {$INTERPOLATION} de {$INTERPOLATION_1} ",
+    "dashboard.disks": "Discos",
+    "dashboard.diskUsage": "Uso de {$INTERPOLATION}",
+    "dashboard.noDisk": "Ningún disco configurado",
+    "dashboard.network": "Red",
+    "dashboard.noNetwork": "No se encontró ninguna tarjeta de red",
+    "dashboard.temperature": "Temperatura",
+    "dashboard.noTemperature": "No disponible en este equipo",
+    "dashboard.uptime": "Tiempo de actividad",
+    "dashboard.loading": "Cargando…",
+    "dashboard.uptimeDays": "{$days} d {$hours} h",
+    "dashboard.uptimeHours": "{$hours} h {$minutes} min",
+    "languageSwitcher.label": "Idioma",
+    "bytes.unit.b": "B",
+    "bytes.unit.kib": "KiB",
+    "bytes.unit.mib": "MiB",
+    "bytes.unit.gib": "GiB",
+    "bytes.unit.tib": "TiB"
+  }
+}

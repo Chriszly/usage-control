@@ -43,13 +43,26 @@ func metricsHandler(collector Collector) http.HandlerFunc {
 	}
 }
 
+// websiteHandler serves the website, which is built once per language into
+// its own folder, such as /de/ for German. A request for / is sent on to the
+// folder of the language the visitor prefers.
 func websiteHandler(site fs.FS) http.Handler {
-	if _, err := fs.Stat(site, "index.html"); err != nil {
+	available := languages(site)
+	if len(available) == 0 {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "The website is not built. Run `npm run build` in frontend/ and build the backend again.", http.StatusNotFound)
 		})
 	}
-	return http.FileServerFS(site)
+	files := http.FileServerFS(site)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			files.ServeHTTP(w, r)
+			return
+		}
+		// The answer depends on these headers, so caches must not reuse it for other visitors.
+		w.Header().Set("Vary", "Accept-Language, Cookie")
+		http.Redirect(w, r, "/"+pickLanguage(r, available)+"/", http.StatusFound)
+	})
 }
 
 // localNetworkOnly refuses requests whose sender is not on the local network:

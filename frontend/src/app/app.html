@@ -4,12 +4,13 @@
       type="button"
       class="mascot"
       (click)="theme.toggle()"
-      [attr.aria-label]="theme.scheme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-      [title]="theme.scheme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+      [attr.aria-label]="themeToggleLabel()"
+      [title]="themeToggleLabel()"
     >
       <img src="mascot.svg" alt="" width="32" height="32" />
     </button>
     <h1>Usage Control</h1>
+    <app-language-switcher />
   </header>
   <app-dashboard />
   <app-history />
