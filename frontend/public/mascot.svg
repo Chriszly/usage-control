@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Usage Control</title>
+  <circle cx="7" cy="8" r="5" fill="#e37100"/>
+  <circle cx="25" cy="8" r="5" fill="#e37100"/>
+  <circle cx="7" cy="8" r="2.4" fill="#ffb787"/>
+  <circle cx="25" cy="8" r="2.4" fill="#ffb787"/>
+  <ellipse cx="16" cy="18.5" rx="13" ry="12" fill="#e37100"/>
+  <circle cx="10.5" cy="16" r="5" fill="#ffffff"/>
+  <circle cx="21.5" cy="16" r="5" fill="#ffffff"/>
+  <path d="M7.2 17 A3.4 3.4 0 0 1 13.8 17" fill="none" stroke="#964900" stroke-width="1.8"/>
+  <path d="M18.2 17 A3.4 3.4 0 0 1 24.8 17" fill="none" stroke="#964900" stroke-width="1.8"/>
+  <path d="M10.5 17.5 L12.6 13.6" stroke="#0d1117" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M21.5 17.5 L23.6 13.6" stroke="#0d1117" stroke-width="1.9" stroke-linecap="round"/>
+  <circle cx="10.5" cy="17.5" r="1.4" fill="#0d1117"/>
+  <circle cx="21.5" cy="17.5" r="1.4" fill="#0d1117"/>
+  <ellipse cx="16" cy="25" rx="5.5" ry="4" fill="#ffdcc7"/>
+  <ellipse cx="16" cy="23.6" rx="2.4" ry="1.6" fill="#311300"/>
+  <path d="M16 25 V26.6" stroke="#311300" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

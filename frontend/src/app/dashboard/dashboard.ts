@@ -1,6 +1,8 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatCardModule } from '@angular/material/card';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { catchError, of, switchMap, timer } from 'rxjs';
 
 import { BytesPipe } from '../metrics/bytes.pipe';
@@ -12,7 +14,7 @@ export const REFRESH_INTERVAL_MS = 2000;
 /** Shows the current usage of the machine and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe],
+  imports: [BytesPipe, DecimalPipe, MatCardModule, MatProgressBarModule],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })
