@@ -43,7 +43,9 @@ Temperature is not available on every platform; where the OS does not expose it,
 Before submitting changes:
 - Run `bash ci/check-no-secrets.sh`
 - Run `bash -n` and `shellcheck` on every changed shell script
-- Run the project's tests and linters once the stack adds them, and add tests for new code
+- Backend, in `backend/`: `gofmt -l .` (must print nothing), `golangci-lint run` and `go test ./...`
+- Frontend, in `frontend/`: `npm run format:check`, `npm run lint`, `npm test` and `npm run build`
+- Add tests for new code
 - Keep CI fast: every check that runs on a pull request should finish within a few minutes
 
 ## PR Requirements

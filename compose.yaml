@@ -1,0 +1,24 @@
+# Runs usage-control on a Linux machine, such as a Raspberry Pi:
+#   cp .env.example .env   # optional, to change settings
+#   docker compose up -d --build
+# Then open http://<the machine's address>:8080 from the local network.
+services:
+  usage-control:
+    build: .
+    image: usage-control
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      # Read the host's usage instead of the container's.
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    # The site only reads hardware data, so it needs no privileges.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
