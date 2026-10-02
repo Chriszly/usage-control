@@ -1,11 +1,12 @@
 # Runs usage-control on a Linux machine, such as a Raspberry Pi:
 #   cp .env.example .env   # optional, to change settings
-#   docker compose up -d --build
+#   docker compose pull && docker compose up -d   # the published image
+#   docker compose up -d --build                  # or build it from this checkout
 # Then open http://<the machine's address>:8080 from the local network.
 services:
   usage-control:
     build: .
-    image: usage-control
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-main}
     restart: unless-stopped
     ports:
       - "${PORT:-8080}:8080"

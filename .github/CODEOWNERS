@@ -1,0 +1,3 @@
+# Requests the maintainer's review on every pull request. Only the maintainer can
+# merge, and the "Protect main" ruleset requires green checks first (see SECURITY.md).
+* @Chriszly
