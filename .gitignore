@@ -9,3 +9,8 @@
 
 # Built website, embedded into the Go binary at build time
 backend/internal/web/files/build/
+
+# History database written when running the backend locally
+*.db
+*.db-shm
+*.db-wal

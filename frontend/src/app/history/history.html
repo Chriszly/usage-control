@@ -1,0 +1,67 @@
+<section aria-labelledby="history-title">
+  <div class="toolbar">
+    <h2 id="history-title" i18n="@@history.title">History</h2>
+
+    <mat-button-toggle-group
+      hideSingleSelectionIndicator
+      [value]="span()"
+      (change)="selectRange($event.value)"
+      aria-label="Time shown"
+      i18n-aria-label="@@history.range"
+    >
+      @for (range of ranges(); track range.seconds) {
+        <mat-button-toggle [value]="range.seconds">{{ range.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+
+    <div class="scroll">
+      <button matButton (click)="earlier()" [disabled]="!canGoEarlier()" i18n="@@history.earlier">
+        ‹ Earlier
+      </button>
+      <button matButton (click)="later()" [disabled]="end() === null" i18n="@@history.later">
+        Later ›
+      </button>
+      <button matButton (click)="latest()" [disabled]="end() === null" i18n="@@history.now">
+        Now
+      </button>
+    </div>
+  </div>
+
+  @if (history(); as h) {
+    <p class="period">
+      {{ h.from * 1000 | date: 'EEE d MMM, HH:mm' }} – {{ h.to * 1000 | date: 'EEE d MMM, HH:mm' }}
+    </p>
+
+    @if (unreachable()) {
+      <p class="warning" role="alert" i18n="@@history.unreachableStale">
+        The history cannot be read. Showing the last values read.
+      </p>
+    }
+
+    <div class="charts">
+      @for (chart of charts(); track chart.title) {
+        <mat-card appearance="outlined">
+          <mat-card-content>
+            <h3>{{ chart.title }}</h3>
+            <app-line-chart
+              [lines]="chart.lines"
+              [from]="h.from"
+              [to]="h.to"
+              [step]="h.stepSeconds"
+              [unit]="chart.unit"
+              [max]="chart.max"
+            />
+          </mat-card-content>
+        </mat-card>
+      } @empty {
+        <p class="detail" i18n="@@history.empty">
+          No usage stored for this time yet. The site stores it every minute while it runs.
+        </p>
+      }
+    </div>
+  } @else if (unreachable()) {
+    <p class="warning" role="alert" i18n="@@history.unreachable">The history cannot be read.</p>
+  } @else {
+    <p i18n="@@history.loading">Loading…</p>
+  }
+</section>

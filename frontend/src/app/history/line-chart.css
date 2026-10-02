@@ -1,0 +1,163 @@
+:host {
+  display: block;
+  /* The first slots of a categorical palette checked for color blindness, in
+     steps for light and dark mode. Lines keep their color by order. */
+  --series-0: light-dark(#2a78d6, #3987e5);
+  --series-1: light-dark(#eb6834, #d95926);
+  --series-2: light-dark(#1baf7a, #199e70);
+  --series-3: light-dark(#eda100, #c98500);
+  --series-4: light-dark(#e87ba4, #d55181);
+  --series-5: light-dark(#008300, #008300);
+  --series-6: light-dark(#4a3aa7, #9085e9);
+  --series-7: light-dark(#e34948, #e66767);
+}
+
+.series-0 {
+  --color: var(--series-0);
+}
+.series-1 {
+  --color: var(--series-1);
+}
+.series-2 {
+  --color: var(--series-2);
+}
+.series-3 {
+  --color: var(--series-3);
+}
+.series-4 {
+  --color: var(--series-4);
+}
+.series-5 {
+  --color: var(--series-5);
+}
+.series-6 {
+  --color: var(--series-6);
+}
+.series-7 {
+  --color: var(--series-7);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.25rem;
+  margin-right: 0.375rem;
+  border-radius: 2px;
+  vertical-align: middle;
+  background: var(--color);
+}
+
+.chart {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 9rem auto;
+  column-gap: 0.5rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  /* Centers the top and bottom labels on their grid lines. */
+  margin: -0.5em 0;
+  white-space: nowrap;
+}
+
+.plot {
+  position: relative;
+  touch-action: pan-y;
+}
+
+svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.grid,
+.baseline,
+.line {
+  vector-effect: non-scaling-stroke;
+}
+
+.grid {
+  stroke: var(--mat-sys-outline-variant);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.baseline {
+  stroke: var(--mat-sys-outline);
+  stroke-width: 1;
+}
+
+.line {
+  fill: none;
+  stroke: var(--color);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.x-axis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+.crosshair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--mat-sys-outline);
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  margin-left: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-inverse-surface);
+  color: var(--mat-sys-inverse-on-surface);
+  box-shadow: var(--mat-sys-level2);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tooltip.flip {
+  transform: translateX(-100%);
+  margin-left: -0.5rem;
+}
+
+.tooltip p {
+  margin: 0;
+}
+
+.tooltip .time {
+  margin-bottom: 0.25rem;
+}
+
+.tooltip .label {
+  margin-left: 0.375rem;
+}

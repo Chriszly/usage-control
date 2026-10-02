@@ -2,9 +2,9 @@
 
 A website that shows the usage of the hardware it runs on (CPU, memory, disk, temperature and so on).
 
-It is built with a Go backend and an Angular frontend (storing history in SQLite comes next), and runs first on Linux (starting with a Raspberry Pi) with Docker. A native Windows installer comes later. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
+It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs first on Linux (starting with a Raspberry Pi) with Docker. A native Windows installer comes later. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
-It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network.
+It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the history, which you can scroll back through as far as it is kept.
 
 The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one.
 
@@ -34,6 +34,16 @@ DISK_PATHS=/,/mnt/usb
 ```
 
 The site refuses to start when a path in `DISK_PATHS` cannot be read, and says which one.
+
+### History
+
+Every minute the site stores the machine's usage in a SQLite file on the `data` Docker volume, so it survives updates. It keeps 30 days by default and deletes older values automatically. To keep it longer or shorter, set the number of days in `.env` and restart the container:
+
+```bash
+RETENTION_DAYS=90
+```
+
+The page can scroll back as far as `RETENTION_DAYS`. Outside Docker, the file is `usage-control.db` in the working folder; `DATABASE_PATH` moves it.
 
 ## Deploy to a Raspberry Pi
 

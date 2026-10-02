@@ -19,9 +19,10 @@ type Collector interface {
 
 // New returns the handler for the whole site: the JSON API under /api/ and
 // the website from site. Requests from outside the local network are refused.
-func New(collector Collector, site fs.FS) http.Handler {
+func New(collector Collector, h History, site fs.FS) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/metrics", metricsHandler(collector))
+	mux.HandleFunc("GET /api/history", historyHandler(h))
 	mux.Handle("GET /", websiteHandler(site))
 	return localNetworkOnly(mux)
 }

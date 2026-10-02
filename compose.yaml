@@ -18,7 +18,11 @@ services:
       # keeps its data on, usually the system disk. To add another disk, mount
       # a folder on it below at the same path and add that path to DISK_PATHS.
       DISK_PATHS: ${DISK_PATHS:-/}
+      # Days of history to keep; older values are deleted automatically.
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
     volumes:
+      # The history database. Kept when the container is updated or recreated.
+      - data:/data
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       # For example a USB disk mounted at /mnt/usb on the host:
@@ -29,3 +33,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  data:
