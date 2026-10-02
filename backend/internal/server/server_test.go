@@ -80,6 +80,28 @@ func TestMetricsReportsCollectorError(t *testing.T) {
 	}
 }
 
+func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
+	want := metrics.Snapshot{CPU: metrics.CPU{UsagePercent: 12.5, Cores: 4}}
+	handler := NewDataOnly(fakeCollector{snapshot: want})
+
+	rec := get(handler, "/api/metrics", "192.168.1.20:5000")
+	var got metrics.Snapshot
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/metrics = %d, %v, want 200 with the snapshot", rec.Code, err)
+	}
+	if got.CPU != want.CPU {
+		t.Errorf("CPU = %+v, want %+v", got.CPU, want.CPU)
+	}
+	for _, path := range []string{"/", "/api/devices", "/api/history?range=1h"} {
+		if rec := get(handler, path, "192.168.1.20:5000"); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, http.StatusNotFound)
+		}
+	}
+	if rec := get(handler, "/api/metrics", "8.8.8.8:5000"); rec.Code != http.StatusForbidden {
+		t.Errorf("GET /api/metrics from outside = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
 func TestListsDevices(t *testing.T) {
 	devices := []Device{{ID: "local"}, {ID: "living-room-pi", Name: "Living room Pi"}}
 	handler := New(devices, 0, site)

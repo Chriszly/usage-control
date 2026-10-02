@@ -11,6 +11,8 @@
 //	DEVICE_NAME     how the page names this device (default "This device")
 //	HUB_DEVICES     other devices to collect from, which turns on hub mode:
 //	                comma-separated name=host:port entries (default none)
+//	DATA_ONLY       true to serve only the usage data for a hub, without the
+//	                website and history (default false)
 package main
 
 import (
@@ -48,7 +50,7 @@ func main() {
 	}
 }
 
-// run serves the website until parent is done or the program is interrupted.
+// run serves the website, or with DATA_ONLY only the usage data, until parent is done or the program is interrupted.
 func run(parent context.Context) error {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
@@ -64,57 +66,47 @@ func run(parent context.Context) error {
 		return fmt.Errorf("check HUB_DEVICES: %w", err)
 	}
 
+	dataOnly, err := dataOnly()
+	if err != nil {
+		return err
+	}
+	if dataOnly && len(remotes) > 0 {
+		return errors.New("HUB_DEVICES is set, but DATA_ONLY turns off the website that would show them; unset one of the two")
+	}
+
 	collector, err := metrics.NewCollector(context.Background(), diskPaths())
 	if err != nil {
 		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
 	}
-	// The recorder measures with its own collector, so CPU usage and network
-	// speed in the history are averages over its own interval.
-	recorderCollector, err := metrics.NewCollector(context.Background(), diskPaths())
-	if err != nil {
-		return err
-	}
 
-	databasePath := os.Getenv("DATABASE_PATH")
-	if databasePath == "" {
-		databasePath = "usage-control.db"
-	}
-	store, err := history.Open(context.Background(), databasePath)
-	if err != nil {
-		return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
-	}
-	defer func() { _ = store.Close() }()
+	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
+	// device keeps none and only answers the hub.
+	handler := server.NewDataOnly(collector)
+	var recorders []*history.Recorder
+	if dataOnly {
+		slog.Info("serving only the usage data, for a hub; the website is turned off")
+	} else {
+		databasePath := os.Getenv("DATABASE_PATH")
+		if databasePath == "" {
+			databasePath = "usage-control.db"
+		}
+		store, err := history.Open(context.Background(), databasePath)
+		if err != nil {
+			return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
+		}
+		defer func() { _ = store.Close() }()
 
-	// This device, and in hub mode every other device, gets a recorder that
-	// reads its usage into the history and a reader that serves it.
-	recent := &history.Recent{}
-	devices := []server.Device{{
-		ID:      hub.LocalID,
-		Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
-		Metrics: collector,
-		History: history.Reader{Store: store, Recent: recent},
-	}}
-	recorders := []*history.Recorder{
-		{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention},
-	}
-	for _, remote := range remotes {
-		agent := hub.NewAgent(remote.Address)
-		recent := &history.Recent{}
-		devices = append(devices, server.Device{
-			ID:      remote.ID,
-			Name:    remote.Name,
-			Metrics: agent.Latest(),
-			History: history.Reader{Store: store, Recent: recent, Device: remote.ID},
-		})
-		recorders = append(recorders, &history.Recorder{
-			Store: store, Recent: recent, Collector: agent, Retention: retention, Device: remote.ID,
-		})
-		slog.Info("collecting from another device", "name", remote.Name, "address", remote.Address)
+		var devices []server.Device
+		devices, recorders, err = withHistory(collector, store, remotes, retention)
+		if err != nil {
+			return err
+		}
+		handler = server.New(devices, retention, web.Files())
 	}
 
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(devices, retention, web.Files()),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -154,6 +146,57 @@ func run(parent context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// withHistory returns the devices the website shows, with their history:
+// this device and, in hub mode, every other device. Each gets a recorder that
+// reads its usage into the history.
+func withHistory(collector *metrics.Collector, store *history.Store, remotes []hub.Device, retention time.Duration) ([]server.Device, []*history.Recorder, error) {
+	// The recorder measures with its own collector, so CPU usage and network
+	// speed in the history are averages over its own interval.
+	recorderCollector, err := metrics.NewCollector(context.Background(), diskPaths())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	recent := &history.Recent{}
+	devices := []server.Device{{
+		ID:      hub.LocalID,
+		Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
+		Metrics: collector,
+		History: history.Reader{Store: store, Recent: recent},
+	}}
+	recorders := []*history.Recorder{
+		{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention},
+	}
+	for _, remote := range remotes {
+		agent := hub.NewAgent(remote.Address)
+		recent := &history.Recent{}
+		devices = append(devices, server.Device{
+			ID:      remote.ID,
+			Name:    remote.Name,
+			Metrics: agent.Latest(),
+			History: history.Reader{Store: store, Recent: recent, Device: remote.ID},
+		})
+		recorders = append(recorders, &history.Recorder{
+			Store: store, Recent: recent, Collector: agent, Retention: retention, Device: remote.ID,
+		})
+		slog.Info("collecting from another device", "name", remote.Name, "address", remote.Address)
+	}
+	return devices, recorders, nil
+}
+
+// dataOnly reports whether DATA_ONLY turns the website off (default false).
+func dataOnly() (bool, error) {
+	value := strings.TrimSpace(os.Getenv("DATA_ONLY"))
+	if value == "" {
+		return false, nil
+	}
+	on, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("DATA_ONLY is %q; set it to true or false", value)
+	}
+	return on, nil
 }
 
 // diskPaths returns the paths from DISK_PATHS, or the system disk when it is

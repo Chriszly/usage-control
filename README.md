@@ -53,27 +53,27 @@ Every device runs the same image. On its own it only shows itself. To see severa
 HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 ```
 
-`DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*).
+`DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true`, as the [Windows installer](#install-it-on-windows) does.
 
 After a restart, the hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices. A device that does not answer is shown as such, and its history has a gap for that time. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
 ## Install it on Windows
 
-Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
+On Windows, usage-control only collects the PC's usage for a hub on Linux, such as a Raspberry Pi, which shows it and keeps its history. Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
 
 Running the installer:
 
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
-- opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the page is not reachable from other devices
-- keeps the history in `C:\ProgramData\Usage Control`, with the default retention of 30 days. Uninstalling keeps it
+- turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
+- opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 
-To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
+Then add the PC to the hub's `HUB_DEVICES`, such as `Office PC=192.168.1.30:8080`. To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
 
 ```bat
 msiexec /i usage-control-1.2.3-x64.msi PORT=8090
 ```
 
-Then open `http://<the PC's address>:8080` (or the port you picked) from a device on the same network, or add the PC to a hub's `HUB_DEVICES`. Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
+Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
 
 ## Deploy to a Raspberry Pi
 

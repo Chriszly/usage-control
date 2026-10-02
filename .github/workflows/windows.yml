@@ -2,8 +2,8 @@ name: Windows installer
 
 # Builds the Windows installers (usage-control-<version>-x64.msi and -arm64.msi)
 # and checks on a Windows machine that the x64 one installs, starts the service
-# and serves the page. Pull requests and main keep the installers as a workflow
-# artifact; a version tag (v1.2.3) also attaches them to that GitHub release.
+# and serves the usage data. Pull requests and main keep the installers as a
+# workflow artifact; a version tag (v1.2.3) also attaches them to that GitHub release.
 on:
   pull_request:
   push:
@@ -23,8 +23,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Go cross-compiles for Windows, so the website and the programs are built on
-  # Linux, which is faster than on a Windows runner.
+  # Go cross-compiles for Windows, so the programs are built on Linux, which is
+  # faster than on a Windows runner. They serve only the usage data for a hub
+  # (DATA_ONLY), so the website is not built into them.
   programs:
     name: Windows programs (x64 and arm64)
     runs-on: ubuntu-latest
@@ -49,20 +50,6 @@ jobs:
             version="0.0.$GITHUB_RUN_NUMBER"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      # Writes the website into backend/internal/web/files/build, which the
-      # programs embed.
-      - name: Build the website
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
 
       - uses: actions/setup-go@v7
         with:
@@ -131,7 +118,7 @@ jobs:
 
       # Installs on another port than the default, so the check also covers
       # that the installer's settings reach the service.
-      - name: Install, open the page, uninstall
+      - name: Install, ask for the usage data, uninstall
         run: |
           $ErrorActionPreference = 'Stop'
           $msi = (Resolve-Path "msi\usage-control-$env:VERSION-x64.msi").Path
@@ -155,16 +142,13 @@ jobs:
           }
           $metrics | ConvertTo-Json -Depth 4
           if ($metrics.disks.Count -lt 1) { throw 'The system disk is missing from the metrics' }
-          $page = Invoke-WebRequest http://127.0.0.1:8091/ -UseBasicParsing
-          if ($page.StatusCode -ne 200) { throw "The page answered $($page.StatusCode)" }
+          $page = Invoke-WebRequest http://127.0.0.1:8091/ -UseBasicParsing -SkipHttpErrorCheck
+          if ($page.StatusCode -ne 404) { throw "The website answered $($page.StatusCode); the installer should turn it off" }
 
           $rule = Get-NetFirewallRule -DisplayName 'Usage Control' | Get-NetFirewallPortFilter
           if ($rule.LocalPort -ne '8091') { throw "The firewall rule opens port $($rule.LocalPort), not 8091" }
           $networks = (Get-NetFirewallRule -DisplayName 'Usage Control').Profile
           if ($networks -ne 'Private') { throw "The firewall rule applies to $networks networks, not only private ones" }
-
-          # The recorder writes the history once a minute; the database is created at start.
-          if (-not (Test-Path "$env:ProgramData\Usage Control\usage-control.db")) { throw 'The history database was not created' }
 
           $uninstall = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log" -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) {

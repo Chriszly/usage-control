@@ -49,3 +49,23 @@ func TestRetentionDaysRefusesInvalidValues(t *testing.T) {
 		}
 	}
 }
+
+func TestDataOnly(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{"", false, false},
+		{"true", true, false},
+		{" false ", false, false},
+		{"yes", false, true},
+	}
+	for _, tt := range tests {
+		t.Setenv("DATA_ONLY", tt.value)
+		got, err := dataOnly()
+		if got != tt.want || (err != nil) != tt.wantErr {
+			t.Errorf("dataOnly() with DATA_ONLY=%q = %v, %v, want %v with error %v", tt.value, got, err, tt.want, tt.wantErr)
+		}
+	}
+}

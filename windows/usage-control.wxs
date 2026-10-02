@@ -1,7 +1,8 @@
 <!--
   The Windows installer: installs usage-control.exe as the Windows service
   "Usage Control", which starts with Windows, and opens its port in the
-  Windows firewall for private networks only.
+  Windows firewall for private networks only. The service only serves this
+  PC's usage to a hub (DATA_ONLY); the hub shows it and keeps its history.
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
@@ -18,7 +19,7 @@
            Version="$(Version)"
            UpgradeCode="C226A238-37CF-4C24-85FE-A29D04C94172"
            Scope="perMachine">
-    <!-- Installing a newer version replaces the old one and keeps the history. -->
+    <!-- Installing a newer version replaces the old one. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Usage Control is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
@@ -27,9 +28,6 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Usage Control" />
     </StandardDirectory>
-    <StandardDirectory Id="CommonAppDataFolder">
-      <Directory Id="DATAFOLDER" Name="Usage Control" />
-    </StandardDirectory>
 
     <Component Directory="INSTALLFOLDER">
       <File Source="$(Binary)" Name="usage-control.exe" KeyPath="yes" />
@@ -37,7 +35,7 @@
       <!-- A low-privilege account: reading the usage needs no administrator rights. -->
       <ServiceInstall Name="UsageControl"
                       DisplayName="Usage Control"
-                      Description="Shows the usage of this computer on a website on the local network."
+                      Description="Serves the usage of this computer to a Usage Control hub on the local network."
                       Type="ownProcess"
                       Start="auto"
                       ErrorControl="normal"
@@ -53,7 +51,7 @@
       <!-- The service's settings, read by the program as environment variables. -->
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControl" Name="Environment" Type="multiString">
         <MultiStringValue Value="LISTEN_ADDR=:[PORT]" />
-        <MultiStringValue Value="DATABASE_PATH=[DATAFOLDER]usage-control.db" />
+        <MultiStringValue Value="DATA_ONLY=true" />
       </RegistryValue>
 
       <!-- Lets errors the service writes to the Application event log show as plain text. -->
@@ -64,16 +62,6 @@
 
       <!-- The program itself also refuses requests from outside the local network. -->
       <fw:FirewallException Name="Usage Control" Port="[PORT]" Protocol="tcp" Profile="private" />
-    </Component>
-
-    <!--
-      The history database. Only the service, administrators and the system can
-      read or change it. Uninstalling keeps it, so reinstalling keeps the history.
-    -->
-    <Component Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
-      <CreateFolder>
-        <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;LS)" />
-      </CreateFolder>
     </Component>
   </Package>
 </Wix>
