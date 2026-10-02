@@ -1,15 +1,23 @@
 <!--
   The Windows installer: installs usage-control.exe as the Windows service
   "Usage Control", which starts with Windows, and opens its port in the
-  Windows firewall for private networks only. The service only serves this
-  PC's usage to a hub (DATA_ONLY); the hub shows it and keeps its history.
+  Windows firewall for private networks only. By default the service only
+  serves this PC's usage to a hub (DATA_ONLY); with WEBSITE=1 it also shows
+  the website and keeps the history itself.
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -o usage-control.msi
 
-  Install options (msiexec /i usage-control.msi PORT=8090):
-    PORT  port the website is reachable on (default 8080)
+  Install options (msiexec /i usage-control.msi PORT=8090 WEBSITE=1):
+    PORT            port the PC is reachable on (default 8080)
+    WEBSITE         1 to show the website and keep the history on this PC
+                    (default: only serve the usage to a hub)
+    DEVICE_NAME     with WEBSITE=1, how the page names this PC
+    HUB_DEVICES     with WEBSITE=1, other devices to collect from (hub mode)
+    RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
+  An update keeps the options of the installed version; options given to the
+  update replace them.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
@@ -19,14 +27,38 @@
            Version="$(Version)"
            UpgradeCode="C226A238-37CF-4C24-85FE-A29D04C94172"
            Scope="perMachine">
-    <!-- Installing a newer version replaces the old one. -->
+    <!-- Installing a newer version replaces the old one and keeps the history. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Usage Control is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Property Id="PORT" Value="8080" Secure="yes" />
+    <!--
+      Each option is remembered in the registry. AppSearch reads the remembered
+      value, which would overwrite one given on the command line, so that one
+      is saved before and put back after, in both the UI and the install.
+    -->
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS ?>
+    <Property Id="$(Setting)" Secure="yes">
+      <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
+    </Property>
+    <SetProperty Action="Save$(Setting)" Id="CMDLINE_$(Setting)" Value="[$(Setting)]" Before="AppSearch" Sequence="both" Condition="$(Setting)" />
+    <SetProperty Action="Restore$(Setting)" Id="$(Setting)" Value="[CMDLINE_$(Setting)]" After="AppSearch" Sequence="both" Condition="CMDLINE_$(Setting)" />
+    <?endforeach?>
+
+    <!--
+      Derived from the options, once all of them are known. Without WEBSITE=1
+      the service only serves the usage to a hub, and ignores HUB_DEVICES.
+    -->
+    <SetProperty Action="DefaultPORT" Id="PORT" Value="8080" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
+    <Property Id="DATA_ONLY" Value="true" Secure="yes" />
+    <Property Id="SERVICE_HUB_DEVICES" Secure="yes" />
+    <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
+    <SetProperty Action="WebsiteHubDevices" Id="SERVICE_HUB_DEVICES" Value="[HUB_DEVICES]" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Usage Control" />
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="Usage Control" />
     </StandardDirectory>
 
     <Component Directory="INSTALLFOLDER">
@@ -35,7 +67,7 @@
       <!-- A low-privilege account: reading the usage needs no administrator rights. -->
       <ServiceInstall Name="UsageControl"
                       DisplayName="Usage Control"
-                      Description="Serves the usage of this computer to a Usage Control hub on the local network."
+                      Description="Serves the usage of this computer on the local network."
                       Type="ownProcess"
                       Start="auto"
                       ErrorControl="normal"
@@ -51,8 +83,17 @@
       <!-- The service's settings, read by the program as environment variables. -->
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControl" Name="Environment" Type="multiString">
         <MultiStringValue Value="LISTEN_ADDR=:[PORT]" />
-        <MultiStringValue Value="DATA_ONLY=true" />
+        <MultiStringValue Value="DATA_ONLY=[DATA_ONLY]" />
+        <MultiStringValue Value="DATABASE_PATH=[DATAFOLDER]usage-control.db" />
+        <MultiStringValue Value="DEVICE_NAME=[DEVICE_NAME]" />
+        <MultiStringValue Value="HUB_DEVICES=[SERVICE_HUB_DEVICES]" />
+        <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
       </RegistryValue>
+
+      <!-- The options, read back by the next update. -->
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS ?>
+      <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
+      <?endforeach?>
 
       <!-- Lets errors the service writes to the Application event log show as plain text. -->
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControl"
@@ -62,6 +103,17 @@
 
       <!-- The program itself also refuses requests from outside the local network. -->
       <fw:FirewallException Name="Usage Control" Port="[PORT]" Protocol="tcp" Profile="private" />
+    </Component>
+
+    <!--
+      The history database, used with WEBSITE=1. Only the service,
+      administrators and the system can read or change it. Uninstalling keeps
+      it, so reinstalling keeps the history.
+    -->
+    <Component Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
+      <CreateFolder>
+        <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;LS)" />
+      </CreateFolder>
     </Component>
   </Package>
 </Wix>
