@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
 import { catchError, map, of, switchMap, timer } from 'rxjs';
@@ -8,21 +9,53 @@ import { catchError, map, of, switchMap, timer } from 'rxjs';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
-/** The longest range that is offered as a fixed choice; longer retention adds "All". */
-const LONGEST_RANGE_SECONDS = 30 * 86400;
+/** A time range a chart can show, always ending now. */
+export interface Range {
+  label: string;
+  seconds: number;
+}
 
-/** The time ranges a chart can show, always ending now. */
-export const RANGES = [
-  { label: $localize`:Range of one minute@@history.range1m:1 min`, seconds: 60 },
-  { label: $localize`:Range of five minutes@@history.range5m:5 min`, seconds: 5 * 60 },
-  { label: $localize`:Range of ten minutes@@history.range10m:10 min`, seconds: 10 * 60 },
-  { label: $localize`:Range of 30 minutes@@history.range30m:30 min`, seconds: 30 * 60 },
-  { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
-  { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
-  { label: $localize`:Range of one day@@history.range24h:24 h`, seconds: 86400 },
-  { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
-  { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: LONGEST_RANGE_SECONDS },
+/** A group of ranges picked in the first row; its ranges are picked in the second. */
+export interface RangeUnit {
+  id: 'minutes' | 'hours' | 'days' | 'all';
+  label: string;
+  ranges: Range[];
+}
+
+/** The fixed ranges, grouped by unit. Longer retention adds the "All" unit. */
+export const UNITS: RangeUnit[] = [
+  {
+    id: 'minutes',
+    label: $localize`:Unit of the time ranges@@history.unitMinutes:Minutes`,
+    ranges: [
+      { label: $localize`:Range of one minute@@history.range1m:1 min`, seconds: 60 },
+      { label: $localize`:Range of five minutes@@history.range5m:5 min`, seconds: 5 * 60 },
+      { label: $localize`:Range of ten minutes@@history.range10m:10 min`, seconds: 10 * 60 },
+      { label: $localize`:Range of 30 minutes@@history.range30m:30 min`, seconds: 30 * 60 },
+    ],
+  },
+  {
+    id: 'hours',
+    label: $localize`:Unit of the time ranges@@history.unitHours:Hours`,
+    ranges: [
+      { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
+      { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
+      { label: $localize`:Range of twelve hours@@history.range12h:12 h`, seconds: 12 * 3600 },
+      { label: $localize`:Range of one day@@history.range24h:24 h`, seconds: 86400 },
+    ],
+  },
+  {
+    id: 'days',
+    label: $localize`:Unit of the time ranges@@history.unitDays:Days`,
+    ranges: [
+      { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
+      { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: 30 * 86400 },
+    ],
+  },
 ];
+
+/** The longest fixed range; when more is kept, the "All" unit shows everything. */
+const LONGEST_RANGE_SECONDS = 30 * 86400;
 
 /** How many days the backend keeps by default, used until it says otherwise. */
 const DEFAULT_RETENTION_DAYS = 30;
@@ -43,12 +76,13 @@ interface Chart {
 }
 
 /**
- * Shows the machine's usage over the latest stretch of time as charts. The
- * range picks how long that stretch is, up to everything the backend keeps.
+ * Shows the machine's usage over the latest stretch of time as charts. A unit
+ * (minutes, hours, days or all) and then a range of that unit pick how long
+ * that stretch is, up to everything the backend keeps.
  */
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, LineChart, MatButtonToggleModule, MatCardModule],
+  imports: [DatePipe, LineChart, MatButtonModule, MatButtonToggleModule, MatCardModule],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })
@@ -61,17 +95,26 @@ export class HistoryCharts {
   protected readonly history = signal<History | null>(null);
   protected readonly unreachable = signal(false);
 
-  protected readonly ranges = computed(() => {
+  /** The units with at least one range within the retention. */
+  protected readonly units = computed((): RangeUnit[] => {
     const retention = (this.history()?.retentionDays ?? DEFAULT_RETENTION_DAYS) * 86400;
-    const ranges = RANGES.filter((range) => range.seconds <= retention);
+    const units = UNITS.map((unit) => ({
+      ...unit,
+      ranges: unit.ranges.filter((range) => range.seconds <= retention),
+    })).filter((unit) => unit.ranges.length > 0);
     if (retention > LONGEST_RANGE_SECONDS) {
-      ranges.push({
-        label: $localize`:Range of all stored data@@history.rangeAll:All`,
-        seconds: retention,
-      });
+      const label = $localize`:Unit showing all stored data@@history.rangeAll:All`;
+      units.push({ id: 'all', label, ranges: [{ label, seconds: retention }] });
     }
-    return ranges;
+    return units;
   });
+
+  /** The unit the shown range belongs to. */
+  protected readonly unit = computed(
+    () =>
+      this.units().find((unit) => unit.ranges.some((range) => range.seconds === this.span())) ??
+      null,
+  );
 
   /** Short ranges show seconds too. */
   protected readonly dateFormat = computed(() =>
@@ -99,6 +142,14 @@ export class HistoryCharts {
           this.history.set(history);
         }
       });
+  }
+
+  /** Shows the longest range of a unit, so switching units zooms in or out. */
+  protected selectUnit(id: RangeUnit['id']): void {
+    const unit = this.units().find((u) => u.id === id);
+    if (unit) {
+      this.span.set(unit.ranges[unit.ranges.length - 1].seconds);
+    }
   }
 
   protected selectRange(seconds: number): void {
