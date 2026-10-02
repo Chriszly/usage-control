@@ -2,6 +2,8 @@
 
 A website that shows the usage of the hardware it runs on (CPU, memory, disk, temperature and so on).
 
+It will be built with a Go backend, an Angular frontend and SQLite, and run first on Linux (starting with a Raspberry Pi) with Docker. A native Windows installer comes later. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
+
 The website is not written yet. This repository so far holds the rules for contributors and the CI:
 
 - [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
