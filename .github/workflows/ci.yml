@@ -74,6 +74,13 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Check go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      # Only reports vulnerabilities in code the backend actually calls.
+      - name: Check dependencies for known vulnerabilities
+        run: go tool govulncheck ./...
+
   frontend:
     name: Frontend (Angular)
     runs-on: ubuntu-latest
@@ -92,6 +99,8 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
+      - name: Check dependencies for known vulnerabilities
+        run: npm audit --audit-level=high
       - run: npm test
       - run: npm run build
 
