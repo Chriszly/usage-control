@@ -54,60 +54,64 @@ describe('HistoryCharts', () => {
     return { from, to };
   }
 
-  function rangeButtons(): HTMLButtonElement[] {
-    const element = fixture.nativeElement as HTMLElement;
-    return Array.from(element.querySelectorAll('mat-button-toggle button'));
+  function element(): HTMLElement {
+    return fixture.nativeElement as HTMLElement;
   }
 
-  function selectRange(label: string): void {
-    rangeButtons()
-      .find((b) => b.textContent?.trim() === label)
-      ?.click();
+  function labels(selector: string): string[] {
+    return Array.from(element().querySelectorAll(selector)).map((b) => b.textContent?.trim() ?? '');
   }
+
+  function click(selector: string, label: string): void {
+    const buttons = Array.from(element().querySelectorAll<HTMLButtonElement>(selector));
+    buttons.find((b) => b.textContent?.trim() === label)?.click();
+  }
+
+  const UNIT = 'mat-button-toggle button';
+  const RANGE = '.ranges button';
 
   it('shows the last 24 hours and refreshes them every minute', () => {
     expect(respond()).toEqual({ from: NOW_SECONDS - 86400, to: NOW_SECONDS });
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('CPU and memory');
+    expect(element().textContent).toContain('CPU and memory');
+    expect(labels(RANGE)).toEqual(['1 h', '6 h', '12 h', '24 h']);
+    expect(element().querySelector('.ranges [aria-pressed="true"]')?.textContent?.trim()).toBe(
+      '24 h',
+    );
 
     vi.advanceTimersByTime(60_000);
     expect(respond().to).toBe(NOW_SECONDS + 60);
   });
 
-  it('refreshes short ranges every 5 seconds', () => {
+  it('shows the longest range of a chosen unit, then the chosen range', () => {
     respond();
 
-    selectRange('1 min');
+    click(UNIT, 'Minutes');
+    expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 60, to: NOW_SECONDS });
+    expect(labels(RANGE)).toEqual(['1 min', '5 min', '10 min', '30 min']);
+
+    click(RANGE, '1 min');
     expect(respond()).toEqual({ from: NOW_SECONDS - 60, to: NOW_SECONDS });
+    // Short ranges are read again every 5 seconds.
     vi.advanceTimersByTime(5_000);
     expect(respond().to).toBe(NOW_SECONDS + 5);
   });
 
-  it('offers ranges up to 30 days, and all data when more is kept', () => {
+  it('offers all data when more than 30 days are kept', () => {
     respond();
-    const labels = () => rangeButtons().map((b) => b.textContent?.trim());
-    expect(labels()).toEqual([
-      '1 min',
-      '5 min',
-      '10 min',
-      '30 min',
-      '1 h',
-      '6 h',
-      '24 h',
-      '7 d',
-      '30 d',
-    ]);
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
 
     vi.advanceTimersByTime(60_000);
     respond(90);
-    expect(labels().at(-1)).toBe('All');
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days', 'All']);
 
-    selectRange('All');
+    click(UNIT, 'All');
     expect(respond(90).from).toBe(NOW_SECONDS + 60 - 90 * 86400);
+    expect(labels(RANGE)).toEqual([]);
   });
 
   it('offers only ranges within the retention', () => {
     respond(1);
-    expect(rangeButtons().map((b) => b.textContent?.trim())).not.toContain('7 d');
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours']);
   });
 
   it('reads the history of the picked device', () => {

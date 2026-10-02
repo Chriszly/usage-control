@@ -4,16 +4,33 @@
 
     <mat-button-toggle-group
       hideSingleSelectionIndicator
-      [value]="span()"
-      (change)="selectRange($event.value)"
-      aria-label="Time shown"
-      i18n-aria-label="@@history.range"
+      [value]="unit()?.id"
+      (change)="selectUnit($event.value)"
+      aria-label="Unit of the time shown"
+      i18n-aria-label="@@history.unit"
     >
-      @for (range of ranges(); track range.seconds) {
-        <mat-button-toggle [value]="range.seconds">{{ range.label }}</mat-button-toggle>
+      @for (u of units(); track u.id) {
+        <mat-button-toggle [value]="u.id">{{ u.label }}</mat-button-toggle>
       }
     </mat-button-toggle-group>
   </div>
+
+  @if (unit(); as u) {
+    @if (u.id !== 'all') {
+      <div class="ranges" role="group" aria-label="Time shown" i18n-aria-label="@@history.range">
+        @for (range of u.ranges; track range.seconds) {
+          <button
+            type="button"
+            [matButton]="range.seconds === span() ? 'tonal' : 'outlined'"
+            [attr.aria-pressed]="range.seconds === span()"
+            (click)="selectRange(range.seconds)"
+          >
+            {{ range.label }}
+          </button>
+        }
+      </div>
+    }
+  }
 
   @if (history(); as h) {
     <p class="period">

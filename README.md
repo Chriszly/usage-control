@@ -37,7 +37,7 @@ The site refuses to start when a path in `DISK_PATHS` cannot be read, and says w
 
 ### History
 
-The site reads the machine's usage every 5 seconds and keeps the last 30 minutes of readings in memory, for the short ranges. Every minute it stores their average in a SQLite file on the `data` Docker volume, so it survives updates. It keeps 30 days by default and deletes older values every minute. To keep it longer or shorter, set the number of days in `.env` and restart the container:
+The site reads the machine's usage every 5 seconds and keeps the last 30 minutes of readings in memory, for the short ranges. Every minute it stores their average in a SQLite file on the `data` Docker volume, so it survives updates. It keeps 30 days by default and deletes older values once a day, and when it starts. To keep it longer or shorter, set the number of days in `.env` and restart the container:
 
 ```bash
 RETENTION_DAYS=90

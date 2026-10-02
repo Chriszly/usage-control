@@ -12,14 +12,20 @@ import (
 // readings in the database.
 const SampleInterval = time.Minute
 
+// PruneInterval is how often the values older than the retention are deleted:
+// once when the recorder starts and then once a day. The history API never
+// returns values older than the retention, so the ones waiting for the next
+// cleanup are not shown.
+const PruneInterval = 24 * time.Hour
+
 // Collector reads the current usage of the machine.
 type Collector interface {
 	Collect(ctx context.Context) (metrics.Snapshot, error)
 }
 
 // Recorder reads the machine's usage every RecentInterval into Recent, and
-// every SampleInterval stores the average of those readings in Store and
-// deletes the values older than Retention.
+// every SampleInterval stores the average of those readings in Store. Values
+// older than Retention are deleted every PruneInterval.
 type Recorder struct {
 	Store     *Store
 	Recent    *Recent
@@ -47,6 +53,8 @@ func (r *Recorder) Run(ctx context.Context) {
 	defer read.Stop()
 	store := time.NewTicker(SampleInterval)
 	defer store.Stop()
+	prune := time.NewTicker(PruneInterval)
+	defer prune.Stop()
 	stored := time.Now()
 	for {
 		select {
@@ -56,8 +64,9 @@ func (r *Recorder) Run(ctx context.Context) {
 			r.read(ctx)
 		case now := <-store.C:
 			r.store(ctx, stored, now)
-			r.prune(ctx)
 			stored = now
+		case <-prune.C:
+			r.prune(ctx)
 		}
 	}
 }
@@ -102,6 +111,6 @@ func (r *Recorder) prune(ctx context.Context) {
 		return
 	}
 	if deleted > 0 {
-		slog.Debug("deleted old history", "values", deleted)
+		slog.Info("deleted old history", "values", deleted)
 	}
 }
