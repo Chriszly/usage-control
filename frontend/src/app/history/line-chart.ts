@@ -57,6 +57,9 @@ export class LineChart {
   /** The date format of the time axis: the time of day, with the day for longer ranges. */
   protected readonly timeFormat = computed(() => {
     const span = this.to() - this.from();
+    if (span <= 30 * 60) {
+      return 'HH:mm:ss';
+    }
     if (span <= 86400) {
       return 'HH:mm';
     }
@@ -65,6 +68,11 @@ export class LineChart {
 
   /** The start of the step under the pointer, or null when the pointer is elsewhere. */
   protected readonly hoverTime = signal<number | null>(null);
+
+  /** The date format of the tooltip, with seconds when a step is shorter than a minute. */
+  protected readonly readoutFormat = computed(() =>
+    this.step() < 60 ? 'EEE d MMM, HH:mm:ss' : 'EEE d MMM, HH:mm',
+  );
 
   protected readonly readout = computed(() => {
     const time = this.hoverTime();

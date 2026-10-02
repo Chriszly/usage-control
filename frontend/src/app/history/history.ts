@@ -1,7 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
 import { catchError, map, of, switchMap, timer } from 'rxjs';
@@ -9,20 +8,32 @@ import { catchError, map, of, switchMap, timer } from 'rxjs';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
-/** How often the history is read again while it shows the latest values. */
-export const HISTORY_REFRESH_INTERVAL_MS = 60_000;
+/** The longest range that is offered as a fixed choice; longer retention adds "All". */
+const LONGEST_RANGE_SECONDS = 30 * 86400;
 
-/** The time ranges a chart can show at once. */
+/** The time ranges a chart can show, always ending now. */
 export const RANGES = [
+  { label: $localize`:Range of one minute@@history.range1m:1 min`, seconds: 60 },
+  { label: $localize`:Range of five minutes@@history.range5m:5 min`, seconds: 5 * 60 },
+  { label: $localize`:Range of ten minutes@@history.range10m:10 min`, seconds: 10 * 60 },
+  { label: $localize`:Range of 30 minutes@@history.range30m:30 min`, seconds: 30 * 60 },
   { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
   { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
   { label: $localize`:Range of one day@@history.range24h:24 h`, seconds: 86400 },
   { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
-  { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: 30 * 86400 },
+  { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: LONGEST_RANGE_SECONDS },
 ];
 
 /** How many days the backend keeps by default, used until it says otherwise. */
 const DEFAULT_RETENTION_DAYS = 30;
+
+/**
+ * How often a range is read again: every 5 seconds for ranges of up to 30
+ * minutes, which the backend has readings every 5 seconds for, else every minute.
+ */
+export function refreshIntervalMs(spanSeconds: number): number {
+  return spanSeconds <= 30 * 60 ? 5_000 : 60_000;
+}
 
 interface Chart {
   title: string;
@@ -32,13 +43,12 @@ interface Chart {
 }
 
 /**
- * Shows the machine's usage over time as charts. The range picks how much time
- * the charts show; "Earlier" and "Later" scroll through the history, as far
- * back as the backend keeps it.
+ * Shows the machine's usage over the latest stretch of time as charts. The
+ * range picks how long that stretch is, up to everything the backend keeps.
  */
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, LineChart, MatButtonModule, MatButtonToggleModule, MatCardModule],
+  imports: [DatePipe, LineChart, MatButtonToggleModule, MatCardModule],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })
@@ -47,23 +57,26 @@ export class HistoryCharts {
 
   /** The length of the shown time, in seconds. */
   protected readonly span = signal(86400);
-  /** The end of the shown time in Unix seconds, or null to show the latest values. */
-  protected readonly end = signal<number | null>(null);
 
   protected readonly history = signal<History | null>(null);
   protected readonly unreachable = signal(false);
 
-  protected readonly retentionDays = computed(
-    () => this.history()?.retentionDays ?? DEFAULT_RETENTION_DAYS,
-  );
-  protected readonly ranges = computed(() =>
-    RANGES.filter((range) => range.seconds <= this.retentionDays() * 86400),
-  );
-  /** Whether older values may still be kept, so scrolling back can show them. */
-  protected readonly canGoEarlier = computed(() => {
-    const history = this.history();
-    return history !== null && history.from > nowSeconds() - this.retentionDays() * 86400 + 60;
+  protected readonly ranges = computed(() => {
+    const retention = (this.history()?.retentionDays ?? DEFAULT_RETENTION_DAYS) * 86400;
+    const ranges = RANGES.filter((range) => range.seconds <= retention);
+    if (retention > LONGEST_RANGE_SECONDS) {
+      ranges.push({
+        label: $localize`:Range of all stored data@@history.rangeAll:All`,
+        seconds: retention,
+      });
+    }
+    return ranges;
   });
+
+  /** Short ranges show seconds too. */
+  protected readonly dateFormat = computed(() =>
+    this.span() <= 30 * 60 ? 'EEE d MMM, HH:mm:ss' : 'EEE d MMM, HH:mm',
+  );
 
   protected readonly charts = computed(() => {
     const history = this.history();
@@ -71,15 +84,11 @@ export class HistoryCharts {
   });
 
   constructor() {
-    const shown = computed(() => ({ span: this.span(), end: this.end() }));
-    toObservable(shown)
+    toObservable(this.span)
       .pipe(
-        // While it shows the latest values, it moves along with the time.
-        switchMap((s) =>
-          s.end === null ? timer(0, HISTORY_REFRESH_INTERVAL_MS).pipe(map(() => s)) : of(s),
-        ),
-        switchMap(({ span, end }) => {
-          const to = end ?? nowSeconds();
+        switchMap((span) => timer(0, refreshIntervalMs(span)).pipe(map(() => span))),
+        switchMap((span) => {
+          const to = nowSeconds();
           return this.metrics.history(to - span, to).pipe(catchError(() => of(null)));
         }),
         takeUntilDestroyed(),
@@ -94,24 +103,6 @@ export class HistoryCharts {
 
   protected selectRange(seconds: number): void {
     this.span.set(seconds);
-  }
-
-  protected earlier(): void {
-    const from = this.history()?.from ?? nowSeconds() - this.span();
-    this.end.set(from);
-  }
-
-  protected later(): void {
-    const end = this.end();
-    if (end === null) {
-      return;
-    }
-    const next = end + this.span();
-    this.end.set(next >= nowSeconds() ? null : next);
-  }
-
-  protected latest(): void {
-    this.end.set(null);
   }
 }
 
