@@ -12,7 +12,7 @@ Only the maintainer can push to this repository. Everyone else contributes
 through a pull request from a fork:
 
 - `main` cannot be pushed to directly, force-pushed or deleted
-- every pull request needs the maintainer's review (see `.github/CODEOWNERS`)
-  and green checks before it is squash-merged
-- workflows from a first pull request by an outside contributor only run after
+- every pull request needs green checks before it is squash-merged, and only
+  the maintainer can merge it (see `.github/CODEOWNERS`)
+- workflows from a pull request by an outside contributor only run after
   the maintainer approves them, and they get read-only access to the repository
