@@ -29,8 +29,10 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
 
-    const mascot = (fixture.nativeElement as HTMLElement).querySelector('header button img');
-    expect(mascot?.getAttribute('src')).toBe('mascot.svg');
+    const mascot = (fixture.nativeElement as HTMLElement).querySelector(
+      'header button app-mascot svg',
+    );
+    expect(mascot).not.toBeNull();
   });
 
   it('switches the theme when the mascot is clicked', () => {

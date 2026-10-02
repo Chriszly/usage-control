@@ -1,10 +1,14 @@
+@use 'sass:map';
 @use '@angular/material' as mat;
+
+// The one palette the page is themed with. The mascot takes its colors from it too.
+$palette: mat.$orange-palette;
 
 html {
   color-scheme: light dark;
   @include mat.theme(
     (
-      color: mat.$orange-palette,
+      color: $palette,
       typography: system-ui,
       density: 0,
     )
@@ -12,6 +16,13 @@ html {
 }
 
 :root {
+  // Fixed tones of the palette, so the mascot looks the same in light and dark mode.
+  --mascot-fur: #{map.get($palette, 60)};
+  --mascot-ear: #{map.get($palette, 80)};
+  --mascot-muzzle: #{map.get($palette, 90)};
+  --mascot-gauge: #{map.get($palette, 40)};
+  --mascot-eye: #{map.get($palette, 100)};
+  --mascot-dark: #{map.get($palette, 10)};
   // light-dark() follows the color scheme, also when it is switched on the page.
   --warning-surface: light-dark(#fff1c2, #4b3a0b);
 }
