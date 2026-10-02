@@ -1,0 +1,75 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+
+import { Snapshot } from '../metrics/metrics';
+import { Dashboard, REFRESH_INTERVAL_MS } from './dashboard';
+
+const snapshot: Snapshot = {
+  time: '2026-10-02T17:00:00Z',
+  uptimeSeconds: 3 * 86400 + 4 * 3600,
+  cpu: { usagePercent: 12.5, cores: 4 },
+  memory: { totalBytes: 8 * 1024 ** 3, usedBytes: 2 * 1024 ** 3, usedPercent: 25 },
+  temperatures: [{ sensor: 'cpu_thermal', celsius: 48.3 }],
+};
+
+describe('Dashboard', () => {
+  let fixture: ComponentFixture<Dashboard>;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    TestBed.configureTestingModule({
+      imports: [Dashboard],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(Dashboard);
+  });
+
+  afterEach(() => {
+    http.verify();
+    vi.useRealTimers();
+  });
+
+  function respond(body: Snapshot | null): void {
+    vi.advanceTimersByTime(0);
+    const request = http.expectOne('/api/metrics');
+    if (body) {
+      request.flush(body);
+    } else {
+      request.flush('down', { status: 502, statusText: 'Bad Gateway' });
+    }
+    fixture.detectChanges();
+  }
+
+  function text(): string {
+    return (fixture.nativeElement as HTMLElement).textContent ?? '';
+  }
+
+  it('shows the values from the backend', () => {
+    respond(snapshot);
+
+    expect(text()).toContain('12.5 %');
+    expect(text()).toContain('4 cores');
+    expect(text()).toContain('2.0 GiB of 8.0 GiB');
+    expect(text()).toContain('cpu_thermal');
+    expect(text()).toContain('48.3 °C');
+    expect(text()).toContain('3 d 4 h');
+  });
+
+  it('says when no temperature sensor is available', () => {
+    respond({ ...snapshot, temperatures: [] });
+
+    expect(text()).toContain('Not available on this machine');
+  });
+
+  it('keeps the last values and warns when the backend is unreachable', () => {
+    respond(snapshot);
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    respond(null);
+
+    expect(text()).toContain('cannot be reached');
+    expect(text()).toContain('12.5 %');
+  });
+});
