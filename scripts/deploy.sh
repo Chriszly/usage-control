@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # deploy.sh - deploy usage-control to a Raspberry Pi over SSH.
 #
-# Copies compose.yaml and .env to the Pi, pulls the image and (re)starts the
-# container with Docker Compose. The image is built elsewhere (CI or your
-# PC), never on the Pi.
+# Copies compose.yaml and .env to the Pi, pulls the published image and
+# (re)starts the container with Docker Compose. Nothing is built on the Pi.
 #
 # Needs on your PC: ssh and scp, with key login to the Pi.
 # Needs on the Pi:  Docker with the compose plugin, and the SSH user in the
@@ -31,7 +30,7 @@ case "${1:-}" in
   *) usage >&2; die "unknown option: $1" ;;
 esac
 
-[[ -f "$ENV_FILE" ]] || die "$ENV_FILE not found; copy .env.example to .env and fill in PI_HOST and IMAGE"
+[[ -f "$ENV_FILE" ]] || die "$ENV_FILE not found; copy .env.example to .env and fill in PI_HOST"
 
 # Load .env without overriding variables given on the command line.
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -45,9 +44,7 @@ done < "$ENV_FILE"
 PI_HOST="${PI_HOST:-}"
 PI_USER="${PI_USER:-}"
 PI_DIR="${PI_DIR:-usage-control}"
-IMAGE="${IMAGE:-}"
 [[ -n "$PI_HOST" ]] || die "PI_HOST is empty; set it in .env, e.g. PI_HOST=pi5.local"
-[[ -n "$IMAGE" ]] || die "IMAGE is empty; set it in .env to the image built for the Pi"
 [[ "$PI_DIR" != /* && "$PI_DIR" != *..* ]] || die "PI_DIR must be a folder below the home directory, got: $PI_DIR"
 
 target="${PI_USER:+$PI_USER@}$PI_HOST"
@@ -71,11 +68,13 @@ run scp -q -o BatchMode=yes "$ROOT/compose.yaml" "$target:$PI_DIR/compose.yaml"
 run scp -q -o BatchMode=yes "$ENV_FILE" "$target:$PI_DIR/.env"
 
 # Variables given on the command line win over .env on the Pi too.
-compose_env="IMAGE=$(printf '%q' "$IMAGE")"
-[[ -n "${PORT:-}" ]] && compose_env+=" PORT=$(printf '%q' "$PORT")"
-[[ -n "${RETENTION_DAYS:-}" ]] && compose_env+=" RETENTION_DAYS=$(printf '%q' "$RETENTION_DAYS")"
+compose_env=""
+for name in PORT IMAGE_TAG; do
+  [[ -n "${!name:-}" ]] && compose_env+="$name=$(printf '%q' "${!name}") "
+done
 
-step "Pulling $IMAGE and starting usage-control"
-remote "cd $remote_dir && $compose_env docker compose pull && $compose_env docker compose up -d --remove-orphans && $compose_env docker compose ps"
+# --no-build: compose.yaml can also build from a checkout, which the Pi does not have.
+step "Pulling the image (tag ${IMAGE_TAG:-main}) and starting usage-control"
+remote "cd $remote_dir && ${compose_env}docker compose pull && ${compose_env}docker compose up -d --no-build --remove-orphans && ${compose_env}docker compose ps"
 
 step "Deployed to $target (port ${PORT:-8080})"
