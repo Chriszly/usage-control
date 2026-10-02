@@ -9,7 +9,7 @@ import { catchError, of, switchMap, tap, timer } from 'rxjs';
 import { DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
-import { MetricsService, Snapshot } from '../metrics/metrics';
+import { MetricsService, NetworkInterface, Snapshot } from '../metrics/metrics';
 
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
@@ -60,6 +60,18 @@ export class Dashboard {
           this.snapshot.set(result);
         }
       });
+  }
+
+  /**
+   * The interfaces that carried traffic since the machine started, busiest first, and how many
+   * others are left out. Machines such as Windows PCs list many adapters that are never used.
+   */
+  protected activeInterfaces(s: Snapshot): { shown: NetworkInterface[]; idle: number } {
+    const total = (n: NetworkInterface) => n.receivedBytes + n.sentBytes;
+    const shown = s.network
+      .filter((n) => total(n) > 0)
+      .sort((a, b) => total(b) - total(a) || a.name.localeCompare(b.name));
+    return { shown, idle: s.network.length - shown.length };
   }
 
   protected formatUptime(seconds: number): string {

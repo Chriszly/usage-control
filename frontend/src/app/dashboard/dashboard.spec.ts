@@ -89,6 +89,31 @@ describe('Dashboard', () => {
     expect(text()).toContain('No network card found');
   });
 
+  it('lists busy interfaces first and hides ones without traffic', () => {
+    const idle = {
+      receivedBytes: 0,
+      sentBytes: 0,
+      receiveBytesPerSecond: 0,
+      sendBytesPerSecond: 0,
+    };
+    respond({
+      ...snapshot,
+      network: [
+        { ...idle, name: 'Bluetooth-Netzwerkverbindung' },
+        { ...idle, name: 'WLAN', receivedBytes: 2048, sentBytes: 1024 },
+        { ...snapshot.network[0], name: 'Ethernet' },
+        { ...idle, name: 'LAN-Verbindung* 10' },
+      ],
+    });
+
+    const names = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.interface .label'),
+      (label) => label.getAttribute('title'),
+    );
+    expect(names).toEqual(['Ethernet', 'WLAN']);
+    expect(text()).toContain('2 interfaces without traffic hidden');
+  });
+
   it('says when no temperature sensor is available', () => {
     respond({ ...snapshot, temperatures: [] });
 

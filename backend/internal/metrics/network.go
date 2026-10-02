@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	stdnet "net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,10 +36,10 @@ func readNetworkCounters(ctx context.Context) (map[string]counters, error) {
 	if err != nil {
 		return nil, err
 	}
-	sysDir := hostPath("HOST_SYS", "/sys")
+	isVirtual := virtualInterfaceCheck()
 	result := make(map[string]counters, len(stats))
 	for _, s := range stats {
-		if isVirtualInterface(sysDir, s.Name) {
+		if isVirtual(s.Name) {
 			continue
 		}
 		result[s.Name] = counters{received: s.BytesRecv, sent: s.BytesSent}
@@ -56,6 +57,34 @@ func readInterfaceStats(ctx context.Context) ([]net.IOCountersStat, error) {
 		return net.IOCountersByFileWithContext(ctx, true, file)
 	}
 	return net.IOCountersWithContext(ctx, true)
+}
+
+// virtualInterfaceCheck returns a function that reports whether an interface
+// is not a network card. Linux tells from /sys; other systems only from the
+// loopback flag, which also hides Windows' "Loopback Pseudo-Interface 1".
+func virtualInterfaceCheck() func(name string) bool {
+	if runtime.GOOS == "linux" {
+		sysDir := hostPath("HOST_SYS", "/sys")
+		return func(name string) bool { return isVirtualInterface(sysDir, name) }
+	}
+	loopbacks := loopbackInterfaces()
+	return func(name string) bool { return loopbacks[name] }
+}
+
+// loopbackInterfaces returns the names of the interfaces the OS flags as
+// loopback. If the OS cannot list them, none are left out.
+func loopbackInterfaces() map[string]bool {
+	interfaces, err := stdnet.Interfaces()
+	if err != nil {
+		return nil
+	}
+	loopbacks := make(map[string]bool)
+	for _, iface := range interfaces {
+		if iface.Flags&stdnet.FlagLoopback != 0 {
+			loopbacks[iface.Name] = true
+		}
+	}
+	return loopbacks
 }
 
 // isVirtualInterface reports whether an interface is not a network card:
