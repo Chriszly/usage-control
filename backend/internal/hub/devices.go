@@ -5,12 +5,17 @@ package hub
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
 )
+
+// addressPattern matches host:port, where the host is a name or IPv4 address
+// (letters, digits, dots and dashes) or an IPv6 address in brackets.
+var addressPattern = regexp.MustCompile(`^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`)
 
 // maxNameLength is the longest device name that is accepted.
 const maxNameLength = 64
@@ -67,6 +72,11 @@ func parseDevice(entry string) (Device, error) {
 func NewDevice(name, address string) (Device, error) {
 	name, address = strings.TrimSpace(name), strings.TrimSpace(address)
 
+	// The address becomes part of the URL the hub asks, so it may only hold a
+	// host name or IP address and a port: no path, user or other URL parts.
+	if !addressPattern.MatchString(address) {
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
+	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || host == "" {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
