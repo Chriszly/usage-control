@@ -20,6 +20,8 @@ export const es: Messages = {
   'dashboard.noDisk': 'Ningún disco configurado',
   'dashboard.network': 'Red',
   'dashboard.noNetwork': 'No se encontró ninguna tarjeta de red',
+  'dashboard.idleHidden.one': '{count} interfaz sin tráfico oculta',
+  'dashboard.idleHidden.other': '{count} interfaces sin tráfico ocultas',
   'dashboard.gpu': 'GPU',
   'dashboard.gpuUsage': 'Uso de {name}',
   'dashboard.gpuMemory': '{used} de {total} de memoria',

@@ -21,6 +21,8 @@ export const en = {
   'dashboard.noDisk': 'No disk configured',
   'dashboard.network': 'Network',
   'dashboard.noNetwork': 'No network card found',
+  'dashboard.idleHidden.one': '{count} interface without traffic hidden',
+  'dashboard.idleHidden.other': '{count} interfaces without traffic hidden',
   'dashboard.gpu': 'GPU',
   'dashboard.gpuUsage': 'Usage of {name}',
   'dashboard.gpuMemory': '{used} of {total} memory',

@@ -20,6 +20,8 @@ export const de: Messages = {
   'dashboard.noDisk': 'Kein Datenträger eingerichtet',
   'dashboard.network': 'Netzwerk',
   'dashboard.noNetwork': 'Keine Netzwerkkarte gefunden',
+  'dashboard.idleHidden.one': '{count} Schnittstelle ohne Datenverkehr ausgeblendet',
+  'dashboard.idleHidden.other': '{count} Schnittstellen ohne Datenverkehr ausgeblendet',
   'dashboard.gpu': 'GPU',
   'dashboard.gpuUsage': 'Auslastung von {name}',
   'dashboard.gpuMemory': '{used} von {total} Speicher',
