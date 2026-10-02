@@ -67,9 +67,12 @@ func run() error {
 	}
 	defer func() { _ = store.Close() }()
 
+	recent := &history.Recent{}
+	reader := history.Reader{Store: store, Recent: recent}
+
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(collector, server.History{Reader: store, Retention: retention}, web.Files()),
+		Handler:           server.New(collector, server.History{Reader: reader, Retention: retention}, web.Files()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -79,7 +82,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	recorder := &history.Recorder{Store: store, Collector: recorderCollector, Retention: retention}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention}
 	recorded := make(chan struct{})
 	go func() {
 		defer close(recorded)

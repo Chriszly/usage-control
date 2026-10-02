@@ -124,12 +124,11 @@ func TestLocalNetworkOnly(t *testing.T) {
 
 type fakeHistory struct {
 	from, to time.Time
-	step     time.Duration
 }
 
-func (f *fakeHistory) Range(_ context.Context, _ string, from, to time.Time, step time.Duration) ([]history.Series, error) {
-	f.from, f.to, f.step = from, to, step
-	return []history.Series{{Metric: history.MetricCPU, Points: []history.Point{{Time: from.Unix(), Value: 12.5}}}}, nil
+func (f *fakeHistory) Range(_ context.Context, from, to time.Time) ([]history.Series, time.Duration, error) {
+	f.from, f.to = from, to
+	return []history.Series{{Metric: history.MetricCPU, Points: []history.Point{{Time: from.Unix(), Value: 12.5}}}}, 4 * time.Minute, nil
 }
 
 func TestHistoryReturnsTheRequestedRange(t *testing.T) {
@@ -150,9 +149,8 @@ func TestHistoryReturnsTheRequestedRange(t *testing.T) {
 	if got.From != from || got.To != to || reader.from.Unix() != from || reader.to.Unix() != to {
 		t.Errorf("range = %d to %d (read %v to %v), want %d to %d", got.From, got.To, reader.from, reader.to, from, to)
 	}
-	// One day at most 360 points: 4 minute steps.
-	if got.StepSeconds != 240 || reader.step != 4*time.Minute {
-		t.Errorf("StepSeconds = %d, step = %v, want 240", got.StepSeconds, reader.step)
+	if got.StepSeconds != 240 {
+		t.Errorf("StepSeconds = %d, want the reader's step of 240", got.StepSeconds)
 	}
 	if got.RetentionDays != 30 || len(got.Series) != 1 || got.Series[0].Points[0].Value != 12.5 {
 		t.Errorf("response = %+v, want 30 retention days and the stored CPU usage", got)
@@ -179,23 +177,6 @@ func TestHistoryRefusesInvalidRanges(t *testing.T) {
 	for _, query := range []string{"", "?from=1", "?from=a&to=b", "?from=200&to=100", "?from=100&to=100"} {
 		if rec := get(handler, "/api/history"+query, "10.0.0.5:5000"); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET /api/history%s status = %d, want %d", query, rec.Code, http.StatusBadRequest)
-		}
-	}
-}
-
-func TestStepFor(t *testing.T) {
-	tests := []struct {
-		span time.Duration
-		want time.Duration
-	}{
-		{time.Minute, time.Minute},
-		{6 * time.Hour, time.Minute},
-		{6*time.Hour + time.Minute, 2 * time.Minute},
-		{30 * 24 * time.Hour, 2 * time.Hour},
-	}
-	for _, tt := range tests {
-		if got := stepFor(tt.span); got != tt.want {
-			t.Errorf("stepFor(%v) = %v, want %v", tt.span, got, tt.want)
 		}
 	}
 }

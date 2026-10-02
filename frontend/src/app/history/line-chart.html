@@ -44,7 +44,7 @@
     @if (readout(); as r) {
       <div class="crosshair" [style.left.%]="r.left"></div>
       <div class="tooltip" [class.flip]="r.left > 60" [style.left.%]="r.left" role="status">
-        <p class="time">{{ r.time * 1000 | date: 'EEE d MMM, HH:mm' }}</p>
+        <p class="time">{{ r.time * 1000 | date: readoutFormat() }}</p>
         @for (line of lines(); track line.label; let i = $index) {
           <p>
             <span class="swatch" [class]="'series-' + (i % 8)"></span>

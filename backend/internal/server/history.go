@@ -11,13 +11,10 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/history"
 )
 
-// maxPoints is the most points a history response has per metric. Longer
-// ranges are averaged over longer steps, so a 30 day range stays small.
-const maxPoints = 360
-
-// HistoryReader reads stored usage over time.
+// HistoryReader reads the machine's usage over time, averaged over steps so
+// a range has a few hundred points at most, and returns the step.
 type HistoryReader interface {
-	Range(ctx context.Context, device string, from, to time.Time, step time.Duration) ([]history.Series, error)
+	Range(ctx context.Context, from, to time.Time) ([]history.Series, time.Duration, error)
 }
 
 // History is where the usage over time is read from and how long it is kept.
@@ -36,8 +33,7 @@ type historyResponse struct {
 }
 
 // historyHandler serves GET /api/history?from=<unix seconds>&to=<unix seconds>:
-// the machine's usage in that range, averaged over steps so there are at most
-// maxPoints points per metric. The range is limited to the retention period
+// the machine's usage in that range, averaged over steps. The range is limited to the retention period
 // and ends now at the latest.
 func historyHandler(h History) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -51,8 +47,7 @@ func historyHandler(h History) http.HandlerFunc {
 		from = min(max(from, now.Add(-h.Retention).Unix()), now.Unix())
 		to = min(max(to, from+1), now.Unix()+1)
 
-		step := stepFor(time.Duration(to-from) * time.Second)
-		series, err := h.Reader.Range(r.Context(), history.LocalDevice, time.Unix(from, 0), time.Unix(to, 0), step)
+		series, step, err := h.Reader.Range(r.Context(), time.Unix(from, 0), time.Unix(to, 0))
 		if err != nil {
 			slog.Error("read history", "error", err)
 			http.Error(w, "could not read the history", http.StatusInternalServerError)
@@ -72,12 +67,4 @@ func historyHandler(h History) http.HandlerFunc {
 			slog.Error("write history response", "error", err)
 		}
 	}
-}
-
-// stepFor returns the step that splits span into at most maxPoints steps: a
-// whole number of sample intervals, so every step averages the same number of
-// samples.
-func stepFor(span time.Duration) time.Duration {
-	samples := (span/history.SampleInterval + maxPoints - 1) / maxPoints
-	return max(1, samples) * history.SampleInterval
 }

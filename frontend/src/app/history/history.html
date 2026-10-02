@@ -13,23 +13,11 @@
         <mat-button-toggle [value]="range.seconds">{{ range.label }}</mat-button-toggle>
       }
     </mat-button-toggle-group>
-
-    <div class="scroll">
-      <button matButton (click)="earlier()" [disabled]="!canGoEarlier()" i18n="@@history.earlier">
-        ‹ Earlier
-      </button>
-      <button matButton (click)="later()" [disabled]="end() === null" i18n="@@history.later">
-        Later ›
-      </button>
-      <button matButton (click)="latest()" [disabled]="end() === null" i18n="@@history.now">
-        Now
-      </button>
-    </div>
   </div>
 
   @if (history(); as h) {
     <p class="period">
-      {{ h.from * 1000 | date: 'EEE d MMM, HH:mm' }} – {{ h.to * 1000 | date: 'EEE d MMM, HH:mm' }}
+      {{ h.from * 1000 | date: dateFormat() }} – {{ h.to * 1000 | date: dateFormat() }}
     </p>
 
     @if (unreachable()) {
@@ -54,9 +42,7 @@
           </mat-card-content>
         </mat-card>
       } @empty {
-        <p class="detail" i18n="@@history.empty">
-          No usage stored for this time yet. The site stores it every minute while it runs.
-        </p>
+        <p class="detail" i18n="@@history.empty">No usage recorded for this time yet.</p>
       }
     </div>
   } @else if (unreachable()) {

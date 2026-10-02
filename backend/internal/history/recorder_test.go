@@ -9,13 +9,15 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
-type fakeCollector struct{ snapshot metrics.Snapshot }
+type sequenceCollector struct{ snapshots []metrics.Snapshot }
 
-func (f fakeCollector) Collect(context.Context) (metrics.Snapshot, error) {
-	return f.snapshot, nil
+func (f *sequenceCollector) Collect(context.Context) (metrics.Snapshot, error) {
+	snapshot := f.snapshots[0]
+	f.snapshots = f.snapshots[1:]
+	return snapshot, nil
 }
 
-func TestRecorderStoresSnapshotsAndDeletesOldOnes(t *testing.T) {
+func TestRecorderStoresTheAverageAndDeletesOldValues(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	now := time.Now().Truncate(time.Second)
@@ -23,19 +25,25 @@ func TestRecorderStoresSnapshotsAndDeletesOldOnes(t *testing.T) {
 		t.Fatalf("Add() error = %v", err)
 	}
 	recorder := &Recorder{
-		Store:     store,
-		Collector: fakeCollector{metrics.Snapshot{Time: now, CPU: metrics.CPU{UsagePercent: 42}}},
+		Store:  store,
+		Recent: &Recent{},
+		Collector: &sequenceCollector{[]metrics.Snapshot{
+			{Time: now.Add(-10 * time.Second), CPU: metrics.CPU{UsagePercent: 40}},
+			{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 44}},
+		}},
 		Retention: 30 * 24 * time.Hour,
 	}
 
+	recorder.read(ctx)
+	recorder.read(ctx)
+	recorder.store(ctx, now.Add(-time.Minute), now)
 	recorder.prune(ctx)
-	recorder.record(ctx)
 
 	got, err := store.Range(ctx, LocalDevice, now.AddDate(0, 0, -40), now.Add(time.Second), time.Second)
 	if err != nil {
 		t.Fatalf("Range() error = %v", err)
 	}
-	// The value from 31 days ago is gone; the recorded snapshot is stored.
+	// The value from 31 days ago is gone; the average of the readings is stored.
 	want := Series{Metric: MetricCPU, Points: []Point{{Time: now.Unix(), Value: 42}}}
 	if len(got) == 0 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("Range() = %+v, want it to start with %+v", got, want)
