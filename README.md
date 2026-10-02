@@ -4,7 +4,7 @@ A website that shows the usage of the hardware it runs on (CPU, memory, disk, te
 
 It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs on Linux (starting with a Raspberry Pi) with Docker, and on Windows with an installer. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
-It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
+It shows CPU, memory and disk usage, GPU usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
 The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one in place, without reloading the page.
 
@@ -90,6 +90,14 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones.
 
 Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
+
+### GPUs
+
+The GPU card appears when usage-control finds a GPU whose usage the system reports to programs without extra rights:
+
+- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs, so it is left out
+- **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it, then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image. Intel GPUs report their usage only to programs with extra rights, so they are not shown
+- **macOS:** not shown
 
 ## Deploy to a Raspberry Pi
 

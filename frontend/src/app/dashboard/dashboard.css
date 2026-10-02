@@ -46,7 +46,8 @@ mat-progress-bar {
 }
 
 .disk + .disk,
-.interface + .interface {
+.interface + .interface,
+.gpu + .gpu {
   margin-top: 1rem;
 }
 

@@ -146,11 +146,27 @@ describe('chartsOf', () => {
         { metric: 'network.receive:wlan0', points: [{ time: 0, value: 50 }] },
         { metric: 'network.send:eth0', points: [{ time: 0, value: 7 }] },
       ],
-      (key) => translate('en', key),
+      (key, params) => translate('en', key, params),
     );
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Network', 'Disks']);
     expect(charts[1].lines[0].points).toEqual([{ time: 0, value: 150 }]);
     expect(charts[2].lines[0].label).toBe('/');
+  });
+});
+
+describe('chartsOf with GPUs', () => {
+  it('shows the usage and memory of each GPU in one chart', () => {
+    const charts = chartsOf(
+      [
+        { metric: 'cpu', points: [{ time: 0, value: 10 }] },
+        { metric: 'gpu:AMD GPU', points: [{ time: 0, value: 70 }] },
+        { metric: 'gpu.memory:AMD GPU', points: [{ time: 0, value: 25 }] },
+      ],
+      (key, params) => translate('en', key, params),
+    );
+
+    expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'GPU']);
+    expect(charts[1].lines.map((l) => l.label)).toEqual(['AMD GPU', 'AMD GPU memory']);
   });
 });

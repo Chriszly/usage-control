@@ -23,6 +23,8 @@ export interface Snapshot {
   disks: Disk[];
   /** The machine's network cards; empty when it has none. */
   network: NetworkInterface[];
+  /** The GPUs whose usage the OS reports; missing from devices that run an older version. */
+  gpus?: Gpu[];
 }
 
 export interface Temperature {
@@ -47,6 +49,15 @@ export interface NetworkInterface {
   sendBytesPerSecond: number;
 }
 
+/** The usage of one graphics processor. Memory and temperature are missing where it does not report them. */
+export interface Gpu {
+  name: string;
+  usagePercent: number;
+  memoryTotalBytes?: number;
+  memoryUsedBytes?: number;
+  celsius?: number;
+}
+
 /**
  * The machine's usage over a time range, as served by GET /api/history.
  * Times are Unix seconds; each point is the average over one step.
@@ -64,7 +75,7 @@ export interface History {
  * The values of one metric over time. The metric is "cpu" or "memory" (percent),
  * or a kind followed by the disk, sensor or interface it belongs to: "disk:/"
  * (percent), "temperature:cpu_thermal" (°C), "network.receive:eth0" or
- * "network.send:eth0" (bytes per second).
+ * "network.send:eth0" (bytes per second), "gpu:AMD GPU" or "gpu.memory:AMD GPU" (percent).
  */
 export interface Series {
   metric: string;

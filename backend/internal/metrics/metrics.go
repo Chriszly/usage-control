@@ -26,6 +26,7 @@ type Snapshot struct {
 	Temperatures  []Temperature      `json:"temperatures"`
 	Disks         []Disk             `json:"disks"`
 	Network       []NetworkInterface `json:"network"`
+	GPUs          []GPU              `json:"gpus"`
 }
 
 // CPU is the processor usage across all cores.
@@ -50,6 +51,7 @@ type Temperature struct {
 // Collector reads snapshots of the machine's usage.
 type Collector struct {
 	diskPaths []string
+	gpus      *gpuReader
 
 	// mu guards the readings of the previous call, which CPU usage and
 	// network speeds are measured against.
@@ -66,7 +68,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 	if err := checkDiskPaths(ctx, diskPaths); err != nil {
 		return nil, err
 	}
-	return &Collector{diskPaths: diskPaths}, nil
+	return &Collector{diskPaths: diskPaths, gpus: newGPUReader()}, nil
 }
 
 // Collect reads the current usage of the machine.
@@ -111,6 +113,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Temperatures: readTemperatures(ctx),
 		Disks:        readDisks(ctx, c.diskPaths),
 		Network:      network,
+		GPUs:         c.gpus.read(ctx),
 	}, nil
 }
 
