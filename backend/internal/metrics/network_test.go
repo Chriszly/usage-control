@@ -71,3 +71,9 @@ func TestIsVirtualInterface(t *testing.T) {
 		}
 	}
 }
+
+func TestLoopbackInterfacesFindsLoopback(t *testing.T) {
+	if len(loopbackInterfaces()) == 0 {
+		t.Error("loopbackInterfaces() is empty, want at least the loopback interface")
+	}
+}
