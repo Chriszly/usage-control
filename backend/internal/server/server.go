@@ -27,23 +27,58 @@ type Device struct {
 	ID string `json:"id"`
 	// Name is how the page shows the device. It is empty for the machine the
 	// site runs on when no name is set; the page then calls it "This device".
-	Name    string        `json:"name"`
-	Metrics Collector     `json:"-"`
-	History HistoryReader `json:"-"`
+	Name string `json:"name"`
+	// Address is where another device is reachable, as host:port; empty for
+	// the machine the site runs on.
+	Address string `json:"address,omitempty"`
+	// Removable is set for a device added on the page, which can be removed
+	// there too.
+	Removable bool          `json:"removable"`
+	Metrics   Collector     `json:"-"`
+	History   HistoryReader `json:"-"`
+}
+
+// Devices lists the devices the site shows. The first is the machine the site
+// runs on, which the API answers for when a request names no device.
+type Devices interface {
+	List() []Device
+}
+
+// DeviceList is a fixed list of devices.
+type DeviceList []Device
+
+// List returns the devices.
+func (l DeviceList) List() []Device {
+	return l
+}
+
+// Site is what the website shows and keeps.
+type Site struct {
+	Devices Devices
+	// Hub adds and removes devices on the page, guarded by Password.
+	Hub      Hub
+	Password Password
+	// Retention is how long the history is kept.
+	Retention time.Duration
+	// Files is the built website.
+	Files fs.FS
 }
 
 // New returns the handler for the whole site: the JSON API under /api/ and
-// the website from site. The first device is the one the API answers for when
-// a request names none; retention is how long the history is kept. Requests
-// from outside the local network are refused.
-func New(devices []Device, retention time.Duration, site fs.FS) http.Handler {
+// the website. Requests from outside the local network are refused.
+func New(site Site) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/devices", devicesHandler(devices))
-	mux.HandleFunc("GET /api/metrics", forDevice(devices, metricsHandler))
-	mux.HandleFunc("GET /api/history", forDevice(devices, func(d Device) http.HandlerFunc {
-		return historyHandler(d.History, retention)
+	mux.HandleFunc("GET /api/devices", devicesHandler(site))
+	if site.Hub != nil && site.Password != nil {
+		changes := &deviceChanges{hub: site.Hub, password: site.Password}
+		mux.HandleFunc("POST /api/devices", changes.add)
+		mux.HandleFunc("DELETE /api/devices/{id}", changes.remove)
+	}
+	mux.HandleFunc("GET /api/metrics", forDevice(site.Devices, metricsHandler))
+	mux.HandleFunc("GET /api/history", forDevice(site.Devices, func(d Device) http.HandlerFunc {
+		return historyHandler(d.History, site.Retention)
 	}))
-	mux.Handle("GET /", websiteHandler(site))
+	mux.Handle("GET /", websiteHandler(site.Files))
 	return localNetworkOnly(mux)
 }
 
@@ -56,35 +91,57 @@ func NewDataOnly(collector Collector) http.Handler {
 	return localNetworkOnly(mux)
 }
 
+// devicesResponse is the body of GET /api/devices.
+type devicesResponse struct {
+	Devices []Device `json:"devices"`
+	// PasswordSet tells whether adding or removing a device asks for the
+	// password, or chooses it.
+	PasswordSet bool `json:"passwordSet"`
+}
+
 // devicesHandler serves GET /api/devices: the devices the site shows.
-func devicesHandler(devices []Device) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(devices); err != nil {
-			slog.Error("write devices response", "error", err)
+func devicesHandler(site Site) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		response := devicesResponse{Devices: site.Devices.List()}
+		if site.Password != nil {
+			set, err := site.Password.IsSet(r.Context())
+			if err != nil {
+				slog.Error("read whether the password is set", "error", err)
+				http.Error(w, "could not read the settings", http.StatusInternalServerError)
+				return
+			}
+			response.PasswordSet = set
 		}
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 
 // forDevice passes a request on to the handler for the device in its
 // ?device= parameter, or for the first device when there is none.
-func forDevice(devices []Device, handler func(Device) http.HandlerFunc) http.HandlerFunc {
-	handlers := make(map[string]http.HandlerFunc, len(devices))
-	for _, d := range devices {
-		handlers[d.ID] = handler(d)
-	}
+func forDevice(devices Devices, handler func(Device) http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		list := devices.List()
 		id := r.URL.Query().Get("device")
-		if id == "" && len(devices) > 0 {
-			id = devices[0].ID
+		if id == "" && len(list) > 0 {
+			id = list[0].ID
 		}
-		h, ok := handlers[id]
-		if !ok {
-			http.Error(w, "there is no device with this id; GET /api/devices lists them", http.StatusNotFound)
-			return
+		for _, d := range list {
+			if d.ID == id {
+				handler(d)(w, r)
+				return
+			}
 		}
-		h(w, r)
+		http.Error(w, "there is no device with this id; GET /api/devices lists them", http.StatusNotFound)
+	}
+}
+
+// writeJSON answers with body as JSON.
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.Error("write response", "error", err)
 	}
 }
 
@@ -100,11 +157,7 @@ func metricsHandler(d Device) http.HandlerFunc {
 			http.Error(w, "could not read the machine's usage", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(snapshot); err != nil {
-			slog.Error("write metrics response", "error", err)
-		}
+		writeJSON(w, http.StatusOK, snapshot)
 	}
 }
 

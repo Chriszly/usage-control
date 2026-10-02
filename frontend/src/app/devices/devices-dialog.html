@@ -1,0 +1,65 @@
+<h2 mat-dialog-title>{{ i18n.t('devicesDialog.title') }}</h2>
+
+<mat-dialog-content>
+  <p class="hint">{{ i18n.t('devicesDialog.intro') }}</p>
+
+  <ul>
+    @for (device of others(); track device.id) {
+      <li>
+        <span class="name">{{ device.name }}</span>
+        <span class="address">{{ device.address }}</span>
+        @if (device.removable) {
+          <button mat-button type="button" [disabled]="busy()" (click)="remove(device)">
+            {{ i18n.t('devicesDialog.remove') }}
+          </button>
+        } @else {
+          <span class="fixed">{{ i18n.t('devicesDialog.fixed') }}</span>
+        }
+      </li>
+    } @empty {
+      <li class="hint">{{ i18n.t('devicesDialog.empty') }}</li>
+    }
+  </ul>
+
+  <form (ngSubmit)="add()">
+    <h3>{{ i18n.t('devicesDialog.addTitle') }}</h3>
+    <mat-form-field>
+      <mat-label>{{ i18n.t('devicesDialog.name') }}</mat-label>
+      <input
+        matInput
+        name="name"
+        maxlength="64"
+        autocomplete="off"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+      />
+    </mat-form-field>
+    <mat-form-field>
+      <mat-label>{{ i18n.t('devicesDialog.address') }}</mat-label>
+      <input
+        matInput
+        name="address"
+        placeholder="192.168.1.20:8080"
+        autocomplete="off"
+        [ngModel]="address()"
+        (ngModelChange)="address.set($event)"
+      />
+      <mat-hint>{{ i18n.t('devicesDialog.addressHint') }}</mat-hint>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      type="submit"
+      [disabled]="busy() || !name().trim() || !address().trim()"
+    >
+      {{ i18n.t('devicesDialog.add') }}
+    </button>
+  </form>
+
+  @if (problem()) {
+    <p class="error" role="alert">{{ problem() }}</p>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" mat-dialog-close>{{ i18n.t('devicesDialog.close') }}</button>
+</mat-dialog-actions>

@@ -13,6 +13,8 @@
 //	                comma-separated name=host:port entries (default none)
 //	DATA_ONLY       true to serve only the usage data for a hub, without the
 //	                website and history (default false)
+//	RESET_PASSWORD  true to delete the password for adding and removing
+//	                devices on the page, if it is forgotten (default false)
 package main
 
 import (
@@ -33,6 +35,7 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/history"
 	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
+	"github.com/Chriszly/usage-control/backend/internal/password"
 	"github.com/Chriszly/usage-control/backend/internal/server"
 	"github.com/Chriszly/usage-control/backend/internal/web"
 )
@@ -79,10 +82,12 @@ func run(parent context.Context) error {
 		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
 	}
 
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
 	// device keeps none and only answers the hub.
 	handler := server.NewDataOnly(collector)
-	var recorders []*history.Recorder
 	if dataOnly {
 		slog.Info("serving only the usage data, for a hub; the website is turned off")
 	} else {
@@ -96,12 +101,16 @@ func run(parent context.Context) error {
 		}
 		defer func() { _ = store.Close() }()
 
-		var devices []server.Device
-		devices, recorders, err = withHistory(collector, store, remotes, retention)
+		site, waitForRecorders, err := withHistory(ctx, collector, store, remotes, retention)
 		if err != nil {
 			return err
 		}
-		handler = server.New(devices, retention, web.Files())
+		// The recorders stop before the database is closed.
+		defer func() {
+			stop()
+			waitForRecorders()
+		}()
+		handler = server.New(site)
 	}
 
 	httpServer := &http.Server{
@@ -112,18 +121,6 @@ func run(parent context.Context) error {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	var recording sync.WaitGroup
-	for _, recorder := range recorders {
-		recording.Go(func() { recorder.Run(ctx) })
-	}
-	defer func() {
-		stop()
-		recording.Wait()
-	}()
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -148,53 +145,100 @@ func run(parent context.Context) error {
 	return nil
 }
 
-// withHistory returns the devices the website shows, with their history:
-// this device and, in hub mode, every other device. Each gets a recorder that
-// reads its usage into the history.
-func withHistory(collector *metrics.Collector, store *history.Store, remotes []hub.Device, retention time.Duration) ([]server.Device, []*history.Recorder, error) {
+// withHistory returns the website's devices with their history: this device
+// and every device the hub collects from, from HUB_DEVICES or added on the
+// page. Each gets a recorder that reads its usage into the history until ctx
+// is done; the returned function waits until they have stopped.
+func withHistory(ctx context.Context, collector *metrics.Collector, store *history.Store, fixed []hub.Device, retention time.Duration) (server.Site, func(), error) {
 	// The recorder measures with its own collector, so CPU usage and network
 	// speed in the history are averages over its own interval.
-	recorderCollector, err := metrics.NewCollector(context.Background(), diskPaths())
+	recorderCollector, err := metrics.NewCollector(ctx, diskPaths())
 	if err != nil {
-		return nil, nil, err
+		return server.Site{}, nil, err
+	}
+
+	devicesPassword, err := password.Open(ctx, store.DB())
+	if err != nil {
+		return server.Site{}, nil, err
+	}
+	reset, err := boolSetting("RESET_PASSWORD")
+	if err != nil {
+		return server.Site{}, nil, err
+	}
+	if reset {
+		if err := devicesPassword.Reset(ctx); err != nil {
+			return server.Site{}, nil, err
+		}
+		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
+	}
+
+	others, err := hub.New(ctx, store, retention, fixed)
+	if err != nil {
+		return server.Site{}, nil, err
 	}
 
 	recent := &history.Recent{}
-	devices := []server.Device{{
-		ID:      hub.LocalID,
-		Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
-		Metrics: collector,
-		History: history.Reader{Store: store, Recent: recent},
-	}}
-	recorders := []*history.Recorder{
-		{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention},
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention}
+	var recording sync.WaitGroup
+	recording.Go(func() { recorder.Run(ctx) })
+
+	site := server.Site{
+		Devices: hubDevices{
+			local: server.Device{
+				ID:      hub.LocalID,
+				Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
+				Metrics: collector,
+				History: history.Reader{Store: store, Recent: recent},
+			},
+			hub: others,
+		},
+		Hub:       others,
+		Password:  devicesPassword,
+		Retention: retention,
+		Files:     web.Files(),
 	}
-	for _, remote := range remotes {
-		agent := hub.NewAgent(remote.Address)
-		recent := &history.Recent{}
+	wait := func() {
+		recording.Wait()
+		others.Wait()
+	}
+	return site, wait, nil
+}
+
+// hubDevices lists this device and the devices the hub collects from.
+type hubDevices struct {
+	local server.Device
+	hub   *hub.Hub
+}
+
+func (d hubDevices) List() []server.Device {
+	devices := []server.Device{d.local}
+	for _, remote := range d.hub.Remotes() {
 		devices = append(devices, server.Device{
-			ID:      remote.ID,
-			Name:    remote.Name,
-			Metrics: agent.Latest(),
-			History: history.Reader{Store: store, Recent: recent, Device: remote.ID},
+			ID:        remote.ID,
+			Name:      remote.Name,
+			Address:   remote.Address,
+			Removable: !remote.Fixed,
+			Metrics:   remote.Agent.Latest(),
+			History:   remote.Reader,
 		})
-		recorders = append(recorders, &history.Recorder{
-			Store: store, Recent: recent, Collector: agent, Retention: retention, Device: remote.ID,
-		})
-		slog.Info("collecting from another device", "name", remote.Name, "address", remote.Address)
 	}
-	return devices, recorders, nil
+	return devices
 }
 
 // dataOnly reports whether DATA_ONLY turns the website off (default false).
 func dataOnly() (bool, error) {
-	value := strings.TrimSpace(os.Getenv("DATA_ONLY"))
+	return boolSetting("DATA_ONLY")
+}
+
+// boolSetting reads a setting that is true or false (default false).
+func boolSetting(name string) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return false, nil
 	}
 	on, err := strconv.ParseBool(value)
 	if err != nil {
-		return false, fmt.Errorf("DATA_ONLY is %q; set it to true or false", value)
+		return false, fmt.Errorf("%s is %q; set it to true or false", name, value)
 	}
 	return on, nil
 }

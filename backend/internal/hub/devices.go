@@ -5,12 +5,17 @@ package hub
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
 )
+
+// addressPattern matches host:port, where the host is a name or IPv4 address
+// (letters, digits, dots and dashes) or an IPv6 address in brackets.
+var addressPattern = regexp.MustCompile(`^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`)
 
 // maxNameLength is the longest device name that is accepted.
 const maxNameLength = 64
@@ -52,30 +57,69 @@ func ParseDevices(value string) ([]Device, error) {
 
 func parseDevice(entry string) (Device, error) {
 	name, address, named := strings.Cut(entry, "=")
-	name, address = strings.TrimSpace(name), strings.TrimSpace(address)
 	if !named {
 		name, address = entry, entry
 	}
+	device, err := NewDevice(name, address)
+	if err != nil {
+		return Device{}, fmt.Errorf("%q: %w", entry, err)
+	}
+	return device, nil
+}
 
+// NewDevice checks a device's name and address (host:port) and returns it
+// with its ID. The errors are InputErrors.
+func NewDevice(name, address string) (Device, error) {
+	name, address = strings.TrimSpace(name), strings.TrimSpace(address)
+
+	// The address becomes part of the URL the hub asks, so it may only hold a
+	// host name or IP address and a port: no path, user or other URL parts.
+	if !addressPattern.MatchString(address) {
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
+	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || host == "" {
-		return Device{}, fmt.Errorf("%q: write the address as host:port, such as 192.168.1.20:8080", entry)
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
 	}
 	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
-		return Device{}, fmt.Errorf("%q: the port must be a number from 1 to 65535", entry)
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "the port must be a number from 1 to 65535"}
 	}
 
 	if name == "" || len(name) > maxNameLength {
-		return Device{}, fmt.Errorf("%q: the name must have 1 to %d characters", entry, maxNameLength)
+		return Device{}, &InputError{Problem: ProblemName, Message: fmt.Sprintf("the name must have 1 to %d characters", maxNameLength)}
 	}
 	id := idOf(name)
 	if id == "" {
-		return Device{}, fmt.Errorf("%q: the name needs at least one letter or digit", entry)
+		return Device{}, &InputError{Problem: ProblemName, Message: "the name needs at least one letter or digit"}
 	}
 	if id == LocalID {
-		return Device{}, fmt.Errorf("%q: the name %q is reserved for this device; pick another one", entry, name)
+		return Device{}, &InputError{Problem: ProblemNameTaken, Message: fmt.Sprintf("the name %q is reserved for this device; pick another one", name)}
 	}
 	return Device{ID: id, Name: name, Address: address}, nil
+}
+
+// Problem names what is wrong with a device that cannot be added or
+// removed, so the page can explain it in the visitor's language.
+type Problem string
+
+// The problems an InputError can have.
+const (
+	ProblemName        Problem = "name"
+	ProblemNameTaken   Problem = "nameTaken"
+	ProblemAddress     Problem = "address"
+	ProblemUnreachable Problem = "unreachable"
+	ProblemNotFound    Problem = "notFound"
+	ProblemFixed       Problem = "fixed"
+)
+
+// InputError is a device that cannot be added or removed as asked.
+type InputError struct {
+	Problem Problem
+	Message string
+}
+
+func (e *InputError) Error() string {
+	return e.Message
 }
 
 // LocalID is the ID of the device the program runs on, the name its own

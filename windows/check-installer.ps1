@@ -45,7 +45,7 @@ function Assert-FirewallPort([string] $Port) {
 
 function Assert-Website([string] $Port) {
     $devices = Get-Answer "http://127.0.0.1:$Port/api/devices"
-    $names = ($devices | ForEach-Object { $_.name }) -join ', '
+    $names = ($devices.devices | ForEach-Object { $_.name }) -join ', '
     if ($names -ne 'Runner, Pi') { throw "The website shows the devices '$names', not 'Runner, Pi'" }
     $status = Get-StatusCode "http://127.0.0.1:$Port/"
     if ($status -ne 200) { throw "The website answered $status" }

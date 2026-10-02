@@ -49,3 +49,17 @@ func TestParseDevicesRefusesInvalidEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestNewDeviceRefusesURLParts(t *testing.T) {
+	for _, address := range []string{
+		"192.168.1.20:8080/admin",
+		"user@192.168.1.20:8080",
+		"http://192.168.1.20:8080",
+		"192.168.1.20:8080?x=1",
+		"192.168.1.20:8080#x",
+	} {
+		if _, err := NewDevice("Pi", address); err == nil {
+			t.Errorf("NewDevice(%q) error = nil, want it refused", address)
+		}
+	}
+}
