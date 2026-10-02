@@ -6,7 +6,11 @@ import (
 )
 
 func TestCollectReadsThisMachine(t *testing.T) {
-	snapshot, err := NewCollector().Collect(context.Background())
+	collector, err := NewCollector(context.Background(), []string{"/"})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	snapshot, err := collector.Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
@@ -28,5 +32,19 @@ func TestCollectReadsThisMachine(t *testing.T) {
 	}
 	if snapshot.Temperatures == nil {
 		t.Error("Temperatures is nil, want an empty list when no sensor is available")
+	}
+	if len(snapshot.Disks) != 1 || snapshot.Disks[0].Path != "/" || snapshot.Disks[0].TotalBytes == 0 {
+		t.Errorf("Disks = %+v, want the usage of /", snapshot.Disks)
+	}
+	if snapshot.Network == nil {
+		t.Error("Network is nil, want an empty list when there is no network card")
+	}
+}
+
+func TestNewCollectorRefusesUnreadableDiskPaths(t *testing.T) {
+	for _, path := range []string{"relative/path", "/does/not/exist"} {
+		if _, err := NewCollector(context.Background(), []string{path}); err == nil {
+			t.Errorf("NewCollector(%q) error = nil, want an error", path)
+		}
 	}
 }

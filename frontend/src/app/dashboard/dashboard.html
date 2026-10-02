@@ -28,6 +28,45 @@
 
     <mat-card appearance="outlined">
       <mat-card-content>
+        <h2>Disks</h2>
+        @for (d of s.disks; track d.path) {
+          <div class="disk">
+            <p class="sensor">
+              <span>{{ d.path }}</span
+              ><span>{{ d.usedPercent | number: '1.0-1' }} %</span>
+            </p>
+            <mat-progress-bar
+              mode="determinate"
+              [value]="d.usedPercent"
+              [attr.aria-label]="'Disk usage of ' + d.path"
+            />
+            <p class="detail">{{ d.usedBytes | bytes }} of {{ d.totalBytes | bytes }}</p>
+          </div>
+        } @empty {
+          <p class="detail">No disk configured</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <h2>Network</h2>
+        @for (n of s.network; track n.name) {
+          <div class="interface">
+            <p class="name">{{ n.name }}</p>
+            <p class="sensor">
+              <span>↓ {{ n.receiveBytesPerSecond | bytes }}/s</span
+              ><span>↑ {{ n.sendBytesPerSecond | bytes }}/s</span>
+            </p>
+          </div>
+        } @empty {
+          <p class="detail">No network card found</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined">
+      <mat-card-content>
         <h2>Temperature</h2>
         @for (t of s.temperatures; track t.sensor) {
           <p class="sensor">
