@@ -4,7 +4,24 @@ This file provides guidance for AI agents (Claude, GPT, Copilot, etc.) working o
 
 ## Project Overview
 
-usage-control is a website that monitors the hardware it runs on: it reads the usage of the machine (CPU, memory, disk, temperature and so on) and shows it in the browser. The tech stack is not decided yet; this file names it once it is.
+usage-control is a website that monitors the hardware it runs on: it reads the usage of the machine (CPU, memory, disk, temperature and so on) and shows it in the browser.
+
+## Tech Stack
+
+- **Backend:** Go, reading hardware data with [gopsutil](https://github.com/shirou/gopsutil) (and `/sys/class/thermal` for temperature on Linux). Format with `gofmt`, lint with `golangci-lint`
+- **Frontend:** Angular with TypeScript, using standalone components and signals. The built app is embedded in the Go binary, so one binary serves both the API and the page
+- **Storage:** SQLite, one file on a volume. How long data is kept is set at setup with `RETENTION_DAYS`; older data is deleted automatically
+- **Multiple devices:** every device runs the same binary. By default it monitors only itself and serves a JSON API; in hub mode it also collects from the other devices on the local network and stores their data
+- **Network:** reachable on the local network only; the server rejects requests from outside the private address ranges
+- **Build:** the Angular frontend is built in CI or in the Docker build, never on the Raspberry Pi itself
+
+## Platforms and Priorities
+
+1. **Now:** Linux, starting with a Raspberry Pi, installed with Docker. One multi-arch image (arm64 and amd64) that mounts the host's `/proc` and `/sys` read-only and runs as a non-root user
+2. **Later:** Windows on arm64 and x64, as a native installer that runs the backend as a Windows service. Docker on Windows runs in a Linux VM and would measure the VM, not the machine
+3. **Low priority:** macOS
+
+Temperature is not available on every platform; where the OS does not expose it, the page shows it as unavailable instead of failing.
 
 ## Code Style & Conventions
 
