@@ -120,6 +120,43 @@ describe('Dashboard', () => {
     expect(text()).toContain('Not available on this machine');
   });
 
+  it('shows each GPU with its usage, memory and temperature', () => {
+    respond({
+      ...snapshot,
+      gpus: [
+        {
+          name: 'AMD Radeon RX 7800 XT',
+          usagePercent: 63.2,
+          memoryTotalBytes: 16 * 1024 ** 3,
+          memoryUsedBytes: 4 * 1024 ** 3,
+          celsius: 57,
+        },
+        { name: 'VideoCore GPU', usagePercent: 4 },
+      ],
+    });
+
+    expect(text()).toContain('GPU');
+    expect(text()).toContain('AMD Radeon RX 7800 XT');
+    expect(text()).toContain('63.2 %');
+    expect(text()).toContain('4.0 GiB of 16.0 GiB memory');
+    expect(text()).toContain('57 °C');
+    expect(text()).toContain('VideoCore GPU');
+  });
+
+  it('leaves out the GPU card when there is no GPU, or the device runs an older version', () => {
+    respond({ ...snapshot, gpus: [] });
+    const titles = () =>
+      [...(fixture.nativeElement as HTMLElement).querySelectorAll('h2')].map((h) => h.textContent);
+
+    expect(titles()).not.toContain('GPU');
+
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http.expectOne('/api/metrics').flush(snapshot);
+    fixture.detectChanges();
+
+    expect(titles()).not.toContain('GPU');
+  });
+
   it('switches language in place, with numbers in that language', () => {
     respond(snapshot);
 

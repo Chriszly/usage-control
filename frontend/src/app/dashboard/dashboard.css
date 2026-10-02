@@ -52,8 +52,15 @@ mat-progress-bar {
   background: var(--warning-surface);
 }
 
-.disk + .disk {
+.disk + .disk,
+.gpu + .gpu {
   margin-top: 1rem;
+}
+
+/* GPU names are long, so each gets its own line above its usage and temperature. */
+.gpu > .label {
+  margin: 0.25rem 0 0;
+  font: var(--mat-sys-label-large);
 }
 
 /* Each interface: its name on one line, then its two speeds on one line below it. */

@@ -11,10 +11,12 @@ const (
 	MetricDisk           = "disk"
 	MetricNetworkReceive = "network.receive"
 	MetricNetworkSend    = "network.send"
+	MetricGPU            = "gpu"
+	MetricGPUMemory      = "gpu.memory"
 )
 
 // values returns the values of a snapshot that are kept in the history:
-// usage in percent, temperatures in °C and network speeds in bytes per second.
+// usage in percent (also of GPU memory), temperatures in °C and network speeds in bytes per second.
 func values(s metrics.Snapshot) map[string]float64 {
 	v := map[string]float64{
 		MetricCPU:    s.CPU.UsagePercent,
@@ -29,6 +31,12 @@ func values(s metrics.Snapshot) map[string]float64 {
 	for _, n := range s.Network {
 		v[MetricNetworkReceive+":"+n.Name] = n.ReceiveBytesPerSecond
 		v[MetricNetworkSend+":"+n.Name] = n.SendBytesPerSecond
+	}
+	for _, g := range s.GPUs {
+		v[MetricGPU+":"+g.Name] = g.UsagePercent
+		if memory, ok := g.MemoryUsedPercent(); ok {
+			v[MetricGPUMemory+":"+g.Name] = memory
+		}
 	}
 	return v
 }

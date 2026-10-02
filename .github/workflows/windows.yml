@@ -80,6 +80,7 @@ jobs:
               go build -trimpath -ldflags="-s -w" -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
           done
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics
 
       - uses: actions/upload-artifact@v7
         with:
@@ -108,6 +109,9 @@ jobs:
         run: |
           # Quoted: PowerShell would split -test.v into -test and .v.
           dist\tests\usage-control-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Only the GPU tests: the other metrics tests assume Linux paths.
+          dist\tests\metrics-tests.exe '-test.v' '-test.run=GPU'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # WiX 5 is the last WiX release under the MS-RL license; later versions

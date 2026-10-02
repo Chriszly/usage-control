@@ -7,7 +7,7 @@ import { MatCardModule } from '@angular/material/card';
 import { catchError, map, of, switchMap, tap, timer } from 'rxjs';
 
 import { DeviceService } from '../devices/devices';
-import { I18n } from '../i18n/i18n';
+import { I18n, TextParams } from '../i18n/i18n';
 import { MessageKey } from '../i18n/messages/en';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
@@ -130,7 +130,7 @@ export class HistoryCharts {
 
   protected readonly charts = computed(() => {
     const history = this.history();
-    return history ? chartsOf(history.series, (key) => this.i18n.t(key)) : [];
+    return history ? chartsOf(history.series, (key, params) => this.i18n.t(key, params)) : [];
   });
 
   constructor() {
@@ -179,11 +179,14 @@ function nowSeconds(): number {
 }
 
 /**
- * Groups the stored metrics into charts: CPU and memory, temperatures, network
- * speed and disks, with titles and labels in the language of t. Charts without
+ * Groups the stored metrics into charts: CPU and memory, GPUs, temperatures,
+ * network speed and disks, with titles and labels in the language of t. Charts without
  * values are left out.
  */
-export function chartsOf(series: Series[], t: (key: MessageKey) => string): Chart[] {
+export function chartsOf(
+  series: Series[],
+  t: (key: MessageKey, params?: TextParams) => string,
+): Chart[] {
   const named = (kind: string) =>
     series
       .filter((s) => s.metric.startsWith(kind + ':'))
@@ -198,6 +201,18 @@ export function chartsOf(series: Series[], t: (key: MessageKey) => string): Char
       lines: [
         { label: t('history.cpu'), points: metric('cpu') },
         { label: t('history.memory'), points: metric('memory') },
+      ],
+    },
+    {
+      title: t('history.gpu'),
+      unit: 'percent',
+      max: 100,
+      lines: [
+        ...named('gpu'),
+        ...named('gpu.memory').map((line) => ({
+          ...line,
+          label: t('history.gpuMemory', { name: line.label }),
+        })),
       ],
     },
     {

@@ -82,13 +82,17 @@ func TestDeleteBeforeKeepsNewerValues(t *testing.T) {
 	}
 }
 
-func TestValuesNamesEachDiskSensorAndInterface(t *testing.T) {
+func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 	snapshot := metrics.Snapshot{
 		CPU:          metrics.CPU{UsagePercent: 12},
 		Memory:       metrics.Memory{UsedPercent: 34},
 		Temperatures: []metrics.Temperature{{Sensor: "cpu_thermal", Celsius: 48}},
 		Disks:        []metrics.Disk{{Path: "/mnt/usb", UsedPercent: 56}},
 		Network:      []metrics.NetworkInterface{{Name: "eth0", ReceiveBytesPerSecond: 1000, SendBytesPerSecond: 200}},
+		GPUs: []metrics.GPU{
+			{Name: "AMD GPU", UsagePercent: 78, MemoryTotalBytes: 400, MemoryUsedBytes: 100},
+			{Name: "VideoCore GPU", UsagePercent: 9},
+		},
 	}
 
 	want := map[string]float64{
@@ -98,6 +102,9 @@ func TestValuesNamesEachDiskSensorAndInterface(t *testing.T) {
 		"disk:/mnt/usb":           56,
 		"network.receive:eth0":    1000,
 		"network.send:eth0":       200,
+		"gpu:AMD GPU":             78,
+		"gpu.memory:AMD GPU":      25,
+		"gpu:VideoCore GPU":       9,
 	}
 	if got := values(snapshot); !reflect.DeepEqual(got, want) {
 		t.Errorf("values() = %v, want %v", got, want)

@@ -95,6 +95,40 @@
       </mat-card-content>
     </mat-card>
 
+    @if (s.gpus?.length) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>{{ i18n.t('dashboard.gpu') }}</h2>
+          @for (g of s.gpus; track g.name) {
+            <div class="gpu">
+              <p class="label" [title]="g.name">{{ g.name }}</p>
+              <p class="sensor">
+                <span>{{ g.usagePercent | number: '1.0-1' : i18n.language() }} %</span>
+                @if (g.celsius !== undefined) {
+                  <span>{{ g.celsius | number: '1.0-1' : i18n.language() }} °C</span>
+                }
+              </p>
+              <mat-progress-bar
+                mode="determinate"
+                [value]="g.usagePercent"
+                [attr.aria-label]="i18n.t('dashboard.gpuUsage', { name: g.name })"
+              />
+              @if (g.memoryTotalBytes) {
+                <p class="detail">
+                  {{
+                    i18n.t('dashboard.gpuMemory', {
+                      used: (g.memoryUsedBytes ?? 0 | bytes: i18n.language()),
+                      total: (g.memoryTotalBytes | bytes: i18n.language()),
+                    })
+                  }}
+                </p>
+              }
+            </div>
+          }
+        </mat-card-content>
+      </mat-card>
+    }
+
     <mat-card appearance="outlined">
       <mat-card-content>
         <h2>{{ i18n.t('dashboard.temperature') }}</h2>
