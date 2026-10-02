@@ -1,0 +1,29 @@
+@use '@angular/material' as mat;
+
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: mat.$orange-palette,
+      typography: system-ui,
+      density: 0,
+    )
+  );
+}
+
+:root {
+  --warning-surface: #fff1c2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --warning-surface: #4b3a0b;
+  }
+}
+
+body {
+  margin: 0;
+  font: var(--mat-sys-body-large);
+  color: var(--mat-sys-on-surface);
+  background: var(--mat-sys-surface);
+}

@@ -4,36 +4,48 @@
 
 @if (snapshot(); as s) {
   <div class="cards">
-    <section class="card">
-      <h2>CPU</h2>
-      <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' }} %</p>
-      <div class="bar"><div class="fill" [style.width.%]="s.cpu.usagePercent"></div></div>
-      <p class="detail">{{ s.cpu.cores }} cores</p>
-    </section>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <h2>CPU</h2>
+        <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' }} %</p>
+        <mat-progress-bar mode="determinate" [value]="s.cpu.usagePercent" aria-label="CPU usage" />
+        <p class="detail">{{ s.cpu.cores }} cores</p>
+      </mat-card-content>
+    </mat-card>
 
-    <section class="card">
-      <h2>Memory</h2>
-      <p class="value">{{ s.memory.usedPercent | number: '1.0-1' }} %</p>
-      <div class="bar"><div class="fill" [style.width.%]="s.memory.usedPercent"></div></div>
-      <p class="detail">{{ s.memory.usedBytes | bytes }} of {{ s.memory.totalBytes | bytes }}</p>
-    </section>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <h2>Memory</h2>
+        <p class="value">{{ s.memory.usedPercent | number: '1.0-1' }} %</p>
+        <mat-progress-bar
+          mode="determinate"
+          [value]="s.memory.usedPercent"
+          aria-label="Memory usage"
+        />
+        <p class="detail">{{ s.memory.usedBytes | bytes }} of {{ s.memory.totalBytes | bytes }}</p>
+      </mat-card-content>
+    </mat-card>
 
-    <section class="card">
-      <h2>Temperature</h2>
-      @for (t of s.temperatures; track t.sensor) {
-        <p class="sensor">
-          <span>{{ t.sensor }}</span
-          ><span>{{ t.celsius | number: '1.0-1' }} °C</span>
-        </p>
-      } @empty {
-        <p class="detail">Not available on this machine</p>
-      }
-    </section>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <h2>Temperature</h2>
+        @for (t of s.temperatures; track t.sensor) {
+          <p class="sensor">
+            <span>{{ t.sensor }}</span
+            ><span>{{ t.celsius | number: '1.0-1' }} °C</span>
+          </p>
+        } @empty {
+          <p class="detail">Not available on this machine</p>
+        }
+      </mat-card-content>
+    </mat-card>
 
-    <section class="card">
-      <h2>Uptime</h2>
-      <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
-    </section>
+    <mat-card appearance="outlined">
+      <mat-card-content>
+        <h2>Uptime</h2>
+        <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
+      </mat-card-content>
+    </mat-card>
   </div>
 } @else if (!unreachable()) {
   <p>Loading…</p>

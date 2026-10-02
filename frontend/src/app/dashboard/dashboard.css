@@ -4,17 +4,10 @@
   gap: 1rem;
 }
 
-.card {
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--surface);
-}
-
 h2 {
   margin: 0 0 0.5rem;
-  font-size: 1rem;
-  color: var(--muted);
+  font: var(--mat-sys-title-small);
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .value {
@@ -25,21 +18,11 @@ h2 {
 
 .detail {
   margin: 0.5rem 0 0;
-  color: var(--muted);
+  color: var(--mat-sys-on-surface-variant);
 }
 
-.bar {
-  height: 0.5rem;
+mat-progress-bar {
   margin-top: 0.5rem;
-  border-radius: 0.25rem;
-  background: var(--border);
-  overflow: hidden;
-}
-
-.fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s;
 }
 
 .sensor {
@@ -51,6 +34,6 @@ h2 {
 
 .warning {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--mat-sys-corner-medium);
   background: var(--warning-surface);
 }
