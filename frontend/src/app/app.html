@@ -1,6 +1,15 @@
 <main>
   <header>
-    <h1><img class="mascot" src="mascot.svg" alt="" width="32" height="32" />Usage Control</h1>
+    <button
+      type="button"
+      class="mascot"
+      (click)="theme.toggle()"
+      [attr.aria-label]="themeToggleLabel()"
+      [title]="themeToggleLabel()"
+    >
+      <img src="mascot.svg" alt="" width="32" height="32" />
+    </button>
+    <h1>Usage Control</h1>
     <app-language-switcher />
   </header>
   <app-dashboard />

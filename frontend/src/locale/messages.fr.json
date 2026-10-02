@@ -1,6 +1,8 @@
 {
   "locale": "fr",
   "translations": {
+    "app.switchToLight": "Passer au mode clair",
+    "app.switchToDark": "Passer au mode sombre",
     "dashboard.unreachable": " Le backend est injoignable. Affichage des dernières valeurs connues. ",
     "dashboard.cpu": "CPU",
     "dashboard.cpuUsage": "Utilisation du CPU",

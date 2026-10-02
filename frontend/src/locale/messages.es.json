@@ -1,6 +1,8 @@
 {
   "locale": "es",
   "translations": {
+    "app.switchToLight": "Cambiar al modo claro",
+    "app.switchToDark": "Cambiar al modo oscuro",
     "dashboard.unreachable": " No se puede conectar con el backend. Se muestran los últimos valores conocidos. ",
     "dashboard.cpu": "CPU",
     "dashboard.cpuUsage": "Uso de CPU",

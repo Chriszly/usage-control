@@ -1,6 +1,8 @@
 {
   "locale": "de",
   "translations": {
+    "app.switchToLight": "Zum hellen Design wechseln",
+    "app.switchToDark": "Zum dunklen Design wechseln",
     "dashboard.unreachable": " Das Backend ist nicht erreichbar. Angezeigt werden die zuletzt bekannten Werte. ",
     "dashboard.cpu": "CPU",
     "dashboard.cpuUsage": "CPU-Auslastung",

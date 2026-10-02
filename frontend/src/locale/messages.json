@@ -1,6 +1,8 @@
 {
   "locale": "en",
   "translations": {
+    "app.switchToLight": "Switch to light mode",
+    "app.switchToDark": "Switch to dark mode",
     "dashboard.unreachable": " The backend cannot be reached. Showing the last known values. ",
     "dashboard.cpu": "CPU",
     "dashboard.cpuUsage": "CPU usage",
