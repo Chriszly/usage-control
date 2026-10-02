@@ -57,3 +57,10 @@ h3 {
   max-width: 100%;
   margin: 0.75rem 0 0 auto;
 }
+
+/* Keeps a label like "14 Tg." on one line when four buttons share a phone's width. */
+.ranges button {
+  min-width: 4.5rem;
+  padding-inline: 0.75rem;
+  white-space: nowrap;
+}
