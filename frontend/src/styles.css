@@ -5,7 +5,7 @@
   --surface: #ffffff;
   --background: #f6f8fa;
   --border: #d1d9e0;
-  --accent: #2f81f7;
+  --accent: #ff6a00;
   --warning-surface: #fff1c2;
 }
 
@@ -16,7 +16,7 @@
     --surface: #151b23;
     --background: #0d1117;
     --border: #3d444d;
-    --accent: #4493f8;
+    --accent: #ff7f1f;
     --warning-surface: #4b3a0b;
   }
 }
