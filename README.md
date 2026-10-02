@@ -9,11 +9,26 @@ It shows CPU and memory usage, temperature sensors and uptime so far, refreshed 
 ## Run it with Docker (Linux, Raspberry Pi)
 
 ```bash
-cp .env.example .env   # optional, to change the port
-docker compose up -d --build
+cp .env.example .env   # optional, to change the port or the image version
+docker compose pull
+docker compose up -d
 ```
 
+This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd64, so the Pi doesn't build anything. `IMAGE_TAG` picks the version: `main` (default) follows the main branch, and a release such as `1.2.3` stays fixed. To build the image from this checkout instead, run `docker compose up -d --build`.
+
 Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges.
+
+## Deploy to a Raspberry Pi from your PC
+
+`scripts/deploy.sh` does the steps above on the Pi over SSH: it copies `compose.yaml` and your `.env` there, pulls the published image and starts it. The Pi needs Docker with the compose plugin, key login over SSH, and the SSH user in the `docker` group (rpi-setup's `docker` task sets these up).
+
+```bash
+cp .env.example .env               # fill in PI_HOST; .env is git-ignored
+bash scripts/deploy.sh --dry-run   # show what it would run
+bash scripts/deploy.sh
+```
+
+A variable on the command line wins over `.env`, e.g. `PI_HOST=pi4.local IMAGE_TAG=1.2.3 bash scripts/deploy.sh`. Running it again pulls the newest image and recreates the container only when it changed.
 
 ## Develop
 
@@ -38,6 +53,8 @@ cd frontend && npm ci && npm start
 - [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
 - [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md): every pull request fills it in; the "PR Template Validation" workflow checks it
 - `ci/`: checks that CI runs and that you can run locally
+- `scripts/deploy.sh`: deploys to a Raspberry Pi over SSH
+- [SECURITY.md](SECURITY.md): how to report a vulnerability and who can change the code
 
 ## Checks
 

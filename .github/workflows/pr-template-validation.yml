@@ -9,6 +9,10 @@ permissions:
 
 jobs:
   validate-pr-template:
+    # Dependabot writes its own PR description, not ours. Skipping the job
+    # (rather than not running the workflow) still reports this required check
+    # as passed, so Dependabot PRs can merge once the rest of CI is green.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Check PR body matches template
