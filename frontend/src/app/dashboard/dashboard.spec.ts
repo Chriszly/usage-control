@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { DeviceService } from '../devices/devices';
 import { Snapshot } from '../metrics/metrics';
 import { Dashboard, REFRESH_INTERVAL_MS } from './dashboard';
 
@@ -43,6 +44,7 @@ describe('Dashboard', () => {
   });
 
   function respond(body: Snapshot | null): void {
+    fixture.detectChanges();
     vi.advanceTimersByTime(0);
     const request = http.expectOne('/api/metrics');
     if (body) {
@@ -99,5 +101,25 @@ describe('Dashboard', () => {
 
     expect(text()).toContain('cannot be reached');
     expect(text()).toContain('12.5 %');
+  });
+
+  it('shows the picked device and says when it does not answer', () => {
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'living-room-pi', name: 'Living room Pi' },
+    ]);
+    devices.selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http
+      .expectOne('/api/metrics?device=living-room-pi')
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Living room Pi has not answered recently');
+    expect(text()).not.toContain('12.5 %');
   });
 });

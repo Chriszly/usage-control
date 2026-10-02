@@ -1,13 +1,14 @@
 import { Component, computed, inject } from '@angular/core';
 
 import { Dashboard } from './dashboard/dashboard';
+import { DevicePicker } from './devices/device-picker';
 import { HistoryCharts } from './history/history';
 import { LanguageSwitcher } from './language/language-switcher';
 import { ThemeService } from './theme/theme';
 
 @Component({
   selector: 'app-root',
-  imports: [Dashboard, HistoryCharts, LanguageSwitcher],
+  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

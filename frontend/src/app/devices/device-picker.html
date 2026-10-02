@@ -1,0 +1,13 @@
+@if (devices.devices().length > 1) {
+  <mat-button-toggle-group
+    hideSingleSelectionIndicator
+    [value]="devices.selectedId()"
+    (change)="devices.selectedId.set($event.value)"
+    aria-label="Device"
+    i18n-aria-label="@@devices.label"
+  >
+    @for (device of devices.devices(); track device.id) {
+      <mat-button-toggle [value]="device.id">{{ deviceName(device) }}</mat-button-toggle>
+    }
+  </mat-button-toggle-group>
+}

@@ -7,6 +7,9 @@
 //	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/")
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
+//	DEVICE_NAME     how the page names this device (default "This device")
+//	HUB_DEVICES     other devices to collect from, which turns on hub mode:
+//	                comma-separated name=host:port entries (default none)
 package main
 
 import (
@@ -19,10 +22,12 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
+	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/server"
 	"github.com/Chriszly/usage-control/backend/internal/web"
@@ -44,6 +49,10 @@ func run() error {
 	retention, err := retentionDays()
 	if err != nil {
 		return err
+	}
+	remotes, err := hub.ParseDevices(os.Getenv("HUB_DEVICES"))
+	if err != nil {
+		return fmt.Errorf("check HUB_DEVICES: %w", err)
 	}
 
 	collector, err := metrics.NewCollector(context.Background(), diskPaths())
@@ -67,12 +76,36 @@ func run() error {
 	}
 	defer func() { _ = store.Close() }()
 
+	// This device, and in hub mode every other device, gets a recorder that
+	// reads its usage into the history and a reader that serves it.
 	recent := &history.Recent{}
-	reader := history.Reader{Store: store, Recent: recent}
+	devices := []server.Device{{
+		ID:      hub.LocalID,
+		Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
+		Metrics: collector,
+		History: history.Reader{Store: store, Recent: recent},
+	}}
+	recorders := []*history.Recorder{
+		{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention},
+	}
+	for _, remote := range remotes {
+		agent := hub.NewAgent(remote.Address)
+		recent := &history.Recent{}
+		devices = append(devices, server.Device{
+			ID:      remote.ID,
+			Name:    remote.Name,
+			Metrics: agent.Latest(),
+			History: history.Reader{Store: store, Recent: recent, Device: remote.ID},
+		})
+		recorders = append(recorders, &history.Recorder{
+			Store: store, Recent: recent, Collector: agent, Retention: retention, Device: remote.ID,
+		})
+		slog.Info("collecting from another device", "name", remote.Name, "address", remote.Address)
+	}
 
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(collector, server.History{Reader: reader, Retention: retention}, web.Files()),
+		Handler:           server.New(devices, retention, web.Files()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -82,15 +115,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention}
-	recorded := make(chan struct{})
-	go func() {
-		defer close(recorded)
-		recorder.Run(ctx)
-	}()
+	var recording sync.WaitGroup
+	for _, recorder := range recorders {
+		recording.Go(func() { recorder.Run(ctx) })
+	}
 	defer func() {
 		stop()
-		<-recorded
+		recording.Wait()
 	}()
 
 	serveErr := make(chan error, 1)

@@ -49,3 +49,30 @@ func TestRecorderStoresTheAverageAndDeletesOldValues(t *testing.T) {
 		t.Errorf("Range() = %+v, want it to start with %+v", got, want)
 	}
 }
+
+func TestRecorderStoresUnderItsDevice(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now().Truncate(time.Second)
+	recent := &Recent{}
+	recorder := &Recorder{
+		Store:     store,
+		Recent:    recent,
+		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+		Retention: 24 * time.Hour,
+		Device:    "living-room-pi",
+	}
+
+	recorder.read(ctx)
+	recorder.store(ctx, now.Add(-time.Minute), now)
+
+	local, err := store.Range(ctx, LocalDevice, now.Add(-time.Hour), now.Add(time.Second), time.Second)
+	if err != nil || len(local) != 0 {
+		t.Errorf("this device's history = %+v, %v; want it empty", local, err)
+	}
+	reader := Reader{Store: store, Recent: recent, Device: "living-room-pi"}
+	got, _, err := reader.Range(ctx, now.Add(-2*time.Hour), now.Add(time.Second))
+	if err != nil || len(got) == 0 || got[0].Points[0].Value != 30 {
+		t.Errorf("the device's history = %+v, %v; want the CPU usage it read", got, err)
+	}
+}

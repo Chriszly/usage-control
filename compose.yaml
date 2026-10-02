@@ -20,6 +20,10 @@ services:
       DISK_PATHS: ${DISK_PATHS:-/}
       # Days of history to keep; older values are deleted automatically.
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      # How the page names this device, and the other devices it collects
+      # from in hub mode; see .env.example.
+      DEVICE_NAME: ${DEVICE_NAME:-}
+      HUB_DEVICES: ${HUB_DEVICES:-}
     volumes:
       # The history database. Kept when the container is updated or recreated.
       - data:/data
