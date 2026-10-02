@@ -213,13 +213,21 @@ type hubDevices struct {
 func (d hubDevices) List() []server.Device {
 	devices := []server.Device{d.local}
 	for _, remote := range d.hub.Remotes() {
+		since, unreachable := remote.Agent.Unreachable()
+		var unreachableSince *time.Time
+		if unreachable && !since.IsZero() {
+			unreachableSince = &since
+		}
 		devices = append(devices, server.Device{
-			ID:        remote.ID,
-			Name:      remote.Name,
-			Address:   remote.Address,
-			Removable: !remote.Fixed,
-			Metrics:   remote.Agent.Latest(),
-			History:   remote.Reader,
+			ID:               remote.ID,
+			Name:             remote.Name,
+			Address:          remote.Address,
+			Removable:        !remote.Fixed,
+			Unreachable:      unreachable,
+			UnreachableSince: unreachableSince,
+			Metrics:          remote.Agent.Latest(),
+			History:          remote.Reader,
+			Availability:     remote,
 		})
 	}
 	return devices

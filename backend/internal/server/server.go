@@ -33,9 +33,21 @@ type Device struct {
 	Address string `json:"address,omitempty"`
 	// Removable is set for a device added on the page, which can be removed
 	// there too.
-	Removable bool          `json:"removable"`
-	Metrics   Collector     `json:"-"`
-	History   HistoryReader `json:"-"`
+	Removable bool `json:"removable"`
+	// Unreachable is set for another device that has not answered recently.
+	Unreachable bool `json:"unreachable,omitempty"`
+	// UnreachableSince is when it stopped answering, when that is known.
+	UnreachableSince *time.Time    `json:"unreachableSince,omitempty"`
+	Metrics          Collector     `json:"-"`
+	History          HistoryReader `json:"-"`
+	// Availability is set for the devices the hub collects from.
+	Availability AvailabilityReader `json:"-"`
+}
+
+// AvailabilityReader tells how long a device did not answer the hub since it
+// was added.
+type AvailabilityReader interface {
+	Availability(ctx context.Context) (hub.Availability, error)
 }
 
 // Devices lists the devices the site shows. The first is the machine the site
@@ -78,6 +90,7 @@ func New(site Site) http.Handler {
 	mux.HandleFunc("GET /api/history", forDevice(site.Devices, func(d Device) http.HandlerFunc {
 		return historyHandler(d.History, site.Retention)
 	}))
+	mux.HandleFunc("GET /api/availability", forDevice(site.Devices, availabilityHandler))
 	mux.Handle("GET /", websiteHandler(site.Files))
 	return localNetworkOnly(mux)
 }
@@ -158,6 +171,24 @@ func metricsHandler(d Device) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, snapshot)
+	}
+}
+
+// availabilityHandler serves GET /api/availability: how long another device
+// did not answer since the hub started collecting from it.
+func availabilityHandler(d Device) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.Availability == nil {
+			http.Error(w, "availability is only kept for the other devices the hub collects from", http.StatusNotFound)
+			return
+		}
+		availability, err := d.Availability.Availability(r.Context())
+		if err != nil {
+			slog.Error("read availability", "device", d.ID, "error", err)
+			http.Error(w, "could not read the availability", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, availability)
 	}
 }
 
