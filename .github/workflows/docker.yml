@@ -1,17 +1,16 @@
 name: Docker image
 
-# Builds the image for arm64 (Raspberry Pi) and amd64 on every pull request, without
-# publishing it. Pushes to main and version tags (v1.2.3) publish it to the GitHub
-# Container Registry as ghcr.io/<owner>/usage-control.
+# Builds the image for arm64 (Raspberry Pi) and amd64 and publishes it to the GitHub
+# Container Registry as ghcr.io/<owner>/usage-control when a pull request is merged
+# into main or a version tag (v1.2.3) is pushed. It does not run on pull requests.
 on:
-  pull_request:
-    paths-ignore: &paths-ignore ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
   push:
     branches:
       - main
     tags:
       - 'v*.*.*'
-    paths-ignore: *paths-ignore
+    # Docs-only changes don't change the image.
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
   workflow_dispatch:
 
 permissions:
@@ -19,8 +18,8 @@ permissions:
 
 concurrency:
   group: docker-${{ github.ref }}
-  # Only cancel superseded PR runs; let publishing runs finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Let every publishing run finish.
+  cancel-in-progress: false
 
 jobs:
   image:
@@ -29,9 +28,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      # Pull requests only check that the image builds.
-      PUBLISH: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -46,13 +42,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
       - name: Log in to the GitHub Container Registry
-        if: env.PUBLISH == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -64,7 +58,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUBLISH == 'true' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
