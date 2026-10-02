@@ -1,0 +1,11 @@
+<nav aria-label="Language" i18n-aria-label="@@languageSwitcher.label">
+  @for (language of languages; track language.code) {
+    <a
+      [href]="'/' + language.code + '/'"
+      [attr.lang]="language.code"
+      [attr.aria-current]="language.code === current ? 'page' : null"
+      (click)="remember(language)"
+      >{{ language.name }}</a
+    >
+  }
+</nav>

@@ -1,0 +1,29 @@
+{
+  "locale": "fr",
+  "translations": {
+    "dashboard.unreachable": " Le backend est injoignable. Affichage des dernières valeurs connues. ",
+    "dashboard.cpu": "CPU",
+    "dashboard.cpuUsage": "Utilisation du CPU",
+    "dashboard.cores": "{VAR_PLURAL, plural, =1 {1 cœur} other {{COUNT} cœurs}}",
+    "dashboard.memory": "Mémoire",
+    "dashboard.memoryUsage": "Utilisation de la mémoire",
+    "dashboard.usedOfTotal": " {$INTERPOLATION} sur {$INTERPOLATION_1} ",
+    "dashboard.disks": "Disques",
+    "dashboard.diskUsage": "Utilisation de {$INTERPOLATION}",
+    "dashboard.noDisk": "Aucun disque configuré",
+    "dashboard.network": "Réseau",
+    "dashboard.noNetwork": "Aucune carte réseau trouvée",
+    "dashboard.temperature": "Température",
+    "dashboard.noTemperature": "Non disponible sur cette machine",
+    "dashboard.uptime": "Temps de fonctionnement",
+    "dashboard.loading": "Chargement…",
+    "dashboard.uptimeDays": "{$days} j {$hours} h",
+    "dashboard.uptimeHours": "{$hours} h {$minutes} min",
+    "languageSwitcher.label": "Langue",
+    "bytes.unit.b": "o",
+    "bytes.unit.kib": "Kio",
+    "bytes.unit.mib": "Mio",
+    "bytes.unit.gib": "Gio",
+    "bytes.unit.tib": "Tio"
+  }
+}

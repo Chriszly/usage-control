@@ -1,0 +1,29 @@
+{
+  "locale": "de",
+  "translations": {
+    "dashboard.unreachable": " Das Backend ist nicht erreichbar. Angezeigt werden die zuletzt bekannten Werte. ",
+    "dashboard.cpu": "CPU",
+    "dashboard.cpuUsage": "CPU-Auslastung",
+    "dashboard.cores": "{VAR_PLURAL, plural, =1 {1 Kern} other {{COUNT} Kerne}}",
+    "dashboard.memory": "Arbeitsspeicher",
+    "dashboard.memoryUsage": "Arbeitsspeicher-Auslastung",
+    "dashboard.usedOfTotal": " {$INTERPOLATION} von {$INTERPOLATION_1} ",
+    "dashboard.disks": "Datenträger",
+    "dashboard.diskUsage": "Belegung von {$INTERPOLATION}",
+    "dashboard.noDisk": "Kein Datenträger eingerichtet",
+    "dashboard.network": "Netzwerk",
+    "dashboard.noNetwork": "Keine Netzwerkkarte gefunden",
+    "dashboard.temperature": "Temperatur",
+    "dashboard.noTemperature": "Auf diesem Gerät nicht verfügbar",
+    "dashboard.uptime": "Laufzeit",
+    "dashboard.loading": "Wird geladen…",
+    "dashboard.uptimeDays": "{$days} Tg. {$hours} h",
+    "dashboard.uptimeHours": "{$hours} h {$minutes} min",
+    "languageSwitcher.label": "Sprache",
+    "bytes.unit.b": "B",
+    "bytes.unit.kib": "KiB",
+    "bytes.unit.mib": "MiB",
+    "bytes.unit.gib": "GiB",
+    "bytes.unit.tib": "TiB"
+  }
+}

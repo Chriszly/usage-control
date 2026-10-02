@@ -6,6 +6,8 @@ It is built with a Go backend and an Angular frontend (storing history in SQLite
 
 It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network.
 
+The page is in English, German, French and Spanish. It opens in the browser's language, and the links at the top switch to another one.
+
 ## Run it with Docker (Linux, Raspberry Pi)
 
 ```bash
@@ -54,6 +56,14 @@ cd frontend && npm ci && npm start
 
 `npm run build` in `frontend/` writes the website into `backend/internal/web/files/build/`, and `go build` embeds it, so one binary serves both.
 
+### Translations
+
+The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`/en/`, `/de/`, `/fr/`, `/es/`), and the backend sends a visit to `/` on to the language picked in the page's language links, else the browser's language, else English.
+
+- Mark new text in a template with `i18n="@@area.name"` (or `i18n-aria-label` for an attribute) and in TypeScript with `` $localize`:@@area.name:Text` ``
+- Run `npm run extract-i18n` to update `src/locale/messages.json`, then add the same keys to `messages.de.json`, `messages.fr.json` and `messages.es.json`. The build fails when a translation is missing
+- `npm start -- --configuration=de` runs the live-reload website in German (or `fr`, `es`)
+
 ## Repository
 
 - [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
@@ -69,7 +79,7 @@ Run before opening a pull request:
 ```bash
 bash ci/check-no-secrets.sh
 (cd backend && gofmt -l . && golangci-lint run && go test ./... && go mod tidy -diff && go tool govulncheck ./...)
-(cd frontend && npm run format:check && npm run lint && npm audit --audit-level=high && npm test && npm run build)
+(cd frontend && npm run format:check && npm run lint && npm audit --audit-level=high && npm test && npm run build && npm run extract-i18n && git diff --exit-code src/locale/messages.json)
 ```
 
 - Formatting: `gofumpt` and `goimports` for Go (`golangci-lint fmt` fixes it), Prettier for the frontend (`npm run format` fixes it)

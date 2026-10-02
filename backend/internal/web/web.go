@@ -12,7 +12,8 @@ import (
 //go:embed all:files
 var files embed.FS
 
-// Files returns the built website, with index.html at its root.
+// Files returns the built website, with one folder per language, such as
+// en/index.html and de/index.html.
 func Files() fs.FS {
 	site, err := fs.Sub(files, "files/build")
 	if err != nil {
