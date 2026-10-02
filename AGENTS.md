@@ -18,7 +18,7 @@ usage-control is a website that monitors the hardware it runs on: it reads the u
 ## Platforms and Priorities
 
 1. **Now:** Linux, starting with a Raspberry Pi, installed with Docker. One multi-arch image (arm64 and amd64) that mounts the host's `/proc` and `/sys` read-only and runs as a non-root user
-2. **Later:** Windows on arm64 and x64, as a native installer that runs the backend as a Windows service. Docker on Windows runs in a Linux VM and would measure the VM, not the machine
+2. **Next:** Windows on arm64 and x64, as an MSI installer (WiX, `windows/usage-control.wxs`, built by `.github/workflows/windows.yml`) that runs the backend as a Windows service. Docker on Windows runs in a Linux VM and would measure the VM, not the machine
 3. **Low priority:** macOS
 
 Temperature is not available on every platform; where the OS does not expose it, the page shows it as unavailable instead of failing.

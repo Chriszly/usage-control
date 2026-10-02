@@ -2,7 +2,7 @@
 
 A website that shows the usage of the hardware it runs on (CPU, memory, disk, temperature and so on).
 
-It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs first on Linux (starting with a Raspberry Pi) with Docker. A native Windows installer comes later. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
+It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs on Linux (starting with a Raspberry Pi) with Docker, and on Windows with an installer. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
 It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
@@ -56,6 +56,24 @@ HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 `DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*).
 
 After a restart, the hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices. A device that does not answer is shown as such, and its history has a gap for that time. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
+
+## Install it on Windows
+
+Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
+
+Running the installer:
+
+- installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
+- opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the page is not reachable from other devices
+- keeps the history in `C:\ProgramData\Usage Control`, with the default retention of 30 days. Uninstalling keeps it
+
+To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
+
+```bat
+msiexec /i usage-control-1.2.3-x64.msi PORT=8090
+```
+
+Then open `http://<the PC's address>:8080` (or the port you picked) from a device on the same network, or add the PC to a hub's `HUB_DEVICES`. Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
 
 ## Deploy to a Raspberry Pi
 

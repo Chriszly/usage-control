@@ -4,7 +4,8 @@
 // Settings come from environment variables:
 //
 //	LISTEN_ADDR     address to listen on (default ":8080")
-//	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/")
+//	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/",
+//	                or the system drive such as "C:\" on Windows)
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
 //	DEVICE_NAME     how the page names this device (default "This device")
@@ -20,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,13 +36,20 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	// Installed on Windows, the service manager starts the program and tells
+	// it when to stop; everywhere else it runs until it is interrupted.
+	ranAsService, err := runAsService(run)
+	if !ranAsService && err == nil {
+		err = run(context.Background())
+	}
+	if err != nil {
 		slog.Error("usage-control stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+// run serves the website until parent is done or the program is interrupted.
+func run(parent context.Context) error {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -112,7 +121,7 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	var recording sync.WaitGroup
@@ -147,12 +156,12 @@ func run() error {
 	return nil
 }
 
-// diskPaths returns the paths from DISK_PATHS, or the root filesystem when it
-// is not set.
+// diskPaths returns the paths from DISK_PATHS, or the system disk when it is
+// not set.
 func diskPaths() []string {
 	value := os.Getenv("DISK_PATHS")
 	if strings.TrimSpace(value) == "" {
-		return []string{"/"}
+		return []string{systemDisk()}
 	}
 	var paths []string
 	for _, path := range strings.Split(value, ",") {
@@ -161,6 +170,15 @@ func diskPaths() []string {
 		}
 	}
 	return paths
+}
+
+// systemDisk returns the root of the disk the operating system is installed
+// on: / on Linux and macOS, and the system drive, usually C:\, on Windows.
+func systemDisk() string {
+	if runtime.GOOS == "windows" {
+		return os.Getenv("SystemDrive") + `\`
+	}
+	return "/"
 }
 
 // retentionDays returns how long the history is kept, from RETENTION_DAYS, or

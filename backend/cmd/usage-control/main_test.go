@@ -11,7 +11,7 @@ func TestDiskPaths(t *testing.T) {
 		value string
 		want  []string
 	}{
-		{"", []string{"/"}},
+		{"", []string{systemDisk()}},
 		{"/", []string{"/"}},
 		{" /, /mnt/usb ,", []string{"/", "/mnt/usb"}},
 	}
