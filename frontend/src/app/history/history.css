@@ -15,15 +15,6 @@ h2 {
   font: var(--mat-sys-title-large);
 }
 
-/* Every unit and every range button is as wide as the widest one. */
-mat-button-toggle-group {
-  display: grid;
-  grid-auto-columns: 1fr;
-  grid-auto-flow: column;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
 .period,
 .detail {
   margin: 0.75rem 0;
@@ -48,19 +39,27 @@ h3 {
   background: var(--warning-surface);
 }
 
+/* Each row of chips sits on the right. */
+.units,
 .ranges {
-  display: grid;
-  grid-auto-columns: 1fr;
-  grid-auto-flow: column;
-  gap: 0.5rem;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0.75rem 0 0 auto;
+  margin-left: auto;
 }
 
-/* Keeps a label like "14 Tg." on one line when four buttons share a phone's width. */
-.ranges button {
-  min-width: 4.5rem;
-  padding-inline: 0.75rem;
-  white-space: nowrap;
+.ranges {
+  margin-top: 0.75rem;
+  width: fit-content;
+}
+
+/* Centered labels of one width per row, so every chip in a row is equally wide. */
+.label {
+  display: inline-block;
+  text-align: center;
+}
+
+.units .label {
+  min-width: 5rem;
+}
+
+.ranges .label {
+  min-width: 3rem;
 }

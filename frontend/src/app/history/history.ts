@@ -1,9 +1,8 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
+import { MatChipsModule } from '@angular/material/chips';
 import { catchError, map, of, switchMap, tap, timer } from 'rxjs';
 
 import { DeviceService } from '../devices/devices';
@@ -87,7 +86,7 @@ interface Chart {
  */
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, LineChart, MatButtonModule, MatButtonToggleModule, MatCardModule],
+  imports: [DatePipe, LineChart, MatCardModule, MatChipsModule],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })
