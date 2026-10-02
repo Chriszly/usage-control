@@ -100,6 +100,9 @@ type watchedAgent struct {
 	device string
 	// outageStart is when the device stopped answering; zero while it answers.
 	outageStart time.Time
+	// lastEnd is when the previous outage ended. A new one starts after it,
+	// so the two never share the start that keys them in the database.
+	lastEnd time.Time
 }
 
 // Collect asks the device for its usage and notes an outage when it does not
@@ -115,17 +118,23 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	case err != nil:
 		if w.outageStart.IsZero() {
 			w.outageStart = now
+			if earliest := w.lastEnd.Truncate(time.Millisecond).Add(time.Millisecond); now.Before(earliest) {
+				w.outageStart = earliest
+			}
 		}
 		w.note(ctx, now)
 	case !w.outageStart.IsZero():
 		w.note(ctx, now)
-		w.outageStart = time.Time{}
+		w.outageStart, w.lastEnd = time.Time{}, now
 	}
 	return snapshot, err
 }
 
 // note stores the current outage as lasting until end.
 func (w *watchedAgent) note(ctx context.Context, end time.Time) {
+	if end.Before(w.outageStart) {
+		end = w.outageStart
+	}
 	_, err := w.db.ExecContext(ctx, `
 		INSERT INTO hub_outages (device, started, ended) VALUES (?, ?, ?)
 		ON CONFLICT (device, started) DO UPDATE SET ended = excluded.ended`,
