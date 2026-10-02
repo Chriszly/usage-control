@@ -110,7 +110,8 @@ jobs:
           # Quoted: PowerShell would split -test.v into -test and .v.
           dist\tests\usage-control-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          dist\tests\metrics-tests.exe '-test.v'
+          # Only the GPU tests: the other metrics tests assume Linux paths.
+          dist\tests\metrics-tests.exe '-test.v' '-test.run=GPU'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # WiX 5 is the last WiX release under the MS-RL license; later versions
