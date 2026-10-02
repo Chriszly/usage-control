@@ -1,23 +1,22 @@
 <section aria-labelledby="history-title">
   <div class="toolbar">
-    <h2 id="history-title" i18n="@@history.title">History</h2>
+    <h2 id="history-title">{{ i18n.t('history.title') }}</h2>
 
     <mat-button-toggle-group
       hideSingleSelectionIndicator
       [value]="unit()?.id"
       (change)="selectUnit($event.value)"
-      aria-label="Unit of the time shown"
-      i18n-aria-label="@@history.unit"
+      [attr.aria-label]="i18n.t('history.unit')"
     >
       @for (u of units(); track u.id) {
-        <mat-button-toggle [value]="u.id">{{ u.label }}</mat-button-toggle>
+        <mat-button-toggle [value]="u.id">{{ i18n.t(u.label) }}</mat-button-toggle>
       }
     </mat-button-toggle-group>
   </div>
 
   @if (unit(); as u) {
     @if (u.id !== 'all') {
-      <div class="ranges" role="group" aria-label="Time shown" i18n-aria-label="@@history.range">
+      <div class="ranges" role="group" [attr.aria-label]="i18n.t('history.range')">
         @for (range of u.ranges; track range.seconds) {
           <button
             type="button"
@@ -25,7 +24,7 @@
             [attr.aria-pressed]="range.seconds === span()"
             (click)="selectRange(range.seconds)"
           >
-            {{ range.label }}
+            {{ i18n.t(range.label) }}
           </button>
         }
       </div>
@@ -34,13 +33,12 @@
 
   @if (history(); as h) {
     <p class="period">
-      {{ h.from * 1000 | date: dateFormat() }} – {{ h.to * 1000 | date: dateFormat() }}
+      {{ h.from * 1000 | date: dateFormat() : undefined : i18n.language() }} –
+      {{ h.to * 1000 | date: dateFormat() : undefined : i18n.language() }}
     </p>
 
     @if (unreachable()) {
-      <p class="warning" role="alert" i18n="@@history.unreachableStale">
-        The history cannot be read. Showing the last values read.
-      </p>
+      <p class="warning" role="alert">{{ i18n.t('history.unreachableStale') }}</p>
     }
 
     <div class="charts">
@@ -59,12 +57,12 @@
           </mat-card-content>
         </mat-card>
       } @empty {
-        <p class="detail" i18n="@@history.empty">No usage recorded for this time yet.</p>
+        <p class="detail">{{ i18n.t('history.empty') }}</p>
       }
     </div>
   } @else if (unreachable()) {
-    <p class="warning" role="alert" i18n="@@history.unreachable">The history cannot be read.</p>
+    <p class="warning" role="alert">{{ i18n.t('history.unreachable') }}</p>
   } @else {
-    <p i18n="@@history.loading">Loading…</p>
+    <p>{{ i18n.t('history.loading') }}</p>
   }
 </section>

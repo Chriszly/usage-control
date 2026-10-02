@@ -4,7 +4,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { EMPTY, catchError } from 'rxjs';
 
-import { DeviceService, deviceName } from './devices';
+import { I18n } from '../i18n/i18n';
+import { Device, DeviceService, deviceName } from './devices';
 
 /**
  * Buttons to pick the device whose usage is shown, once the hub collects from
@@ -18,8 +19,8 @@ import { DeviceService, deviceName } from './devices';
 })
 export class DevicePicker {
   protected readonly devices = inject(DeviceService);
+  protected readonly i18n = inject(I18n);
   private readonly injector = inject(Injector);
-  protected readonly deviceName = deviceName;
 
   constructor() {
     // Without the list only this device is shown.
@@ -36,5 +37,9 @@ export class DevicePicker {
   protected async openDevices(): Promise<void> {
     const { openDevicesDialog } = await import('./devices-dialog');
     openDevicesDialog(this.injector);
+  }
+
+  protected deviceName(device: Device): string {
+    return deviceName(device, this.i18n);
   }
 }

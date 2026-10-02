@@ -7,6 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { catchError, of, switchMap, tap, timer } from 'rxjs';
 
 import { DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
+import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import { MetricsService, Snapshot } from '../metrics/metrics';
 
@@ -29,7 +30,8 @@ export class Dashboard {
 
   protected readonly snapshot = signal<Snapshot | null>(null);
   protected readonly problem = signal<Problem | null>(null);
-  protected readonly deviceName = computed(() => deviceName(this.devices.selected()));
+  protected readonly i18n = inject(I18n);
+  protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
 
   constructor() {
     toObservable(this.devices.selectedId)
@@ -65,8 +67,8 @@ export class Dashboard {
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return days > 0
-      ? $localize`:Uptime of more than a day@@dashboard.uptimeDays:${days}:days: d ${hours}:hours: h`
-      : $localize`:Uptime of less than a day@@dashboard.uptimeHours:${hours}:hours: h ${minutes}:minutes: min`;
+      ? this.i18n.t('dashboard.uptimeDays', { days, hours })
+      : this.i18n.t('dashboard.uptimeHours', { hours, minutes });
   }
 }
 

@@ -6,7 +6,7 @@ It is built with a Go backend, an Angular frontend and a SQLite file for the his
 
 It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
-The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one.
+The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one in place, without reloading the page.
 
 ## Run it with Docker (Linux, Raspberry Pi)
 
@@ -114,11 +114,11 @@ cd frontend && npm ci && npm start
 
 ### Translations
 
-The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`en/`, `de/`, `fr/`, `es/`). The backend serves all of them at the same address: each request is answered from the folder of the language picked with the page's flag buttons (a `lang` cookie), else the browser's language, else English.
+The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` is the source, and `de.ts`, `fr.ts` and `es.ts` must have the same keys, which the TypeScript compiler checks, so the build fails when a translation is missing. The `I18n` service holds the page's language as a signal, so switching it updates the page in place. The page starts in the language picked last time (kept in the browser's localStorage), else the browser's language, else English.
 
-- Mark new text in a template with `i18n="@@area.name"` (or `i18n-aria-label` for an attribute) and in TypeScript with `` $localize`:@@area.name:Text` ``
-- Run `npm run extract-i18n` to update `src/locale/messages.json`, then add the same keys to `messages.de.json`, `messages.fr.json` and `messages.es.json`. The build fails when a translation is missing
-- `npm start -- --configuration=de` runs the live-reload website in German (or `fr`, `es`)
+- Add a text to `en.ts` and the same key to the other three files. A `{name}` in a text is a placeholder
+- Show it with `i18n.t('area.name')` (or `i18n.t('area.name', { name: value })`) in a template or a `computed`, after `protected readonly i18n = inject(I18n)`
+- Format numbers and dates in the page's language by passing it to the pipe: `value | number: '1.0-1' : i18n.language()`, `time | date: format : undefined : i18n.language()`, `bytes | bytes: i18n.language()`
 
 ## Repository
 
@@ -135,7 +135,7 @@ Run before opening a pull request:
 ```bash
 bash ci/check-no-secrets.sh
 (cd backend && gofmt -l . && golangci-lint run && go test ./... && go mod tidy -diff && go tool govulncheck ./...)
-(cd frontend && npm run format:check && npm run lint && npm audit --audit-level=high && npm test && npm run build && npm run extract-i18n && git diff --exit-code src/locale/messages.json)
+(cd frontend && npm run format:check && npm run lint && npm audit --audit-level=high && npm test && npm run build)
 ```
 
 - Formatting: `gofumpt` and `goimports` for Go (`golangci-lint fmt` fixes it), Prettier for the frontend (`npm run format` fixes it)

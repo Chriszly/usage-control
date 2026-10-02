@@ -3,8 +3,7 @@
     hideSingleSelectionIndicator
     [value]="devices.selectedId()"
     (change)="devices.selectedId.set($event.value)"
-    aria-label="Device"
-    i18n-aria-label="@@devices.label"
+    [attr.aria-label]="i18n.t('devices.label')"
   >
     @for (device of devices.devices(); track device.id) {
       <mat-button-toggle [value]="device.id">{{ deviceName(device) }}</mat-button-toggle>
@@ -12,9 +11,5 @@
   </mat-button-toggle-group>
 }
 <button mat-stroked-button type="button" class="manage" (click)="openDevices()">
-  @if (devices.devices().length > 1) {
-    <ng-container i18n="@@devices.manage">Devices</ng-container>
-  } @else {
-    <ng-container i18n="@@devices.addOther">Add other devices</ng-container>
-  }
+  {{ i18n.t(devices.devices().length > 1 ? 'devices.manage' : 'devices.addOther') }}
 </button>

@@ -13,6 +13,7 @@ import {
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 
+import { I18n } from '../i18n/i18n';
 import { MIN_PASSWORD_LENGTH } from './devices';
 
 /** What the password is asked for. */
@@ -53,6 +54,7 @@ export interface PasswordDialogResult {
 })
 export class PasswordDialog {
   protected readonly data = inject<PasswordDialogData>(MAT_DIALOG_DATA);
+  protected readonly i18n = inject(I18n);
   private readonly dialog =
     inject<MatDialogRef<PasswordDialog, PasswordDialogResult>>(MatDialogRef);
 

@@ -1,12 +1,12 @@
-<nav aria-label="Language" i18n-aria-label="@@languageSwitcher.label">
+<nav [attr.aria-label]="i18n.t('languageSwitcher.label')">
   @for (language of languages; track language.code) {
     <button
       type="button"
       [attr.lang]="language.code"
       [attr.aria-label]="language.name"
       [title]="language.name"
-      [attr.aria-pressed]="language.code === current"
-      (click)="switchTo(language)"
+      [attr.aria-pressed]="language.code === i18n.language()"
+      (click)="i18n.use(language.code)"
     >
       <img [src]="'flags/' + language.code + '.svg'" alt="" width="24" height="16" />
     </button>

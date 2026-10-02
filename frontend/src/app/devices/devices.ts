@@ -2,6 +2,8 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 
+import { I18n } from '../i18n/i18n';
+
 /** A machine whose usage the website shows, as served by GET /api/devices. */
 export interface Device {
   /** Picks the device in the API, as ?device=<id>. */
@@ -24,12 +26,9 @@ export interface DeviceList {
 /** The machine the backend runs on. The API answers for it when a request names no device. */
 export const LOCAL_DEVICE: Device = { id: 'local', name: '' };
 
-/** How the page names a device. */
-export function deviceName(device: Device): string {
-  return (
-    device.name ||
-    $localize`:Name of the device the website runs on@@devices.thisDevice:This device`
-  );
+/** How the page names a device, in the page's language. */
+export function deviceName(device: Device, i18n: I18n): string {
+  return device.name || i18n.t('devices.thisDevice');
 }
 
 /** The shortest password that can be chosen; the backend checks it too. */
@@ -79,29 +78,29 @@ export class DeviceService {
 }
 
 /** Explains why adding or removing a device was refused, from the problem the backend names. */
-export function problemMessage(error: unknown): string {
+export function problemMessage(error: unknown, i18n: I18n): string {
   const problem =
     error instanceof HttpErrorResponse
       ? (error.error as { problem?: string } | null)?.problem
       : undefined;
   switch (problem) {
     case 'wrongPassword':
-      return $localize`:Error when changing devices@@devices.problem.wrongPassword:The password is wrong.`;
+      return i18n.t('devices.problem.wrongPassword');
     case 'passwordLength':
-      return $localize`:Error when changing devices@@devices.problem.passwordLength:The password needs at least ${MIN_PASSWORD_LENGTH}:count: characters.`;
+      return i18n.t('devices.problem.passwordLength', { count: MIN_PASSWORD_LENGTH });
     case 'name':
-      return $localize`:Error when adding a device@@devices.problem.name:Give the device a name of up to 64 characters, with at least one letter or digit.`;
+      return i18n.t('devices.problem.name');
     case 'nameTaken':
-      return $localize`:Error when adding a device@@devices.problem.nameTaken:Another device already has this name. Pick another one.`;
+      return i18n.t('devices.problem.nameTaken');
     case 'address':
-      return $localize`:Error when adding a device@@devices.problem.address:Write the address as IP address and port, such as 192.168.1.20:8080.`;
+      return i18n.t('devices.problem.address');
     case 'unreachable':
-      return $localize`:Error when adding a device@@devices.problem.unreachable:No usage-control answers at this address. Is it running, and is the address on the local network?`;
+      return i18n.t('devices.problem.unreachable');
     case 'fixed':
-      return $localize`:Error when removing a device@@devices.problem.fixed:This device is set in the hub's .env file. Remove it there.`;
+      return i18n.t('devices.problem.fixed');
     case 'notFound':
-      return $localize`:Error when removing a device@@devices.problem.notFound:This device has been removed already.`;
+      return i18n.t('devices.problem.notFound');
     default:
-      return $localize`:Error when changing devices@@devices.problem.other:The devices could not be changed. Try again.`;
+      return i18n.t('devices.problem.other');
   }
 }

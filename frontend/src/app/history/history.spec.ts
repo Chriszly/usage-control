@@ -4,6 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DeviceService } from '../devices/devices';
 import { History } from '../metrics/metrics';
+import { translate } from '../i18n/i18n';
 import { HistoryCharts, chartsOf } from './history';
 
 const NOW = new Date('2026-10-02T20:00:00Z');
@@ -137,13 +138,16 @@ describe('HistoryCharts', () => {
 
 describe('chartsOf', () => {
   it('groups metrics into charts and adds up the network cards', () => {
-    const charts = chartsOf([
-      { metric: 'cpu', points: [{ time: 0, value: 10 }] },
-      { metric: 'disk:/', points: [{ time: 0, value: 30 }] },
-      { metric: 'network.receive:eth0', points: [{ time: 0, value: 100 }] },
-      { metric: 'network.receive:wlan0', points: [{ time: 0, value: 50 }] },
-      { metric: 'network.send:eth0', points: [{ time: 0, value: 7 }] },
-    ]);
+    const charts = chartsOf(
+      [
+        { metric: 'cpu', points: [{ time: 0, value: 10 }] },
+        { metric: 'disk:/', points: [{ time: 0, value: 30 }] },
+        { metric: 'network.receive:eth0', points: [{ time: 0, value: 100 }] },
+        { metric: 'network.receive:wlan0', points: [{ time: 0, value: 50 }] },
+        { metric: 'network.send:eth0', points: [{ time: 0, value: 7 }] },
+      ],
+      (key) => translate('en', key),
+    );
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Network', 'Disks']);
     expect(charts[1].lines[0].points).toEqual([{ time: 0, value: 150 }]);
