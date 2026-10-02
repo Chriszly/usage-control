@@ -26,9 +26,12 @@ func (f fakeCollector) Collect(context.Context) (metrics.Snapshot, error) {
 }
 
 var site = fstest.MapFS{
-	"en/index.html":        {Data: []byte("<h1>Usage Control</h1>")},
-	"de/index.html":        {Data: []byte("<h1>Usage Control</h1>")},
-	"fr/index.html":        {Data: []byte("<h1>Usage Control</h1>")},
+	"en/index.html":        {Data: []byte("page en")},
+	"en/main.js":           {Data: []byte("script en")},
+	"de/index.html":        {Data: []byte("page de")},
+	"de/main.js":           {Data: []byte("script de")},
+	"fr/index.html":        {Data: []byte("page fr")},
+	"fr/main.js":           {Data: []byte("script fr")},
 	"3rdpartylicenses.txt": {Data: []byte("MIT")},
 }
 
@@ -74,10 +77,19 @@ func TestMetricsReportsCollectorError(t *testing.T) {
 func TestServesWebsite(t *testing.T) {
 	handler := New(fakeCollector{}, History{}, site)
 
-	rec := get(handler, "/de/", "10.0.0.5:5000")
+	for path, want := range map[string]string{
+		"/":                     "page en",
+		"/main.js":              "script en",
+		"/3rdpartylicenses.txt": "MIT",
+	} {
+		rec := get(handler, path, "10.0.0.5:5000")
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want %d", path, rec.Code, http.StatusOK)
+		}
+		if got := rec.Body.String(); got != want {
+			t.Errorf("%s: body = %q, want %q", path, got, want)
+		}
 	}
 }
 
@@ -181,40 +193,45 @@ func TestHistoryRefusesInvalidRanges(t *testing.T) {
 	}
 }
 
-func TestOpensWebsiteInPreferredLanguage(t *testing.T) {
+func TestServesWebsiteInPreferredLanguageAtTheSameAddress(t *testing.T) {
 	tests := []struct {
 		name           string
 		acceptLanguage string
 		cookie         string
 		want           string
 	}{
-		{"no preference", "", "", "/en/"},
-		{"browser language", "de-DE,de;q=0.9,en;q=0.8", "", "/de/"},
-		{"first available by quality", "it, fr;q=0.5, de;q=0.7", "", "/de/"},
-		{"no translation", "it, ja;q=0.5", "", "/en/"},
-		{"picked in the switcher", "de", "fr", "/fr/"},
-		{"unknown picked language", "de", "../etc", "/de/"},
+		{"no preference", "", "", "en"},
+		{"browser language", "de-DE,de;q=0.9,en;q=0.8", "", "de"},
+		{"first available by quality", "it, fr;q=0.5, de;q=0.7", "", "de"},
+		{"no translation", "it, ja;q=0.5", "", "en"},
+		{"picked in the switcher", "de", "fr", "fr"},
+		{"unknown picked language", "de", "../etc", "de"},
 	}
 	handler := New(fakeCollector{}, History{}, site)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.RemoteAddr = "192.168.1.20:5000"
-			if tt.acceptLanguage != "" {
-				req.Header.Set("Accept-Language", tt.acceptLanguage)
-			}
-			if tt.cookie != "" {
-				req.Header.Set("Cookie", languageCookie+"="+tt.cookie)
-			}
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			for path, prefix := range map[string]string{"/": "page ", "/main.js": "script "} {
+				req := httptest.NewRequest(http.MethodGet, path, nil)
+				req.RemoteAddr = "192.168.1.20:5000"
+				if tt.acceptLanguage != "" {
+					req.Header.Set("Accept-Language", tt.acceptLanguage)
+				}
+				if tt.cookie != "" {
+					req.Header.Set("Cookie", languageCookie+"="+tt.cookie)
+				}
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusFound {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
-			}
-			if got := rec.Header().Get("Location"); got != tt.want {
-				t.Errorf("Location = %q, want %q", got, tt.want)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s: status = %d, want %d", path, rec.Code, http.StatusOK)
+				}
+				if got, want := rec.Body.String(), prefix+tt.want; got != want {
+					t.Errorf("%s: body = %q, want %q", path, got, want)
+				}
+				if vary := rec.Header().Get("Vary"); vary != "Accept-Language, Cookie" {
+					t.Errorf("%s: Vary = %q, want the language headers", path, vary)
+				}
 			}
 		})
 	}

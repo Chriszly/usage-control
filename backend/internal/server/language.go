@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// sourceLanguage is the language the website is written in. The page opens in
-// it when the browser asks for none of the translated languages.
+// sourceLanguage is the language the website is written in. The page is shown
+// in it when the browser asks for none of the translated languages.
 const sourceLanguage = "en"
 
 // languageCookie holds the language picked in the page's language switcher.
@@ -35,7 +35,7 @@ func languages(site fs.FS) []string {
 	return found
 }
 
-// pickLanguage chooses which of the available languages to open the page in:
+// pickLanguage chooses which of the available languages to show the page in:
 // the one picked in the language switcher, else the browser's preferred one
 // from its Accept-Language header, else the source language.
 func pickLanguage(r *http.Request, available []string) string {

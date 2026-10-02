@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
@@ -44,8 +45,9 @@ func metricsHandler(collector Collector) http.HandlerFunc {
 }
 
 // websiteHandler serves the website, which is built once per language into
-// its own folder, such as /de/ for German. A request for / is sent on to the
-// folder of the language the visitor prefers.
+// its own folder, such as de/ for German. Every language is served at the same
+// address: each request is answered from the folder of the visitor's language,
+// so switching language never changes the page's address.
 func websiteHandler(site fs.FS) http.Handler {
 	available := languages(site)
 	if len(available) == 0 {
@@ -53,16 +55,39 @@ func websiteHandler(site fs.FS) http.Handler {
 			http.Error(w, "The website is not built. Run `npm run build` in frontend/ and build the backend again.", http.StatusNotFound)
 		})
 	}
-	files := http.FileServerFS(site)
+	byLanguage := make(map[string]http.Handler, len(available))
+	for _, language := range available {
+		folder, err := fs.Sub(site, language)
+		if err != nil {
+			// fs.Sub only fails for an invalid path, and languages only returns folder names.
+			panic(err)
+		}
+		byLanguage[language] = http.FileServerFS(folder)
+	}
+	shared := http.FileServerFS(site)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			files.ServeHTTP(w, r)
+		// The same address holds a different file per language, so browsers and
+		// caches must check again instead of reusing a file from another language.
+		w.Header().Set("Vary", "Accept-Language, Cookie")
+		w.Header().Set("Cache-Control", "no-cache")
+
+		language := pickLanguage(r, available)
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" || fileExists(site, language+"/"+name) {
+			byLanguage[language].ServeHTTP(w, r)
 			return
 		}
-		// The answer depends on these headers, so caches must not reuse it for other visitors.
-		w.Header().Set("Vary", "Accept-Language, Cookie")
-		http.Redirect(w, r, "/"+pickLanguage(r, available)+"/", http.StatusFound)
+		// Files built once for all languages, such as 3rdpartylicenses.txt.
+		shared.ServeHTTP(w, r)
 	})
+}
+
+func fileExists(site fs.FS, name string) bool {
+	if !fs.ValidPath(name) {
+		return false
+	}
+	info, err := fs.Stat(site, name)
+	return err == nil && !info.IsDir()
 }
 
 // localNetworkOnly refuses requests whose sender is not on the local network:
