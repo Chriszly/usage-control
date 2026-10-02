@@ -18,6 +18,26 @@ This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd
 
 Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges.
 
+## Deploy from GitHub (Deploy to Pi button)
+
+**Actions > Deploy to Pi > Run workflow** deploys the published image to the Pi: it copies `compose.yaml` to `~/usage-control` on the Pi, pulls the image (`image_tag`: `main` or a version), starts the container on `port` and checks that the website answers. It runs on a GitHub Actions runner on the Pi, so nothing connects in to the Pi and GitHub stores no SSH key or Pi address. The job logs in to the registry with its own short-lived token, so the image may stay private.
+
+One-time setup on the Pi (needs Docker; rpi-setup's `docker` task installs it):
+
+1. In this repository open **Settings > Actions > Runners > New self-hosted runner**, pick Linux and ARM64, and keep the page open.
+2. On the Pi, create a user for the runner that may use Docker:
+
+   ```bash
+   sudo useradd --system --create-home --shell /usr/sbin/nologin --groups docker usage-runner
+   sudo -u usage-runner -s   # continue as that user
+   cd ~
+   ```
+
+3. Run the page's **Download** commands, then its `./config.sh` command with `--labels pi5 --unattended` added, and leave the shell (`exit`).
+4. Run the runner as a service: `cd /home/usage-runner/actions-runner && sudo ./svc.sh install usage-runner && sudo ./svc.sh start`.
+
+The runner then shows as *Idle* under Settings > Actions > Runners, and **pi** `pi5` in the workflow picks it. This runner is separate from the one rpi-setup installs for your settings repository: a runner serves one repository. Being in the `docker` group gives `usage-runner` root rights on the Pi, so anyone who can run workflows in this repository can change the Pi; keep the repository private.
+
 ## Deploy to a Raspberry Pi from your PC
 
 `scripts/deploy.sh` does the steps above on the Pi over SSH: it copies `compose.yaml` and your `.env` there, pulls the published image and starts it. The Pi needs Docker with the compose plugin, key login over SSH, and the SSH user in the `docker` group (rpi-setup's `docker` task sets these up).
@@ -54,6 +74,7 @@ cd frontend && npm ci && npm start
 - [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md): every pull request fills it in; the "PR Template Validation" workflow checks it
 - `ci/`: checks that CI runs and that you can run locally
 - `scripts/deploy.sh`: deploys to a Raspberry Pi over SSH
+- `.github/workflows/deploy.yml`: the Deploy to Pi button, on a runner on the Pi
 - [SECURITY.md](SECURITY.md): how to report a vulnerability and who can change the code
 
 ## Checks
