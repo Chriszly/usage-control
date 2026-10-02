@@ -1,0 +1,72 @@
+<ng-template #formatted let-value>
+  @switch (unit()) {
+    @case ('percent') {
+      {{ value | number: '1.0-1' }} %
+    }
+    @case ('celsius') {
+      {{ value | number: '1.0-1' }} °C
+    }
+    @case ('bytesPerSecond') {
+      {{ value | bytes }}/s
+    }
+  }
+</ng-template>
+
+@if (lines().length > 1) {
+  <ul class="legend">
+    @for (line of lines(); track line.label; let i = $index) {
+      <li><span class="swatch" [class]="'series-' + (i % 8)"></span>{{ line.label }}</li>
+    }
+  </ul>
+}
+
+<div class="chart">
+  <div class="y-axis" aria-hidden="true">
+    <span><ng-container *ngTemplateOutlet="formatted; context: { $implicit: top() }" /></span>
+    <span><ng-container *ngTemplateOutlet="formatted; context: { $implicit: top() / 2 }" /></span>
+    <span><ng-container *ngTemplateOutlet="formatted; context: { $implicit: 0 }" /></span>
+  </div>
+
+  <div class="plot" (pointermove)="onPointerMove($event)" (pointerleave)="onPointerLeave()">
+    <svg
+      [attr.viewBox]="'0 0 ' + width + ' ' + height"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <line class="grid" x1="0" [attr.x2]="width" y1="0" y2="0" />
+      <line class="grid" x1="0" [attr.x2]="width" [attr.y1]="height / 2" [attr.y2]="height / 2" />
+      <line class="baseline" x1="0" [attr.x2]="width" [attr.y1]="height" [attr.y2]="height" />
+      @for (path of paths(); track $index) {
+        <path [attr.d]="path" [class]="'line series-' + ($index % 8)" />
+      }
+    </svg>
+
+    @if (readout(); as r) {
+      <div class="crosshair" [style.left.%]="r.left"></div>
+      <div class="tooltip" [class.flip]="r.left > 60" [style.left.%]="r.left" role="status">
+        <p class="time">{{ r.time * 1000 | date: 'EEE d MMM, HH:mm' }}</p>
+        @for (line of lines(); track line.label; let i = $index) {
+          <p>
+            <span class="swatch" [class]="'series-' + (i % 8)"></span>
+            <strong>
+              @if (r.values[i] !== null) {
+                <ng-container *ngTemplateOutlet="formatted; context: { $implicit: r.values[i] }" />
+              } @else {
+                –
+              }
+            </strong>
+            @if (lines().length > 1) {
+              <span class="label">{{ line.label }}</span>
+            }
+          </p>
+        }
+      </div>
+    }
+  </div>
+
+  <div class="x-axis" aria-hidden="true">
+    <span>{{ from() * 1000 | date: timeFormat() }}</span>
+    <span>{{ ((from() + to()) / 2) * 1000 | date: timeFormat() }}</span>
+    <span>{{ to() * 1000 | date: timeFormat() }}</span>
+  </div>
+</div>

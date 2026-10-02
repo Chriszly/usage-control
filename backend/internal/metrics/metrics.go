@@ -51,9 +51,10 @@ type Temperature struct {
 type Collector struct {
 	diskPaths []string
 
-	// mu guards the network counters of the previous call, which network
-	// speeds are measured against.
+	// mu guards the readings of the previous call, which CPU usage and
+	// network speeds are measured against.
 	mu              sync.Mutex
+	cpuTimes        cpu.TimesStat
 	networkCounters map[string]counters
 	networkTime     time.Time
 }
@@ -74,7 +75,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 // first call after start reports the average CPU usage since the machine
 // booted and a network speed of 0.
 func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
-	cpuUsage, err := cpu.PercentWithContext(ctx, 0, false)
+	cpuUsage, err := c.readCPUUsage(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read CPU usage: %w", err)
 	}
@@ -99,7 +100,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Time:          time.Now().UTC(),
 		UptimeSeconds: uptime,
 		CPU: CPU{
-			UsagePercent: firstOrZero(cpuUsage),
+			UsagePercent: cpuUsage,
 			Cores:        cores,
 		},
 		Memory: Memory{
@@ -145,11 +146,4 @@ func readTemperatures(ctx context.Context) []Temperature {
 		temperatures = append(temperatures, Temperature{Sensor: r.SensorKey, Celsius: r.Temperature})
 	}
 	return temperatures
-}
-
-func firstOrZero(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	return values[0]
 }

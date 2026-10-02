@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
 
 import { Dashboard } from './dashboard/dashboard';
+import { HistoryCharts } from './history/history';
 
 @Component({
   selector: 'app-root',
-  imports: [Dashboard],
+  imports: [Dashboard, HistoryCharts],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

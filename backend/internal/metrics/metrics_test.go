@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"testing"
+
+	"github.com/shirou/gopsutil/v4/cpu"
 )
 
 func TestCollectReadsThisMachine(t *testing.T) {
@@ -45,6 +47,26 @@ func TestNewCollectorRefusesUnreadableDiskPaths(t *testing.T) {
 	for _, path := range []string{"relative/path", "/does/not/exist"} {
 		if _, err := NewCollector(context.Background(), []string{path}); err == nil {
 			t.Errorf("NewCollector(%q) error = nil, want an error", path)
+		}
+	}
+}
+
+func TestBusyPercent(t *testing.T) {
+	previous := cpu.TimesStat{User: 100, System: 50, Idle: 800, Iowait: 50}
+	tests := []struct {
+		name     string
+		previous cpu.TimesStat
+		current  cpu.TimesStat
+		want     float64
+	}{
+		{"since boot", cpu.TimesStat{}, previous, 15},
+		{"a quarter busy", previous, cpu.TimesStat{User: 120, System: 55, Idle: 870, Iowait: 55}, 25},
+		{"no time passed", previous, previous, 0},
+		{"counters reset", previous, cpu.TimesStat{User: 1, Idle: 1}, 0},
+	}
+	for _, tt := range tests {
+		if got := busyPercent(tt.previous, tt.current); got != tt.want {
+			t.Errorf("%s: busyPercent() = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }
