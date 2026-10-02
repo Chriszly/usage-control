@@ -1,5 +1,16 @@
 <main>
-  <h1><img class="mascot" src="mascot.svg" alt="" width="32" height="32" />Usage Control</h1>
+  <header>
+    <button
+      type="button"
+      class="mascot"
+      (click)="theme.toggle()"
+      [attr.aria-label]="theme.scheme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+      [title]="theme.scheme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+    >
+      <img src="mascot.svg" alt="" width="32" height="32" />
+    </button>
+    <h1>Usage Control</h1>
+  </header>
   <app-dashboard />
   <app-history />
 </main>

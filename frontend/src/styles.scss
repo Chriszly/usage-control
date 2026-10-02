@@ -12,13 +12,8 @@ html {
 }
 
 :root {
-  --warning-surface: #fff1c2;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --warning-surface: #4b3a0b;
-  }
+  // light-dark() follows the color scheme, also when it is switched on the page.
+  --warning-surface: light-dark(#fff1c2, #4b3a0b);
 }
 
 body {
