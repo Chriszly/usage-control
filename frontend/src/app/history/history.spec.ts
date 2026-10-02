@@ -72,9 +72,9 @@ describe('HistoryCharts', () => {
   it('shows the last 24 hours and refreshes them every minute', () => {
     expect(respond()).toEqual({ from: NOW_SECONDS - 86400, to: NOW_SECONDS });
     expect(element().textContent).toContain('CPU and memory');
-    expect(labels(RANGE)).toEqual(['1 h', '6 h', '12 h', '24 h']);
+    expect(labels(RANGE)).toEqual(['1 d', '7 d', '14 d', '30 d']);
     expect(element().querySelector('.ranges [aria-pressed="true"]')?.textContent?.trim()).toBe(
-      '24 h',
+      '1 d',
     );
 
     vi.advanceTimersByTime(60_000);
@@ -87,6 +87,13 @@ describe('HistoryCharts', () => {
     click(UNIT, 'Minutes');
     expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 60, to: NOW_SECONDS });
     expect(labels(RANGE)).toEqual(['1 min', '5 min', '10 min', '30 min']);
+
+    click(UNIT, 'Hours');
+    expect(respond()).toEqual({ from: NOW_SECONDS - 12 * 3600, to: NOW_SECONDS });
+    expect(labels(RANGE)).toEqual(['1 h', '3 h', '6 h', '12 h']);
+
+    click(UNIT, 'Minutes');
+    respond();
 
     click(RANGE, '1 min');
     expect(respond()).toEqual({ from: NOW_SECONDS - 60, to: NOW_SECONDS });
@@ -109,8 +116,9 @@ describe('HistoryCharts', () => {
   });
 
   it('offers only ranges within the retention', () => {
-    respond(1);
-    expect(labels(UNIT)).toEqual(['Minutes', 'Hours']);
+    respond(7);
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
+    expect(labels(RANGE)).toEqual(['1 d', '7 d']);
   });
 });
 

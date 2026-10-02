@@ -39,16 +39,18 @@ export const UNITS: RangeUnit[] = [
     label: $localize`:Unit of the time ranges@@history.unitHours:Hours`,
     ranges: [
       { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
+      { label: $localize`:Range of three hours@@history.range3h:3 h`, seconds: 3 * 3600 },
       { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
       { label: $localize`:Range of twelve hours@@history.range12h:12 h`, seconds: 12 * 3600 },
-      { label: $localize`:Range of one day@@history.range24h:24 h`, seconds: 86400 },
     ],
   },
   {
     id: 'days',
     label: $localize`:Unit of the time ranges@@history.unitDays:Days`,
     ranges: [
+      { label: $localize`:Range of one day@@history.range1d:1 d`, seconds: 86400 },
       { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
+      { label: $localize`:Range of 14 days@@history.range14d:14 d`, seconds: 14 * 86400 },
       { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: 30 * 86400 },
     ],
   },
