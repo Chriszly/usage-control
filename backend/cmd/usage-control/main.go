@@ -4,15 +4,18 @@
 // Settings come from environment variables:
 //
 //	LISTEN_ADDR  address to listen on (default ":8080")
+//	DISK_PATHS   comma-separated paths whose disk usage is shown (default "/")
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,9 +37,14 @@ func run() error {
 		addr = ":8080"
 	}
 
+	collector, err := metrics.NewCollector(context.Background(), diskPaths())
+	if err != nil {
+		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
+	}
+
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(metrics.NewCollector(), web.Files()),
+		Handler:           server.New(collector, web.Files()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -67,4 +75,20 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// diskPaths returns the paths from DISK_PATHS, or the root filesystem when it
+// is not set.
+func diskPaths() []string {
+	value := os.Getenv("DISK_PATHS")
+	if strings.TrimSpace(value) == "" {
+		return []string{"/"}
+	}
+	var paths []string
+	for _, path := range strings.Split(value, ",") {
+		if path = strings.TrimSpace(path); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }

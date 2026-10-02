@@ -37,3 +37,13 @@ mat-progress-bar {
   border-radius: var(--mat-sys-corner-medium);
   background: var(--warning-surface);
 }
+
+.disk + .disk,
+.interface + .interface {
+  margin-top: 1rem;
+}
+
+.name {
+  margin: 0;
+  font: var(--mat-sys-label-large);
+}

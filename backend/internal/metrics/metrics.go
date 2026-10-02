@@ -8,6 +8,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -18,11 +19,13 @@ import (
 
 // Snapshot is the usage of the machine at one point in time.
 type Snapshot struct {
-	Time          time.Time     `json:"time"`
-	UptimeSeconds uint64        `json:"uptimeSeconds"`
-	CPU           CPU           `json:"cpu"`
-	Memory        Memory        `json:"memory"`
-	Temperatures  []Temperature `json:"temperatures"`
+	Time          time.Time          `json:"time"`
+	UptimeSeconds uint64             `json:"uptimeSeconds"`
+	CPU           CPU                `json:"cpu"`
+	Memory        Memory             `json:"memory"`
+	Temperatures  []Temperature      `json:"temperatures"`
+	Disks         []Disk             `json:"disks"`
+	Network       []NetworkInterface `json:"network"`
 }
 
 // CPU is the processor usage across all cores.
@@ -45,17 +48,31 @@ type Temperature struct {
 }
 
 // Collector reads snapshots of the machine's usage.
-type Collector struct{}
+type Collector struct {
+	diskPaths []string
 
-// NewCollector returns a Collector for the machine the program runs on.
-func NewCollector() *Collector {
-	return &Collector{}
+	// mu guards the network counters of the previous call, which network
+	// speeds are measured against.
+	mu              sync.Mutex
+	networkCounters map[string]counters
+	networkTime     time.Time
+}
+
+// NewCollector returns a Collector for the machine the program runs on that
+// reports the disk usage of the filesystems holding diskPaths. It fails when
+// one of the paths cannot be read.
+func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
+	if err := checkDiskPaths(ctx, diskPaths); err != nil {
+		return nil, err
+	}
+	return &Collector{diskPaths: diskPaths}, nil
 }
 
 // Collect reads the current usage of the machine.
 //
-// CPU usage is measured since the previous call, so the first call after
-// start reports the average since the machine booted.
+// CPU usage and network speed are measured since the previous call, so the
+// first call after start reports the average CPU usage since the machine
+// booted and a network speed of 0.
 func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	cpuUsage, err := cpu.PercentWithContext(ctx, 0, false)
 	if err != nil {
@@ -73,6 +90,10 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read uptime: %w", err)
 	}
+	network, err := c.readNetwork(ctx)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("read network traffic: %w", err)
+	}
 
 	return Snapshot{
 		Time:          time.Now().UTC(),
@@ -87,7 +108,25 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 			UsedPercent: memory.UsedPercent,
 		},
 		Temperatures: readTemperatures(ctx),
+		Disks:        readDisks(ctx, c.diskPaths),
+		Network:      network,
 	}, nil
+}
+
+// readNetwork returns the traffic of each network interface, with the speed
+// measured since the previous call.
+func (c *Collector) readNetwork(ctx context.Context) ([]NetworkInterface, error) {
+	current, err := readNetworkCounters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	interfaces := throughput(c.networkCounters, current, now.Sub(c.networkTime))
+	c.networkCounters, c.networkTime = current, now
+	return interfaces, nil
 }
 
 // readTemperatures returns every sensor reading the OS exposes. Many machines

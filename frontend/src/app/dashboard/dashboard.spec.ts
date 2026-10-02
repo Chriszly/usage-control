@@ -11,6 +11,16 @@ const snapshot: Snapshot = {
   cpu: { usagePercent: 12.5, cores: 4 },
   memory: { totalBytes: 8 * 1024 ** 3, usedBytes: 2 * 1024 ** 3, usedPercent: 25 },
   temperatures: [{ sensor: 'cpu_thermal', celsius: 48.3 }],
+  disks: [{ path: '/', totalBytes: 64 * 1024 ** 3, usedBytes: 16 * 1024 ** 3, usedPercent: 25 }],
+  network: [
+    {
+      name: 'eth0',
+      receivedBytes: 5 * 1024 ** 3,
+      sentBytes: 1024 ** 3,
+      receiveBytesPerSecond: 1.5 * 1024 ** 2,
+      sendBytesPerSecond: 512,
+    },
+  ],
 };
 
 describe('Dashboard', () => {
@@ -56,6 +66,17 @@ describe('Dashboard', () => {
     expect(text()).toContain('cpu_thermal');
     expect(text()).toContain('48.3 °C');
     expect(text()).toContain('3 d 4 h');
+    expect(text()).toContain('16.0 GiB of 64.0 GiB');
+    expect(text()).toContain('eth0');
+    expect(text()).toContain('↓ 1.5 MiB/s');
+    expect(text()).toContain('↑ 512 B/s');
+  });
+
+  it('says when there is no disk or network card to show', () => {
+    respond({ ...snapshot, disks: [], network: [] });
+
+    expect(text()).toContain('No disk configured');
+    expect(text()).toContain('No network card found');
   });
 
   it('says when no temperature sensor is available', () => {

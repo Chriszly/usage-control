@@ -14,9 +14,15 @@ services:
       # Read the host's usage instead of the container's.
       HOST_PROC: /host/proc
       HOST_SYS: /host/sys
+      # Disks to show, by path inside the container. "/" is the disk Docker
+      # keeps its data on, usually the system disk. To add another disk, mount
+      # a folder on it below at the same path and add that path to DISK_PATHS.
+      DISK_PATHS: ${DISK_PATHS:-/}
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      # For example a USB disk mounted at /mnt/usb on the host:
+      # - /mnt/usb:/mnt/usb:ro
     # The site only reads hardware data, so it needs no privileges.
     read_only: true
     cap_drop:
