@@ -4,7 +4,7 @@ A website that shows the usage of the hardware it runs on (CPU, memory, disk, te
 
 It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs first on Linux (starting with a Raspberry Pi) with Docker. A native Windows installer comes later. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
-It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history.
+It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
 The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one.
 
@@ -44,6 +44,18 @@ RETENTION_DAYS=90
 ```
 
 With more than 30 days, the page also offers an *All* range covering everything kept. Outside Docker, the file is `usage-control.db` in the working folder; `DATABASE_PATH` moves it.
+
+### Several devices (hub mode)
+
+Every device runs the same image. On its own it only shows itself. To see several devices on one page, pick one of them as the hub and list the others in its `.env`, each as `name=address:port`, separated by commas:
+
+```bash
+HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
+```
+
+`DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*).
+
+After a restart, the hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices. A device that does not answer is shown as such, and its history has a gap for that time. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
 ## Deploy to a Raspberry Pi
 

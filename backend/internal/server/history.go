@@ -17,12 +17,6 @@ type HistoryReader interface {
 	Range(ctx context.Context, from, to time.Time) ([]history.Series, time.Duration, error)
 }
 
-// History is where the usage over time is read from and how long it is kept.
-type History struct {
-	Reader    HistoryReader
-	Retention time.Duration
-}
-
 // historyResponse is the body of GET /api/history. Times are Unix seconds.
 type historyResponse struct {
 	From          int64            `json:"from"`
@@ -35,7 +29,7 @@ type historyResponse struct {
 // historyHandler serves GET /api/history?from=<unix seconds>&to=<unix seconds>:
 // the machine's usage in that range, averaged over steps. The range is limited to the retention period
 // and ends now at the latest.
-func historyHandler(h History) http.HandlerFunc {
+func historyHandler(reader HistoryReader, retention time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, fromErr := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 		to, toErr := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
@@ -44,10 +38,10 @@ func historyHandler(h History) http.HandlerFunc {
 			return
 		}
 		now := time.Now()
-		from = min(max(from, now.Add(-h.Retention).Unix()), now.Unix())
+		from = min(max(from, now.Add(-retention).Unix()), now.Unix())
 		to = min(max(to, from+1), now.Unix()+1)
 
-		series, step, err := h.Reader.Range(r.Context(), time.Unix(from, 0), time.Unix(to, 0))
+		series, step, err := reader.Range(r.Context(), time.Unix(from, 0), time.Unix(to, 0))
 		if err != nil {
 			slog.Error("read history", "error", err)
 			http.Error(w, "could not read the history", http.StatusInternalServerError)
@@ -60,7 +54,7 @@ func historyHandler(h History) http.HandlerFunc {
 			From:          from,
 			To:            to,
 			StepSeconds:   int64(step / time.Second),
-			RetentionDays: int(h.Retention / (24 * time.Hour)),
+			RetentionDays: int(retention / (24 * time.Hour)),
 			Series:        series,
 		})
 		if err != nil {

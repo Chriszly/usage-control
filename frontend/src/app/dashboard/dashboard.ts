@@ -1,17 +1,22 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { catchError, of, switchMap, timer } from 'rxjs';
+import { catchError, of, switchMap, tap, timer } from 'rxjs';
 
+import { DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import { MetricsService, Snapshot } from '../metrics/metrics';
 
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
 
-/** Shows the current usage of the machine and refreshes it every few seconds. */
+/** Why no new values arrived: the backend did not answer, or the device it collects from did not. */
+type Problem = 'backend' | 'device';
+
+/** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
   imports: [BytesPipe, DecimalPipe, MatCardModule, MatProgressBarModule],
@@ -20,20 +25,37 @@ export const REFRESH_INTERVAL_MS = 2000;
 })
 export class Dashboard {
   private readonly metrics = inject(MetricsService);
+  private readonly devices = inject(DeviceService);
 
   protected readonly snapshot = signal<Snapshot | null>(null);
-  protected readonly unreachable = signal(false);
+  protected readonly problem = signal<Problem | null>(null);
+  protected readonly deviceName = computed(() => deviceName(this.devices.selected()));
 
   constructor() {
-    timer(0, REFRESH_INTERVAL_MS)
+    toObservable(this.devices.selectedId)
       .pipe(
-        switchMap(() => this.metrics.current().pipe(catchError(() => of(null)))),
+        // Another device's values are not shown while the picked one's load.
+        tap(() => {
+          this.snapshot.set(null);
+          this.problem.set(null);
+        }),
+        switchMap((device) =>
+          timer(0, REFRESH_INTERVAL_MS).pipe(
+            switchMap(() =>
+              this.metrics
+                .current(device)
+                .pipe(catchError((error: unknown) => of(problemOf(error, device)))),
+            ),
+          ),
+        ),
         takeUntilDestroyed(),
       )
-      .subscribe((snapshot) => {
-        this.unreachable.set(snapshot === null);
-        if (snapshot) {
-          this.snapshot.set(snapshot);
+      .subscribe((result) => {
+        if (typeof result === 'string') {
+          this.problem.set(result);
+        } else {
+          this.problem.set(null);
+          this.snapshot.set(result);
         }
       });
   }
@@ -46,4 +68,11 @@ export class Dashboard {
       ? $localize`:Uptime of more than a day@@dashboard.uptimeDays:${days}:days: d ${hours}:hours: h`
       : $localize`:Uptime of less than a day@@dashboard.uptimeHours:${hours}:hours: h ${minutes}:minutes: min`;
   }
+}
+
+/** The backend answers 503 when a device it collects from has not answered recently. */
+function problemOf(error: unknown, device: string): Problem {
+  const deviceDown =
+    device !== LOCAL_DEVICE.id && error instanceof HttpErrorResponse && error.status === 503;
+  return deviceDown ? 'device' : 'backend';
 }

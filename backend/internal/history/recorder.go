@@ -25,6 +25,12 @@ type Recorder struct {
 	Recent    *Recent
 	Collector Collector
 	Retention time.Duration
+	// Device is the name the readings are stored under; LocalDevice when empty.
+	Device string
+
+	// failing is set while readings fail, so an unreachable device is logged
+	// once and not every few seconds.
+	failing bool
 }
 
 // Run records until ctx is cancelled. Failures are logged and the next
@@ -34,7 +40,7 @@ func (r *Recorder) Run(ctx context.Context) {
 	// The first reading measures CPU usage since the machine booted and no
 	// network speed, so it only starts the first interval and is not kept.
 	if _, err := r.Collector.Collect(ctx); err != nil {
-		slog.Error("read usage for the history", "error", err)
+		r.failed(err)
 	}
 
 	read := time.NewTicker(RecentInterval)
@@ -59,10 +65,22 @@ func (r *Recorder) Run(ctx context.Context) {
 func (r *Recorder) read(ctx context.Context) {
 	snapshot, err := r.Collector.Collect(ctx)
 	if err != nil {
-		slog.Error("read usage for the history", "error", err)
+		r.failed(err)
 		return
 	}
+	if r.failing {
+		r.failing = false
+		slog.Info("reading usage for the history works again", "device", deviceOrLocal(r.Device))
+	}
 	r.Recent.Add(snapshot.Time, values(snapshot))
+}
+
+// failed logs a failed reading, unless the previous one failed too.
+func (r *Recorder) failed(err error) {
+	if !r.failing {
+		r.failing = true
+		slog.Error("read usage for the history", "device", deviceOrLocal(r.Device), "error", err)
+	}
 }
 
 // store saves the average of the readings from from up to to, at time to.
@@ -71,7 +89,7 @@ func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if averages == nil {
 		return
 	}
-	if err := r.Store.Add(ctx, LocalDevice, to, averages); err != nil {
+	if err := r.Store.Add(ctx, deviceOrLocal(r.Device), to, averages); err != nil {
 		slog.Error("store usage in the history", "error", err)
 	}
 }

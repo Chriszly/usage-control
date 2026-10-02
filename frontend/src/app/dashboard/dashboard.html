@@ -1,6 +1,10 @@
-@if (unreachable()) {
+@if (problem() === 'backend') {
   <p class="warning" role="alert" i18n="@@dashboard.unreachable">
     The backend cannot be reached. Showing the last known values.
+  </p>
+} @else if (problem() === 'device') {
+  <p class="warning" role="alert" i18n="@@dashboard.deviceUnreachable">
+    {{ deviceName() }} has not answered recently. Is usage-control running on it?
   </p>
 }
 
@@ -104,6 +108,6 @@
       </mat-card-content>
     </mat-card>
   </div>
-} @else if (!unreachable()) {
+} @else if (!problem()) {
   <p i18n="@@dashboard.loading">Loading…</p>
 }

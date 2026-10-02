@@ -4,11 +4,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -17,21 +20,74 @@ type Collector interface {
 	Collect(ctx context.Context) (metrics.Snapshot, error)
 }
 
+// Device is a machine whose usage the site shows: the one it runs on and, in
+// hub mode, the other devices it collects from.
+type Device struct {
+	// ID picks the device in the API, as ?device=<id>.
+	ID string `json:"id"`
+	// Name is how the page shows the device. It is empty for the machine the
+	// site runs on when no name is set; the page then calls it "This device".
+	Name    string        `json:"name"`
+	Metrics Collector     `json:"-"`
+	History HistoryReader `json:"-"`
+}
+
 // New returns the handler for the whole site: the JSON API under /api/ and
-// the website from site. Requests from outside the local network are refused.
-func New(collector Collector, h History, site fs.FS) http.Handler {
+// the website from site. The first device is the one the API answers for when
+// a request names none; retention is how long the history is kept. Requests
+// from outside the local network are refused.
+func New(devices []Device, retention time.Duration, site fs.FS) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/metrics", metricsHandler(collector))
-	mux.HandleFunc("GET /api/history", historyHandler(h))
+	mux.HandleFunc("GET /api/devices", devicesHandler(devices))
+	mux.HandleFunc("GET /api/metrics", forDevice(devices, metricsHandler))
+	mux.HandleFunc("GET /api/history", forDevice(devices, func(d Device) http.HandlerFunc {
+		return historyHandler(d.History, retention)
+	}))
 	mux.Handle("GET /", websiteHandler(site))
 	return localNetworkOnly(mux)
 }
 
-func metricsHandler(collector Collector) http.HandlerFunc {
+// devicesHandler serves GET /api/devices: the devices the site shows.
+func devicesHandler(devices []Device) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(devices); err != nil {
+			slog.Error("write devices response", "error", err)
+		}
+	}
+}
+
+// forDevice passes a request on to the handler for the device in its
+// ?device= parameter, or for the first device when there is none.
+func forDevice(devices []Device, handler func(Device) http.HandlerFunc) http.HandlerFunc {
+	handlers := make(map[string]http.HandlerFunc, len(devices))
+	for _, d := range devices {
+		handlers[d.ID] = handler(d)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		snapshot, err := collector.Collect(r.Context())
+		id := r.URL.Query().Get("device")
+		if id == "" && len(devices) > 0 {
+			id = devices[0].ID
+		}
+		h, ok := handlers[id]
+		if !ok {
+			http.Error(w, "there is no device with this id; GET /api/devices lists them", http.StatusNotFound)
+			return
+		}
+		h(w, r)
+	}
+}
+
+func metricsHandler(d Device) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		snapshot, err := d.Metrics.Collect(r.Context())
+		if errors.Is(err, hub.ErrUnreachable) {
+			http.Error(w, "the device has not answered recently", http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil {
-			slog.Error("collect metrics", "error", err)
+			slog.Error("collect metrics", "device", d.ID, "error", err)
 			http.Error(w, "could not read the machine's usage", http.StatusInternalServerError)
 			return
 		}

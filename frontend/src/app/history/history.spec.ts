@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { DeviceService } from '../devices/devices';
 import { History } from '../metrics/metrics';
 import { HistoryCharts, chartsOf } from './history';
 
@@ -107,6 +108,18 @@ describe('HistoryCharts', () => {
   it('offers only ranges within the retention', () => {
     respond(1);
     expect(rangeButtons().map((b) => b.textContent?.trim())).not.toContain('7 d');
+  });
+
+  it('reads the history of the picked device', () => {
+    respond();
+
+    TestBed.inject(DeviceService).selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    const request = http.expectOne((r) => r.url === '/api/history');
+    expect(request.request.params.get('device')).toBe('living-room-pi');
+    request.flush(historyFor(NOW_SECONDS - 86400, NOW_SECONDS, 30));
   });
 });
 

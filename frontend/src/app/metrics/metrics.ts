@@ -2,6 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { LOCAL_DEVICE } from '../devices/devices';
+
 /** The usage of the machine at one point in time, as served by GET /api/metrics. */
 export interface Snapshot {
   time: string;
@@ -74,17 +76,24 @@ export interface Point {
   value: number;
 }
 
-/** Reads the machine's usage from the backend. */
+/** Reads the usage of a device from the backend: the one it runs on unless another is named. */
 @Injectable({ providedIn: 'root' })
 export class MetricsService {
   private readonly http = inject(HttpClient);
 
-  current(): Observable<Snapshot> {
-    return this.http.get<Snapshot>('/api/metrics');
+  current(device = LOCAL_DEVICE.id): Observable<Snapshot> {
+    return this.http.get<Snapshot>('/api/metrics', { params: deviceParam(device) });
   }
 
   /** The usage from `from` to `to`, both Unix seconds. */
-  history(from: number, to: number): Observable<History> {
-    return this.http.get<History>('/api/history', { params: { from, to } });
+  history(from: number, to: number, device = LOCAL_DEVICE.id): Observable<History> {
+    return this.http.get<History>('/api/history', {
+      params: { from, to, ...deviceParam(device) },
+    });
   }
+}
+
+/** The backend answers for the device it runs on when a request names none. */
+function deviceParam(device: string): Record<string, string> {
+  return device === LOCAL_DEVICE.id ? {} : { device };
 }

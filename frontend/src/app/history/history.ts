@@ -3,8 +3,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCardModule } from '@angular/material/card';
-import { catchError, map, of, switchMap, timer } from 'rxjs';
+import { catchError, map, of, switchMap, tap, timer } from 'rxjs';
 
+import { DeviceService } from '../devices/devices';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
@@ -54,6 +55,7 @@ interface Chart {
 })
 export class HistoryCharts {
   private readonly metrics = inject(MetricsService);
+  private readonly devices = inject(DeviceService);
 
   /** The length of the shown time, in seconds. */
   protected readonly span = signal(86400);
@@ -84,12 +86,22 @@ export class HistoryCharts {
   });
 
   constructor() {
-    toObservable(this.span)
+    let shownDevice = this.devices.selectedId();
+    toObservable(computed(() => ({ span: this.span(), device: this.devices.selectedId() })))
       .pipe(
-        switchMap((span) => timer(0, refreshIntervalMs(span)).pipe(map(() => span))),
-        switchMap((span) => {
+        // Another device's charts are not shown while the picked one's load.
+        tap(({ device }) => {
+          if (device !== shownDevice) {
+            shownDevice = device;
+            this.history.set(null);
+          }
+        }),
+        switchMap(({ span, device }) =>
+          timer(0, refreshIntervalMs(span)).pipe(map(() => ({ span, device }))),
+        ),
+        switchMap(({ span, device }) => {
           const to = nowSeconds();
-          return this.metrics.history(to - span, to).pipe(catchError(() => of(null)));
+          return this.metrics.history(to - span, to, device).pipe(catchError(() => of(null)));
         }),
         takeUntilDestroyed(),
       )
