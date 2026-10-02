@@ -27,9 +27,16 @@ mat-progress-bar {
 
 .sensor {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  column-gap: 1rem;
   margin: 0.25rem 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* Longer translated units wrap a whole value onto the next line, never inside it. */
+.sensor span {
+  white-space: nowrap;
 }
 
 .warning {

@@ -103,6 +103,11 @@ jobs:
         run: npm audit --audit-level=high
       - run: npm test
       - run: npm run build
+      # New or changed text must be extracted into the source translation file.
+      - name: Check the translation source file is up to date
+        run: |
+          npm run extract-i18n
+          git diff --exit-code src/locale/messages.json
 
 
   docker:

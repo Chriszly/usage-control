@@ -1,0 +1,31 @@
+{
+  "locale": "en",
+  "translations": {
+    "app.switchToLight": "Switch to light mode",
+    "app.switchToDark": "Switch to dark mode",
+    "dashboard.unreachable": " The backend cannot be reached. Showing the last known values. ",
+    "dashboard.cpu": "CPU",
+    "dashboard.cpuUsage": "CPU usage",
+    "dashboard.cores": "{VAR_PLURAL, plural, =1 {1 core} other {{COUNT} cores}}",
+    "dashboard.memory": "Memory",
+    "dashboard.memoryUsage": "Memory usage",
+    "dashboard.usedOfTotal": " {$INTERPOLATION} of {$INTERPOLATION_1} ",
+    "dashboard.disks": "Disks",
+    "dashboard.diskUsage": "Disk usage of {$INTERPOLATION}",
+    "dashboard.noDisk": "No disk configured",
+    "dashboard.network": "Network",
+    "dashboard.noNetwork": "No network card found",
+    "dashboard.temperature": "Temperature",
+    "dashboard.noTemperature": "Not available on this machine",
+    "dashboard.uptime": "Uptime",
+    "dashboard.loading": "Loading…",
+    "dashboard.uptimeDays": "{$days} d {$hours} h",
+    "dashboard.uptimeHours": "{$hours} h {$minutes} min",
+    "languageSwitcher.label": "Language",
+    "bytes.unit.b": "B",
+    "bytes.unit.kib": "KiB",
+    "bytes.unit.mib": "MiB",
+    "bytes.unit.gib": "GiB",
+    "bytes.unit.tib": "TiB"
+  }
+}

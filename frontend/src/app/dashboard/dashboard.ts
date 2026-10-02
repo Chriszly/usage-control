@@ -42,6 +42,8 @@ export class Dashboard {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return days > 0 ? `${days} d ${hours} h` : `${hours} h ${minutes} min`;
+    return days > 0
+      ? $localize`:Uptime of more than a day@@dashboard.uptimeDays:${days}:days: d ${hours}:hours: h`
+      : $localize`:Uptime of less than a day@@dashboard.uptimeHours:${hours}:hours: h ${minutes}:minutes: min`;
   }
 }

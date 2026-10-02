@@ -72,6 +72,13 @@ describe('Dashboard', () => {
     expect(text()).toContain('↑ 512 B/s');
   });
 
+  it('says "core" for a single core', () => {
+    respond({ ...snapshot, cpu: { usagePercent: 3, cores: 1 } });
+
+    expect(text()).toContain('1 core');
+    expect(text()).not.toContain('1 cores');
+  });
+
   it('says when there is no disk or network card to show', () => {
     respond({ ...snapshot, disks: [], network: [] });
 
