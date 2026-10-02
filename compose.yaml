@@ -1,0 +1,28 @@
+# usage-control on a Raspberry Pi (or any Linux host) with Docker.
+# scripts/deploy.sh copies this file and your .env to the Pi and starts it.
+#
+# The container reads the host's /proc and /sys read-only (gopsutil follows
+# HOST_PROC and HOST_SYS), keeps its SQLite file on the "data" volume and
+# runs without extra capabilities.
+services:
+  usage-control:
+    image: ${IMAGE:?set IMAGE in .env}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+      RETENTION_DAYS: ${RETENTION_DAYS:-}
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - data:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  data:
