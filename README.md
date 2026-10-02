@@ -80,7 +80,7 @@ cd frontend && npm ci && npm start
 
 ### Translations
 
-The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`/en/`, `/de/`, `/fr/`, `/es/`), and the backend sends a visit to `/` on to the language picked with the page's flag buttons, else the browser's language, else English.
+The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`en/`, `de/`, `fr/`, `es/`). The backend serves all of them at the same address: each request is answered from the folder of the language picked with the page's flag buttons (a `lang` cookie), else the browser's language, else English.
 
 - Mark new text in a template with `i18n="@@area.name"` (or `i18n-aria-label` for an attribute) and in TypeScript with `` $localize`:@@area.name:Text` ``
 - Run `npm run extract-i18n` to update `src/locale/messages.json`, then add the same keys to `messages.de.json`, `messages.fr.json` and `messages.es.json`. The build fails when a translation is missing

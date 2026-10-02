@@ -3,20 +3,23 @@ nav {
   gap: 0.25rem;
 }
 
-a {
+button {
   display: flex;
   padding: 0.25rem;
+  border: none;
+  background: none;
+  cursor: pointer;
   border-radius: var(--mat-sys-corner-extra-small);
   outline-offset: 1px;
   opacity: 0.6;
 }
 
-a:hover,
-a:focus-visible {
+button:hover,
+button:focus-visible {
   opacity: 1;
 }
 
-a[aria-current='page'] {
+button[aria-pressed='true'] {
   opacity: 1;
   outline: 2px solid var(--mat-sys-primary);
 }
