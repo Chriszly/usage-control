@@ -2,32 +2,42 @@
   <div class="toolbar">
     <h2 id="history-title">{{ i18n.t('history.title') }}</h2>
 
-    <mat-button-toggle-group
+    <mat-chip-listbox
+      class="units"
       hideSingleSelectionIndicator
-      [value]="unit()?.id"
       (change)="selectUnit($event.value)"
       [attr.aria-label]="i18n.t('history.unit')"
     >
       @for (u of units(); track u.id) {
-        <mat-button-toggle [value]="u.id">{{ i18n.t(u.label) }}</mat-button-toggle>
+        <mat-chip-option
+          [value]="u.id"
+          [selected]="u.id === unit()?.id"
+          [selectable]="u.id !== unit()?.id"
+        >
+          <span class="label">{{ i18n.t(u.label) }}</span>
+        </mat-chip-option>
       }
-    </mat-button-toggle-group>
+    </mat-chip-listbox>
   </div>
 
   @if (unit(); as u) {
     @if (u.id !== 'all') {
-      <div class="ranges" role="group" [attr.aria-label]="i18n.t('history.range')">
+      <mat-chip-listbox
+        class="ranges"
+        hideSingleSelectionIndicator
+        (change)="selectRange($event.value)"
+        [attr.aria-label]="i18n.t('history.range')"
+      >
         @for (range of u.ranges; track range.seconds) {
-          <button
-            type="button"
-            [matButton]="range.seconds === span() ? 'tonal' : 'outlined'"
-            [attr.aria-pressed]="range.seconds === span()"
-            (click)="selectRange(range.seconds)"
+          <mat-chip-option
+            [value]="range.seconds"
+            [selected]="range.seconds === span()"
+            [selectable]="range.seconds !== span()"
           >
-            {{ i18n.t(range.label) }}
-          </button>
+            <span class="label">{{ i18n.t(range.label) }}</span>
+          </mat-chip-option>
         }
-      </div>
+      </mat-chip-listbox>
     }
   }
 
