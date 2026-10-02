@@ -193,9 +193,48 @@ describe('Dashboard', () => {
     http
       .expectOne('/api/metrics?device=living-room-pi')
       .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    http
+      .expectOne('/api/availability?device=living-room-pi')
+      .flush('down', { status: 502, statusText: 'Bad Gateway' });
     fixture.detectChanges();
 
     expect(text()).toContain('Living room Pi has not answered recently');
     expect(text()).not.toContain('12.5 %');
+  });
+
+  it('shows how long another device was offline since it was added', () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'living-room-pi', name: 'Living room Pi' },
+    ]);
+    devices.selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http
+      .expectOne('/api/metrics?device=living-room-pi')
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    http.expectOne('/api/availability?device=living-room-pi').flush({
+      since: '2026-10-01T12:00:00Z',
+      offlineSeconds: 864,
+      outages: 1,
+      lastOutage: { start: '2026-10-02T11:00:00Z', end: '2026-10-02T11:14:24Z' },
+    });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Availability');
+    expect(text()).toContain('99 %');
+    expect(text()).toContain('Offline for 14 min since');
+    expect(text()).toContain('1 outage, the last on');
+    expect(text()).toContain('for 14 min');
+  });
+
+  it('leaves out the availability for this device', () => {
+    respond(snapshot);
+
+    expect(text()).not.toContain('Availability');
   });
 });

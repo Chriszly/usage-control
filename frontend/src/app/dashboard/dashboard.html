@@ -1,3 +1,39 @@
+<ng-template #availabilityCard let-a>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <h2>{{ i18n.t('dashboard.availability') }}</h2>
+      <p class="value">{{ availablePercent(a) | number: '1.0-2' : i18n.language() }} %</p>
+      <p class="detail">
+        @if (a.outages > 0) {
+          {{
+            i18n.t('dashboard.offlineSince', {
+              duration: formatDuration(a.offlineSeconds),
+              date: when(a.since),
+            })
+          }}
+        } @else {
+          {{
+            i18n.t('dashboard.noOutageSince', {
+              date: when(a.since),
+            })
+          }}
+        }
+      </p>
+      @if (a.lastOutage; as last) {
+        <p class="detail">
+          {{ i18n.plural(a.outages, 'dashboard.outages.one', 'dashboard.outages.other') }}
+          {{
+            i18n.t('dashboard.lastOutage', {
+              date: when(last.start),
+              duration: outageLength(last),
+            })
+          }}
+        </p>
+      }
+    </mat-card-content>
+  </mat-card>
+</ng-template>
+
 @if (problem() === 'backend') {
   <p class="warning" role="alert">{{ i18n.t('dashboard.unreachable') }}</p>
 } @else if (problem() === 'device') {
@@ -149,6 +185,14 @@
         <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
       </mat-card-content>
     </mat-card>
+
+    @if (availability(); as a) {
+      <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
+    }
+  </div>
+} @else if (problem() === 'device' && availability(); as a) {
+  <div class="cards alone">
+    <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
   </div>
 } @else if (!problem()) {
   <p>{{ i18n.t('dashboard.loading') }}</p>

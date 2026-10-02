@@ -40,6 +40,8 @@ type Agent struct {
 	mu       sync.Mutex
 	latest   metrics.Snapshot
 	latestAt time.Time
+	// failingSince is when asking the device started to fail; zero while it answers.
+	failingSince time.Time
 }
 
 // NewAgent returns an Agent for the device at address (host:port).
@@ -64,6 +66,35 @@ func NewAgent(address string) *Agent {
 // set to when it arrived, so a device whose clock is off is still recorded at
 // the right time.
 func (a *Agent) Collect(ctx context.Context) (metrics.Snapshot, error) {
+	snapshot, err := a.ask(ctx)
+	now := time.Now().UTC()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err != nil {
+		if a.failingSince.IsZero() {
+			a.failingSince = now
+		}
+		return snapshot, err
+	}
+	snapshot.Time = now
+	a.latest, a.latestAt, a.failingSince = snapshot, now, time.Time{}
+	return snapshot, nil
+}
+
+// Unreachable reports whether the device has not answered recently, as
+// LatestCollector does, and since when asking it fails; since is zero when it
+// has not been asked yet.
+func (a *Agent) Unreachable() (since time.Time, unreachable bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.latestAt.IsZero() && time.Since(a.latestAt) <= staleAfter {
+		return time.Time{}, false
+	}
+	return a.failingSince, true
+}
+
+// ask asks the device for its current usage.
+func (a *Agent) ask(ctx context.Context) (metrics.Snapshot, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.url, nil)
 	if err != nil {
 		return metrics.Snapshot{}, err
@@ -81,12 +112,6 @@ func (a *Agent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes)).Decode(&snapshot); err != nil {
 		return metrics.Snapshot{}, fmt.Errorf("read the answer of %s: %w", a.url, err)
 	}
-	now := time.Now().UTC()
-	snapshot.Time = now
-
-	a.mu.Lock()
-	a.latest, a.latestAt = snapshot, now
-	a.mu.Unlock()
 	return snapshot, nil
 }
 

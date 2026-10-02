@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -44,6 +45,7 @@ type Remote struct {
 	Agent  *Agent
 	Reader history.Reader
 
+	db       *sql.DB
 	stop     context.CancelFunc
 	recorded chan struct{}
 }
@@ -52,7 +54,13 @@ type Remote struct {
 // earlier, until ctx is done. The history is kept in store, for retention.
 func New(ctx context.Context, store *history.Store, retention time.Duration, fixed []Device) (*Hub, error) {
 	h := &Hub{store: store, retention: retention, ctx: ctx}
-	if _, err := store.DB().ExecContext(ctx, savedSchema); err != nil {
+	for _, schema := range []string{savedSchema, availabilitySchema} {
+		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
+			return nil, err
+		}
+	}
+	// Devices added before availability was tracked count from when they were added.
+	if _, err := store.DB().ExecContext(ctx, `INSERT OR IGNORE INTO hub_watched (device, since) SELECT id, added FROM hub_devices`); err != nil {
 		return nil, err
 	}
 	saved, err := h.saved(ctx)
@@ -108,8 +116,8 @@ func (h *Hub) Add(ctx context.Context, name, address string) (Device, error) {
 }
 
 // Remove stops collecting from a device added on the page and forgets it.
-// Its history is deleted too, unless keepHistory is set; adding a device with
-// the same name later continues a kept history.
+// Its history and availability are deleted too, unless keepHistory is set;
+// adding a device with the same name later continues them.
 func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -131,7 +139,15 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 	if keepHistory {
 		return nil
 	}
+	if err := forget(ctx, h.store.DB(), id); err != nil {
+		return err
+	}
 	return h.store.DeleteDevice(ctx, id)
+}
+
+// Availability tells how long the device did not answer since it was added.
+func (r *Remote) Availability(ctx context.Context) (Availability, error) {
+	return readAvailability(ctx, r.db, r.ID)
 }
 
 // Wait waits until every recorder has stopped after the ctx given to New is done.
@@ -142,6 +158,9 @@ func (h *Hub) Wait() {
 // start begins collecting from a device. The caller holds mu, or New runs.
 func (h *Hub) start(device Device, fixed bool) {
 	agent := NewAgent(device.Address)
+	if err := watch(h.ctx, h.store.DB(), device.ID, time.Now()); err != nil {
+		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)
+	}
 	recent := &history.Recent{}
 	ctx, stop := context.WithCancel(h.ctx)
 	remote := &Remote{
@@ -149,11 +168,13 @@ func (h *Hub) start(device Device, fixed bool) {
 		Fixed:    fixed,
 		Agent:    agent,
 		Reader:   history.Reader{Store: h.store, Recent: recent, Device: device.ID},
+		db:       h.store.DB(),
 		stop:     stop,
 		recorded: make(chan struct{}),
 	}
 	recorder := &history.Recorder{
-		Store: h.store, Recent: recent, Collector: agent, Retention: h.retention, Device: device.ID,
+		Store: h.store, Recent: recent, Retention: h.retention, Device: device.ID,
+		Collector: &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID},
 	}
 	h.recording.Go(func() {
 		defer close(remote.recorded)
