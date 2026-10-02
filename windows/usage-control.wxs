@@ -110,7 +110,7 @@
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
     -->
-    <Component Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
+    <Component Id="DataFolder" Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;LS)" />
       </CreateFolder>
