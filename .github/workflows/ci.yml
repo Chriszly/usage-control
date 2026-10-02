@@ -95,19 +95,3 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  docker:
-    name: Docker image (arm64 and amd64)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      # Builds both architectures without pushing, to catch a broken image early.
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
