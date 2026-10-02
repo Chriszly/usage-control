@@ -21,29 +21,35 @@ describe('DevicePicker', () => {
   afterEach(() => http.verify());
 
   function respond(devices: Device[]): void {
-    http.expectOne('/api/devices').flush(devices);
+    http.expectOne('/api/devices').flush({ devices, passwordSet: false });
     fixture.detectChanges();
   }
 
-  function buttons(): HTMLButtonElement[] {
-    return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+  function labels(): string[] {
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+    return Array.from(buttons, (b) => b.textContent?.trim() ?? '');
   }
 
-  it('shows nothing when the backend only shows its own device', () => {
+  it('only offers to add other devices when there are none', () => {
     respond([{ id: 'local', name: '' }]);
 
-    expect(buttons()).toHaveLength(0);
+    expect(labels()).toEqual(['Add other devices']);
   });
 
-  it('lets the user pick a device in hub mode', () => {
+  it('lets the user pick a device once there are others', () => {
     respond([
       { id: 'local', name: '' },
-      { id: 'living-room-pi', name: 'Living room Pi' },
+      {
+        id: 'living-room-pi',
+        name: 'Living room Pi',
+        address: '192.168.1.20:8080',
+        removable: true,
+      },
     ]);
 
-    expect(buttons().map((b) => b.textContent?.trim())).toEqual(['This device', 'Living room Pi']);
+    expect(labels()).toEqual(['This device', 'Living room Pi', 'Devices']);
 
-    buttons()[1].click();
+    (fixture.nativeElement as HTMLElement).querySelectorAll('button')[1].click();
 
     expect(TestBed.inject(DeviceService).selected().name).toBe('Living room Pi');
   });
@@ -52,7 +58,7 @@ describe('DevicePicker', () => {
     http.expectOne('/api/devices').flush('down', { status: 502, statusText: 'Bad Gateway' });
     fixture.detectChanges();
 
-    expect(buttons()).toHaveLength(0);
+    expect(labels()).toEqual(['Add other devices']);
     expect(TestBed.inject(DeviceService).selected().id).toBe('local');
   });
 });

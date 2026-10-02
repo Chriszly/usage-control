@@ -24,6 +24,7 @@ services:
       # from in hub mode; see .env.example.
       DEVICE_NAME: ${DEVICE_NAME:-}
       HUB_DEVICES: ${HUB_DEVICES:-}
+      RESET_PASSWORD: ${RESET_PASSWORD:-}
     volumes:
       # The history database. Kept when the container is updated or recreated.
       - data:/data

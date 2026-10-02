@@ -1,0 +1,68 @@
+<h2 mat-dialog-title i18n="@@devicesDialog.title">Devices</h2>
+
+<mat-dialog-content>
+  <p class="hint" i18n="@@devicesDialog.intro">
+    This device can show the usage of other devices on the local network that run usage-control.
+  </p>
+
+  <ul>
+    @for (device of others(); track device.id) {
+      <li>
+        <span class="name">{{ device.name }}</span>
+        <span class="address">{{ device.address }}</span>
+        @if (device.removable) {
+          <button mat-button type="button" [disabled]="busy()" (click)="remove(device)">
+            <ng-container i18n="@@devicesDialog.remove">Remove</ng-container>
+          </button>
+        } @else {
+          <span class="fixed" i18n="@@devicesDialog.fixed">Set in .env</span>
+        }
+      </li>
+    } @empty {
+      <li class="hint" i18n="@@devicesDialog.empty">No other devices yet.</li>
+    }
+  </ul>
+
+  <form (ngSubmit)="add()">
+    <h3 i18n="@@devicesDialog.addTitle">Add a device</h3>
+    <mat-form-field>
+      <mat-label i18n="@@devicesDialog.name">Name</mat-label>
+      <input
+        matInput
+        name="name"
+        maxlength="64"
+        autocomplete="off"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+      />
+    </mat-form-field>
+    <mat-form-field>
+      <mat-label i18n="@@devicesDialog.address">Address</mat-label>
+      <input
+        matInput
+        name="address"
+        placeholder="192.168.1.20:8080"
+        autocomplete="off"
+        [ngModel]="address()"
+        (ngModelChange)="address.set($event)"
+      />
+      <mat-hint i18n="@@devicesDialog.addressHint">IP address or name, and port</mat-hint>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      type="submit"
+      [disabled]="busy() || !name().trim() || !address().trim()"
+      i18n="@@devicesDialog.add"
+    >
+      Add
+    </button>
+  </form>
+
+  @if (problem()) {
+    <p class="error" role="alert">{{ problem() }}</p>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" mat-dialog-close i18n="@@devicesDialog.close">Close</button>
+</mat-dialog-actions>

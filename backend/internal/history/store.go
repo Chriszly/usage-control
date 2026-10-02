@@ -130,3 +130,15 @@ func (s *Store) DeleteBefore(ctx context.Context, t time.Time) (int64, error) {
 	}
 	return result.RowsAffected()
 }
+
+// DeleteDevice deletes every value of one device.
+func (s *Store) DeleteDevice(ctx context.Context, device string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE device = ?`, device)
+	return err
+}
+
+// DB returns the database, so other packages can keep their own tables in
+// the same file.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}

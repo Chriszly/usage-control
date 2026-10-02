@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -24,6 +25,12 @@ type fakeCollector struct {
 
 func (f fakeCollector) Collect(context.Context) (metrics.Snapshot, error) {
 	return f.snapshot, f.err
+}
+
+// newHandler returns the site for a fixed list of devices, without adding
+// and removing them.
+func newHandler(devices []Device, retention time.Duration, files fs.FS) http.Handler {
+	return New(Site{Devices: DeviceList(devices), Retention: retention, Files: files})
 }
 
 // device returns the machine the site runs on, as the only device.
@@ -51,7 +58,7 @@ func get(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecord
 
 func TestMetricsReturnsSnapshotAsJSON(t *testing.T) {
 	want := metrics.Snapshot{CPU: metrics.CPU{UsagePercent: 12.5, Cores: 4}}
-	handler := New(device(fakeCollector{snapshot: want}, nil), 0, site)
+	handler := newHandler(device(fakeCollector{snapshot: want}, nil), 0, site)
 
 	rec := get(handler, "/api/metrics", "192.168.1.20:5000")
 
@@ -71,7 +78,7 @@ func TestMetricsReturnsSnapshotAsJSON(t *testing.T) {
 }
 
 func TestMetricsReportsCollectorError(t *testing.T) {
-	handler := New(device(fakeCollector{err: errors.New("no /proc")}, nil), 0, site)
+	handler := newHandler(device(fakeCollector{err: errors.New("no /proc")}, nil), 0, site)
 
 	rec := get(handler, "/api/metrics", "127.0.0.1:5000")
 
@@ -104,24 +111,24 @@ func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 
 func TestListsDevices(t *testing.T) {
 	devices := []Device{{ID: "local"}, {ID: "living-room-pi", Name: "Living room Pi"}}
-	handler := New(devices, 0, site)
+	handler := newHandler(devices, 0, site)
 
 	rec := get(handler, "/api/devices", "192.168.1.20:5000")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var got []Device
+	var got devicesResponse
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !slices.Equal(got, devices) {
-		t.Errorf("devices = %+v, want %+v", got, devices)
+	if !slices.Equal(got.Devices, devices) || got.PasswordSet {
+		t.Errorf("response = %+v, want devices %+v and no password", got, devices)
 	}
 }
 
 func TestMetricsOfTheRequestedDevice(t *testing.T) {
-	handler := New([]Device{
+	handler := newHandler([]Device{
 		{ID: "local", Metrics: fakeCollector{snapshot: metrics.Snapshot{CPU: metrics.CPU{Cores: 4}}}},
 		{ID: "pi", Metrics: fakeCollector{snapshot: metrics.Snapshot{CPU: metrics.CPU{Cores: 2}}}},
 		{ID: "pc", Metrics: fakeCollector{err: fmt.Errorf("ask pc: %w", hub.ErrUnreachable)}},
@@ -159,7 +166,7 @@ func TestMetricsOfTheRequestedDevice(t *testing.T) {
 }
 
 func TestServesWebsite(t *testing.T) {
-	handler := New(device(fakeCollector{}, nil), 0, site)
+	handler := newHandler(device(fakeCollector{}, nil), 0, site)
 
 	for path, want := range map[string]string{
 		"/":                     "page en",
@@ -178,7 +185,7 @@ func TestServesWebsite(t *testing.T) {
 }
 
 func TestExplainsMissingWebsiteBuild(t *testing.T) {
-	handler := New(device(fakeCollector{}, nil), 0, fstest.MapFS{})
+	handler := newHandler(device(fakeCollector{}, nil), 0, fstest.MapFS{})
 
 	rec := get(handler, "/", "10.0.0.5:5000")
 
@@ -206,7 +213,7 @@ func TestLocalNetworkOnly(t *testing.T) {
 		{"[2001:db8::1]:5000", http.StatusForbidden},
 		{"not-an-address", http.StatusForbidden},
 	}
-	handler := New(device(fakeCollector{}, nil), 0, site)
+	handler := newHandler(device(fakeCollector{}, nil), 0, site)
 
 	for _, tt := range tests {
 		t.Run(tt.remoteAddr, func(t *testing.T) {
@@ -229,7 +236,7 @@ func (f *fakeHistory) Range(_ context.Context, from, to time.Time) ([]history.Se
 
 func TestHistoryReturnsTheRequestedRange(t *testing.T) {
 	reader := &fakeHistory{}
-	handler := New(device(fakeCollector{}, reader), 30*24*time.Hour, site)
+	handler := newHandler(device(fakeCollector{}, reader), 30*24*time.Hour, site)
 	to := time.Now().Add(-time.Hour).Unix()
 	from := to - 24*3600
 
@@ -255,7 +262,7 @@ func TestHistoryReturnsTheRequestedRange(t *testing.T) {
 
 func TestHistoryLimitsTheRangeToTheRetention(t *testing.T) {
 	reader := &fakeHistory{}
-	handler := New(device(fakeCollector{}, reader), 24*time.Hour, site)
+	handler := newHandler(device(fakeCollector{}, reader), 24*time.Hour, site)
 
 	rec := get(handler, "/api/history?from=0&to=9223372036854775807", "10.0.0.5:5000")
 
@@ -269,7 +276,7 @@ func TestHistoryLimitsTheRangeToTheRetention(t *testing.T) {
 }
 
 func TestHistoryRefusesInvalidRanges(t *testing.T) {
-	handler := New(device(fakeCollector{}, &fakeHistory{}), time.Hour, site)
+	handler := newHandler(device(fakeCollector{}, &fakeHistory{}), time.Hour, site)
 	for _, query := range []string{"", "?from=1", "?from=a&to=b", "?from=200&to=100", "?from=100&to=100"} {
 		if rec := get(handler, "/api/history"+query, "10.0.0.5:5000"); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET /api/history%s status = %d, want %d", query, rec.Code, http.StatusBadRequest)
@@ -291,7 +298,7 @@ func TestServesWebsiteInPreferredLanguageAtTheSameAddress(t *testing.T) {
 		{"picked in the switcher", "de", "fr", "fr"},
 		{"unknown picked language", "de", "../etc", "de"},
 	}
-	handler := New(device(fakeCollector{}, nil), 0, site)
+	handler := newHandler(device(fakeCollector{}, nil), 0, site)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

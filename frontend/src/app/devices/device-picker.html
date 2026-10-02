@@ -11,3 +11,10 @@
     }
   </mat-button-toggle-group>
 }
+<button mat-stroked-button type="button" class="manage" (click)="openDevices()">
+  @if (devices.devices().length > 1) {
+    <ng-container i18n="@@devices.manage">Devices</ng-container>
+  } @else {
+    <ng-container i18n="@@devices.addOther">Add other devices</ng-container>
+  }
+</button>

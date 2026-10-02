@@ -47,7 +47,11 @@ With more than 30 days, the page also offers an *All* range covering everything 
 
 ### Several devices (hub mode)
 
-Every device runs the same image. On its own it only shows itself. To see several devices on one page, pick one of them as the hub and list the others in its `.env`, each as `name=address:port`, separated by commas:
+Every device runs the same image. On its own it only shows itself. To see several devices on one page, open the page of the device that should be the hub, click *Add other devices* (later *Devices*) and add each other device with a name and its address, such as `192.168.1.30:8080`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
+
+The first device you add asks you to choose a password, at least 8 characters, repeated once. From then on, adding or removing a device asks for it, and it cannot be changed on the page. Only a salted hash is kept, in the hub's database. If it is forgotten, set `RESET_PASSWORD=true` in the hub's `.env`, restart it, and unset it again: the next device you add chooses a new password. Removing a device deletes its history too, unless you tick *Keep its history*.
+
+Devices can also be listed in the hub's `.env`, each as `name=address:port`, separated by commas. These show on the page as *Set in .env* and are removed only there:
 
 ```bash
 HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
@@ -55,7 +59,7 @@ HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 
 `DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true`, as the [Windows installer](#install-it-on-windows) does.
 
-After a restart, the hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices. A device that does not answer is shown as such, and its history has a gap for that time. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
+The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices. A device that does not answer is shown as such, and its history has a gap for that time. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
 ## Install it on Windows
 
@@ -67,7 +71,7 @@ Running the installer:
 - turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
 - opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 
-Then add the PC to the hub's `HUB_DEVICES`, such as `Office PC=192.168.1.30:8080`. To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
+Then add the PC on the hub's page, such as *Office PC* at `192.168.1.30:8080`. To use another port, install from a command prompt run as administrator, and pass the same port again when updating:
 
 ```bat
 msiexec /i usage-control-1.2.3-x64.msi PORT=8090
