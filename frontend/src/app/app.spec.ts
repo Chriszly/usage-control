@@ -16,4 +16,16 @@ describe('App', () => {
     const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
     expect(heading?.textContent).toContain('Usage Control');
   });
+
+  it('shows the mascot next to the page title', () => {
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    const mascot = (fixture.nativeElement as HTMLElement).querySelector('h1 img');
+    expect(mascot?.getAttribute('src')).toBe('mascot.svg');
+  });
 });
