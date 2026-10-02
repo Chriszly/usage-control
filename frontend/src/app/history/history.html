@@ -1,12 +1,13 @@
 <section aria-labelledby="history-title">
   <div class="toolbar">
-    <h2 id="history-title">History</h2>
+    <h2 id="history-title" i18n="@@history.title">History</h2>
 
     <mat-button-toggle-group
       hideSingleSelectionIndicator
       [value]="span()"
       (change)="selectRange($event.value)"
       aria-label="Time shown"
+      i18n-aria-label="@@history.range"
     >
       @for (range of ranges(); track range.seconds) {
         <mat-button-toggle [value]="range.seconds">{{ range.label }}</mat-button-toggle>
@@ -14,9 +15,15 @@
     </mat-button-toggle-group>
 
     <div class="scroll">
-      <button matButton (click)="earlier()" [disabled]="!canGoEarlier()">‹ Earlier</button>
-      <button matButton (click)="later()" [disabled]="end() === null">Later ›</button>
-      <button matButton (click)="latest()" [disabled]="end() === null">Now</button>
+      <button matButton (click)="earlier()" [disabled]="!canGoEarlier()" i18n="@@history.earlier">
+        ‹ Earlier
+      </button>
+      <button matButton (click)="later()" [disabled]="end() === null" i18n="@@history.later">
+        Later ›
+      </button>
+      <button matButton (click)="latest()" [disabled]="end() === null" i18n="@@history.now">
+        Now
+      </button>
     </div>
   </div>
 
@@ -26,7 +33,9 @@
     </p>
 
     @if (unreachable()) {
-      <p class="warning" role="alert">The history cannot be read. Showing the last values read.</p>
+      <p class="warning" role="alert" i18n="@@history.unreachableStale">
+        The history cannot be read. Showing the last values read.
+      </p>
     }
 
     <div class="charts">
@@ -45,14 +54,14 @@
           </mat-card-content>
         </mat-card>
       } @empty {
-        <p class="detail">
+        <p class="detail" i18n="@@history.empty">
           No usage stored for this time yet. The site stores it every minute while it runs.
         </p>
       }
     </div>
   } @else if (unreachable()) {
-    <p class="warning" role="alert">The history cannot be read.</p>
+    <p class="warning" role="alert" i18n="@@history.unreachable">The history cannot be read.</p>
   } @else {
-    <p>Loading…</p>
+    <p i18n="@@history.loading">Loading…</p>
   }
 </section>

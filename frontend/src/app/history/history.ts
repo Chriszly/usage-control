@@ -14,11 +14,11 @@ export const HISTORY_REFRESH_INTERVAL_MS = 60_000;
 
 /** The time ranges a chart can show at once. */
 export const RANGES = [
-  { label: '1 h', seconds: 3600 },
-  { label: '6 h', seconds: 6 * 3600 },
-  { label: '24 h', seconds: 86400 },
-  { label: '7 d', seconds: 7 * 86400 },
-  { label: '30 d', seconds: 30 * 86400 },
+  { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
+  { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
+  { label: $localize`:Range of one day@@history.range24h:24 h`, seconds: 86400 },
+  { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
+  { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: 30 * 86400 },
 ];
 
 /** How many days the backend keeps by default, used until it says otherwise. */
@@ -132,24 +132,39 @@ export function chartsOf(series: Series[]): Chart[] {
 
   const charts: Chart[] = [
     {
-      title: 'CPU and memory',
+      title: $localize`:Chart title@@history.cpuAndMemory:CPU and memory`,
       unit: 'percent',
       max: 100,
       lines: [
-        { label: 'CPU', points: metric('cpu') },
-        { label: 'Memory', points: metric('memory') },
+        { label: $localize`:Line in a chart@@history.cpu:CPU`, points: metric('cpu') },
+        { label: $localize`:Line in a chart@@history.memory:Memory`, points: metric('memory') },
       ],
     },
-    { title: 'Temperature', unit: 'celsius', lines: named('temperature') },
     {
-      title: 'Network',
+      title: $localize`:Chart title@@history.temperature:Temperature`,
+      unit: 'celsius',
+      lines: named('temperature'),
+    },
+    {
+      title: $localize`:Chart title@@history.network:Network`,
       unit: 'bytesPerSecond',
       lines: [
-        { label: 'Received', points: sum(named('network.receive')) },
-        { label: 'Sent', points: sum(named('network.send')) },
+        {
+          label: $localize`:Network traffic received@@history.received:Received`,
+          points: sum(named('network.receive')),
+        },
+        {
+          label: $localize`:Network traffic sent@@history.sent:Sent`,
+          points: sum(named('network.send')),
+        },
       ],
     },
-    { title: 'Disks', unit: 'percent', max: 100, lines: named('disk') },
+    {
+      title: $localize`:Chart title@@history.disks:Disks`,
+      unit: 'percent',
+      max: 100,
+      lines: named('disk'),
+    },
   ];
   return charts.filter((chart) => chart.lines.some((line) => line.points.length > 0));
 }
