@@ -1,10 +1,8 @@
 @if (problem() === 'backend') {
-  <p class="warning" role="alert" i18n="@@dashboard.unreachable">
-    The backend cannot be reached. Showing the last known values.
-  </p>
+  <p class="warning" role="alert">{{ i18n.t('dashboard.unreachable') }}</p>
 } @else if (problem() === 'device') {
-  <p class="warning" role="alert" i18n="@@dashboard.deviceUnreachable">
-    {{ deviceName() }} has not answered recently. Is usage-control running on it?
+  <p class="warning" role="alert">
+    {{ i18n.t('dashboard.deviceUnreachable', { device: deviceName() }) }}
   </p>
 }
 
@@ -12,102 +10,106 @@
   <div class="cards">
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.cpu">CPU</h2>
-        <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' }} %</p>
+        <h2>{{ i18n.t('dashboard.cpu') }}</h2>
+        <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' : i18n.language() }} %</p>
         <mat-progress-bar
           mode="determinate"
           [value]="s.cpu.usagePercent"
-          aria-label="CPU usage"
-          i18n-aria-label="@@dashboard.cpuUsage"
+          [attr.aria-label]="i18n.t('dashboard.cpuUsage')"
         />
         <p class="detail">
-          <ng-container i18n="@@dashboard.cores">{s.cpu.cores, plural,
-            =1 {1 core}
-            other {{{ s.cpu.cores // i18n(ph="count") }} cores}
-          }</ng-container>
+          {{ i18n.plural(s.cpu.cores, 'dashboard.cores.one', 'dashboard.cores.other') }}
         </p>
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.memory">Memory</h2>
-        <p class="value">{{ s.memory.usedPercent | number: '1.0-1' }} %</p>
+        <h2>{{ i18n.t('dashboard.memory') }}</h2>
+        <p class="value">{{ s.memory.usedPercent | number: '1.0-1' : i18n.language() }} %</p>
         <mat-progress-bar
           mode="determinate"
           [value]="s.memory.usedPercent"
-          aria-label="Memory usage"
-          i18n-aria-label="@@dashboard.memoryUsage"
+          [attr.aria-label]="i18n.t('dashboard.memoryUsage')"
         />
-        <p class="detail" i18n="@@dashboard.usedOfTotal">
-          {{ s.memory.usedBytes | bytes }} of {{ s.memory.totalBytes | bytes }}
+        <p class="detail">
+          {{
+            i18n.t('dashboard.usedOfTotal', {
+              used: (s.memory.usedBytes | bytes: i18n.language()),
+              total: (s.memory.totalBytes | bytes: i18n.language()),
+            })
+          }}
         </p>
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.disks">Disks</h2>
+        <h2>{{ i18n.t('dashboard.disks') }}</h2>
         @for (d of s.disks; track d.path) {
           <div class="disk">
             <p class="sensor">
               <span>{{ d.path }}</span
-              ><span>{{ d.usedPercent | number: '1.0-1' }} %</span>
+              ><span>{{ d.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
             </p>
             <mat-progress-bar
               mode="determinate"
               [value]="d.usedPercent"
-              aria-label="Disk usage of {{ d.path }}"
-              i18n-aria-label="@@dashboard.diskUsage"
+              [attr.aria-label]="i18n.t('dashboard.diskUsage', { path: d.path })"
             />
-            <p class="detail" i18n="@@dashboard.usedOfTotal">
-              {{ d.usedBytes | bytes }} of {{ d.totalBytes | bytes }}
+            <p class="detail">
+              {{
+                i18n.t('dashboard.usedOfTotal', {
+                  used: (d.usedBytes | bytes: i18n.language()),
+                  total: (d.totalBytes | bytes: i18n.language()),
+                })
+              }}
             </p>
           </div>
         } @empty {
-          <p class="detail" i18n="@@dashboard.noDisk">No disk configured</p>
+          <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.network">Network</h2>
+        <h2>{{ i18n.t('dashboard.network') }}</h2>
         @for (n of s.network; track n.name) {
           <div class="interface">
             <p class="name">{{ n.name }}</p>
             <p class="sensor">
-              <span>↓ {{ n.receiveBytesPerSecond | bytes }}/s</span
-              ><span>↑ {{ n.sendBytesPerSecond | bytes }}/s</span>
+              <span>↓ {{ n.receiveBytesPerSecond | bytes: i18n.language() }}/s</span
+              ><span>↑ {{ n.sendBytesPerSecond | bytes: i18n.language() }}/s</span>
             </p>
           </div>
         } @empty {
-          <p class="detail" i18n="@@dashboard.noNetwork">No network card found</p>
+          <p class="detail">{{ i18n.t('dashboard.noNetwork') }}</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.temperature">Temperature</h2>
+        <h2>{{ i18n.t('dashboard.temperature') }}</h2>
         @for (t of s.temperatures; track t.sensor) {
           <p class="sensor">
             <span>{{ t.sensor }}</span
-            ><span>{{ t.celsius | number: '1.0-1' }} °C</span>
+            ><span>{{ t.celsius | number: '1.0-1' : i18n.language() }} °C</span>
           </p>
         } @empty {
-          <p class="detail" i18n="@@dashboard.noTemperature">Not available on this machine</p>
+          <p class="detail">{{ i18n.t('dashboard.noTemperature') }}</p>
         }
       </mat-card-content>
     </mat-card>
 
     <mat-card appearance="outlined">
       <mat-card-content>
-        <h2 i18n="@@dashboard.uptime">Uptime</h2>
+        <h2>{{ i18n.t('dashboard.uptime') }}</h2>
         <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
       </mat-card-content>
     </mat-card>
   </div>
 } @else if (!problem()) {
-  <p i18n="@@dashboard.loading">Loading…</p>
+  <p>{{ i18n.t('dashboard.loading') }}</p>
 }

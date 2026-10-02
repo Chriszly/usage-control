@@ -7,19 +7,21 @@ import { MatCardModule } from '@angular/material/card';
 import { catchError, map, of, switchMap, tap, timer } from 'rxjs';
 
 import { DeviceService } from '../devices/devices';
+import { I18n } from '../i18n/i18n';
+import { MessageKey } from '../i18n/messages/en';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
 /** A time range a chart can show, always ending now. */
 export interface Range {
-  label: string;
+  label: MessageKey;
   seconds: number;
 }
 
 /** A group of ranges picked in the first row; its ranges are picked in the second. */
 export interface RangeUnit {
   id: 'minutes' | 'hours' | 'days' | 'all';
-  label: string;
+  label: MessageKey;
   ranges: Range[];
 }
 
@@ -27,32 +29,32 @@ export interface RangeUnit {
 export const UNITS: RangeUnit[] = [
   {
     id: 'minutes',
-    label: $localize`:Unit of the time ranges@@history.unitMinutes:Minutes`,
+    label: 'history.unitMinutes',
     ranges: [
-      { label: $localize`:Range of one minute@@history.range1m:1 min`, seconds: 60 },
-      { label: $localize`:Range of five minutes@@history.range5m:5 min`, seconds: 5 * 60 },
-      { label: $localize`:Range of ten minutes@@history.range10m:10 min`, seconds: 10 * 60 },
-      { label: $localize`:Range of 30 minutes@@history.range30m:30 min`, seconds: 30 * 60 },
+      { label: 'history.range1m', seconds: 60 },
+      { label: 'history.range5m', seconds: 5 * 60 },
+      { label: 'history.range10m', seconds: 10 * 60 },
+      { label: 'history.range30m', seconds: 30 * 60 },
     ],
   },
   {
     id: 'hours',
-    label: $localize`:Unit of the time ranges@@history.unitHours:Hours`,
+    label: 'history.unitHours',
     ranges: [
-      { label: $localize`:Range of one hour@@history.range1h:1 h`, seconds: 3600 },
-      { label: $localize`:Range of three hours@@history.range3h:3 h`, seconds: 3 * 3600 },
-      { label: $localize`:Range of six hours@@history.range6h:6 h`, seconds: 6 * 3600 },
-      { label: $localize`:Range of twelve hours@@history.range12h:12 h`, seconds: 12 * 3600 },
+      { label: 'history.range1h', seconds: 3600 },
+      { label: 'history.range3h', seconds: 3 * 3600 },
+      { label: 'history.range6h', seconds: 6 * 3600 },
+      { label: 'history.range12h', seconds: 12 * 3600 },
     ],
   },
   {
     id: 'days',
-    label: $localize`:Unit of the time ranges@@history.unitDays:Days`,
+    label: 'history.unitDays',
     ranges: [
-      { label: $localize`:Range of one day@@history.range1d:1 d`, seconds: 86400 },
-      { label: $localize`:Range of seven days@@history.range7d:7 d`, seconds: 7 * 86400 },
-      { label: $localize`:Range of 14 days@@history.range14d:14 d`, seconds: 14 * 86400 },
-      { label: $localize`:Range of 30 days@@history.range30d:30 d`, seconds: 30 * 86400 },
+      { label: 'history.range1d', seconds: 86400 },
+      { label: 'history.range7d', seconds: 7 * 86400 },
+      { label: 'history.range14d', seconds: 14 * 86400 },
+      { label: 'history.range30d', seconds: 30 * 86400 },
     ],
   },
 ];
@@ -92,6 +94,7 @@ interface Chart {
 export class HistoryCharts {
   private readonly metrics = inject(MetricsService);
   private readonly devices = inject(DeviceService);
+  protected readonly i18n = inject(I18n);
 
   /** The length of the shown time, in seconds. */
   protected readonly span = signal(86400);
@@ -107,7 +110,7 @@ export class HistoryCharts {
       ranges: unit.ranges.filter((range) => range.seconds <= retention),
     })).filter((unit) => unit.ranges.length > 0);
     if (retention > LONGEST_RANGE_SECONDS) {
-      const label = $localize`:Unit showing all stored data@@history.rangeAll:All`;
+      const label = 'history.rangeAll' as const;
       units.push({ id: 'all', label, ranges: [{ label, seconds: retention }] });
     }
     return units;
@@ -127,7 +130,7 @@ export class HistoryCharts {
 
   protected readonly charts = computed(() => {
     const history = this.history();
-    return history ? chartsOf(history.series) : [];
+    return history ? chartsOf(history.series, (key) => this.i18n.t(key)) : [];
   });
 
   constructor() {
@@ -177,9 +180,10 @@ function nowSeconds(): number {
 
 /**
  * Groups the stored metrics into charts: CPU and memory, temperatures, network
- * speed and disks. Charts without values are left out.
+ * speed and disks, with titles and labels in the language of t. Charts without
+ * values are left out.
  */
-export function chartsOf(series: Series[]): Chart[] {
+export function chartsOf(series: Series[], t: (key: MessageKey) => string): Chart[] {
   const named = (kind: string) =>
     series
       .filter((s) => s.metric.startsWith(kind + ':'))
@@ -188,35 +192,35 @@ export function chartsOf(series: Series[]): Chart[] {
 
   const charts: Chart[] = [
     {
-      title: $localize`:Chart title@@history.cpuAndMemory:CPU and memory`,
+      title: t('history.cpuAndMemory'),
       unit: 'percent',
       max: 100,
       lines: [
-        { label: $localize`:Line in a chart@@history.cpu:CPU`, points: metric('cpu') },
-        { label: $localize`:Line in a chart@@history.memory:Memory`, points: metric('memory') },
+        { label: t('history.cpu'), points: metric('cpu') },
+        { label: t('history.memory'), points: metric('memory') },
       ],
     },
     {
-      title: $localize`:Chart title@@history.temperature:Temperature`,
+      title: t('history.temperature'),
       unit: 'celsius',
       lines: named('temperature'),
     },
     {
-      title: $localize`:Chart title@@history.network:Network`,
+      title: t('history.network'),
       unit: 'bytesPerSecond',
       lines: [
         {
-          label: $localize`:Network traffic received@@history.received:Received`,
+          label: t('history.received'),
           points: sum(named('network.receive')),
         },
         {
-          label: $localize`:Network traffic sent@@history.sent:Sent`,
+          label: t('history.sent'),
           points: sum(named('network.send')),
         },
       ],
     },
     {
-      title: $localize`:Chart title@@history.disks:Disks`,
+      title: t('history.disks'),
       unit: 'percent',
       max: 100,
       lines: named('disk'),

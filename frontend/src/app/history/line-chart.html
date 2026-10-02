@@ -1,13 +1,13 @@
 <ng-template #formatted let-value>
   @switch (unit()) {
     @case ('percent') {
-      {{ value | number: '1.0-1' }} %
+      {{ value | number: '1.0-1' : i18n.language() }} %
     }
     @case ('celsius') {
-      {{ value | number: '1.0-1' }} °C
+      {{ value | number: '1.0-1' : i18n.language() }} °C
     }
     @case ('bytesPerSecond') {
-      {{ value | bytes }}/s
+      {{ value | bytes: i18n.language() }}/s
     }
   }
 </ng-template>
@@ -44,7 +44,9 @@
     @if (readout(); as r) {
       <div class="crosshair" [style.left.%]="r.left"></div>
       <div class="tooltip" [class.flip]="r.left > 60" [style.left.%]="r.left" role="status">
-        <p class="time">{{ r.time * 1000 | date: readoutFormat() }}</p>
+        <p class="time">
+          {{ r.time * 1000 | date: readoutFormat() : undefined : i18n.language() }}
+        </p>
         @for (line of lines(); track line.label; let i = $index) {
           <p>
             <span class="swatch" [class]="'series-' + (i % 8)"></span>
@@ -65,8 +67,10 @@
   </div>
 
   <div class="x-axis" aria-hidden="true">
-    <span>{{ from() * 1000 | date: timeFormat() }}</span>
-    <span>{{ ((from() + to()) / 2) * 1000 | date: timeFormat() }}</span>
-    <span>{{ to() * 1000 | date: timeFormat() }}</span>
+    <span>{{ from() * 1000 | date: timeFormat() : undefined : i18n.language() }}</span>
+    <span>{{
+      ((from() + to()) / 2) * 1000 | date: timeFormat() : undefined : i18n.language()
+    }}</span>
+    <span>{{ to() * 1000 | date: timeFormat() : undefined : i18n.language() }}</span>
   </div>
 </div>

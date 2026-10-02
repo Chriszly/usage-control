@@ -13,26 +13,6 @@
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
-      "i18n": {
-        "sourceLocale": {
-          "code": "en",
-          "baseHref": "/"
-        },
-        "locales": {
-          "de": {
-            "translation": "src/locale/messages.de.json",
-            "baseHref": "/"
-          },
-          "es": {
-            "translation": "src/locale/messages.es.json",
-            "baseHref": "/"
-          },
-          "fr": {
-            "translation": "src/locale/messages.fr.json",
-            "baseHref": "/"
-          }
-        }
-      },
       "architect": {
         "build": {
           "builder": "@angular/build:application",
@@ -49,10 +29,7 @@
             "outputPath": {
               "base": "../backend/internal/web/files/build",
               "browser": ""
-            },
-            "polyfills": ["@angular/localize/init"],
-            "localize": true,
-            "i18nMissingTranslation": "error"
+            }
           },
           "configurations": {
             "production": {
@@ -73,17 +50,7 @@
             "development": {
               "optimization": false,
               "extractLicenses": false,
-              "sourceMap": true,
-              "localize": false
-            },
-            "de": {
-              "localize": ["de"]
-            },
-            "es": {
-              "localize": ["es"]
-            },
-            "fr": {
-              "localize": ["fr"]
+              "sourceMap": true
             }
           },
           "defaultConfiguration": "production"
@@ -96,15 +63,6 @@
             },
             "development": {
               "buildTarget": "usage-control:build:development"
-            },
-            "de": {
-              "buildTarget": "usage-control:build:development,de"
-            },
-            "es": {
-              "buildTarget": "usage-control:build:development,es"
-            },
-            "fr": {
-              "buildTarget": "usage-control:build:development,fr"
             }
           },
           "defaultConfiguration": "development",
@@ -119,13 +77,6 @@
           "builder": "@angular-eslint/builder:lint",
           "options": {
             "lintFilePatterns": ["src/**/*.ts", "src/**/*.html"]
-          }
-        },
-        "extract-i18n": {
-          "builder": "@angular/build:extract-i18n",
-          "options": {
-            "outputPath": "src/locale",
-            "format": "json"
           }
         }
       }

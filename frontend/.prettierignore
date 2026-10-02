@@ -1,2 +1,0 @@
-# Written by `npm run extract-i18n`, and CI checks it matches that output exactly.
-src/locale/messages.json

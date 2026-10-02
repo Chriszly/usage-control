@@ -2,6 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { I18n } from '../i18n/i18n';
+
 /** A machine whose usage the website shows, as served by GET /api/devices. */
 export interface Device {
   /** Picks the device in the API, as ?device=<id>. */
@@ -13,12 +15,9 @@ export interface Device {
 /** The machine the backend runs on. The API answers for it when a request names no device. */
 export const LOCAL_DEVICE: Device = { id: 'local', name: '' };
 
-/** How the page names a device. */
-export function deviceName(device: Device): string {
-  return (
-    device.name ||
-    $localize`:Name of the device the website runs on@@devices.thisDevice:This device`
-  );
+/** How the page names a device, in the page's language. */
+export function deviceName(device: Device, i18n: I18n): string {
+  return device.name || i18n.t('devices.thisDevice');
 }
 
 /**

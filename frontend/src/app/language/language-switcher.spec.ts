@@ -1,28 +1,26 @@
-import { LOCALE_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { LANGUAGE_COOKIE, LanguageSwitcher, RELOAD_PAGE } from './language-switcher';
+import { BROWSER_LANGUAGES, I18n, LANGUAGE_STORAGE_KEY } from '../i18n/i18n';
+import { LanguageSwitcher } from './language-switcher';
 
 describe('LanguageSwitcher', () => {
-  let reload: ReturnType<typeof vi.fn>;
-
-  function buttons(locale: string): HTMLButtonElement[] {
-    reload = vi.fn();
+  function buttons(browserLanguage: string): HTMLButtonElement[] {
     TestBed.configureTestingModule({
       imports: [LanguageSwitcher],
-      providers: [
-        { provide: LOCALE_ID, useValue: locale },
-        { provide: RELOAD_PAGE, useValue: reload },
-      ],
+      providers: [{ provide: BROWSER_LANGUAGES, useValue: [browserLanguage] }],
     });
     const fixture = TestBed.createComponent(LanguageSwitcher);
     fixture.detectChanges();
     return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
   }
 
-  afterEach(() => {
-    document.cookie = `${LANGUAGE_COOKIE}=; path=/; max-age=0`;
-  });
+  function pressed(all: HTMLButtonElement[]): (string | null)[] {
+    return all
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.getAttribute('aria-label'));
+  }
+
+  afterEach(() => localStorage.removeItem(LANGUAGE_STORAGE_KEY));
 
   it('shows every language as a flag, named in that language', () => {
     const shown = buttons('en').map((b) => [
@@ -39,21 +37,16 @@ describe('LanguageSwitcher', () => {
   });
 
   it('marks the language the page is shown in', () => {
-    const current = buttons('fr').filter((b) => b.getAttribute('aria-pressed') === 'true');
-
-    expect(current.map((b) => b.getAttribute('aria-label'))).toEqual(['Français']);
+    expect(pressed(buttons('fr-FR'))).toEqual(['Français']);
   });
 
-  it('remembers the picked language and reloads the page at the same address', () => {
-    buttons('en')[1].click();
+  it('switches the language in place when a flag is clicked', () => {
+    const all = buttons('en');
 
-    expect(document.cookie).toContain(`${LANGUAGE_COOKIE}=de`);
-    expect(reload).toHaveBeenCalledOnce();
-  });
+    all[1].click();
+    TestBed.tick();
 
-  it('does nothing for the language already shown', () => {
-    buttons('de')[1].click();
-
-    expect(reload).not.toHaveBeenCalled();
+    expect(TestBed.inject(I18n).language()).toBe('de');
+    expect(pressed(all)).toEqual(['Deutsch']);
   });
 });

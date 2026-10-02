@@ -3,8 +3,7 @@
     hideSingleSelectionIndicator
     [value]="devices.selectedId()"
     (change)="devices.selectedId.set($event.value)"
-    aria-label="Device"
-    i18n-aria-label="@@devices.label"
+    [attr.aria-label]="i18n.t('devices.label')"
   >
     @for (device of devices.devices(); track device.id) {
       <mat-button-toggle [value]="device.id">{{ deviceName(device) }}</mat-button-toggle>

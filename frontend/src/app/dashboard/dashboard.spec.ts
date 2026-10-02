@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DeviceService } from '../devices/devices';
+import { I18n, LANGUAGE_STORAGE_KEY } from '../i18n/i18n';
 import { Snapshot } from '../metrics/metrics';
 import { Dashboard, REFRESH_INTERVAL_MS } from './dashboard';
 
@@ -92,6 +93,19 @@ describe('Dashboard', () => {
     respond({ ...snapshot, temperatures: [] });
 
     expect(text()).toContain('Not available on this machine');
+  });
+
+  it('switches language in place, with numbers in that language', () => {
+    respond(snapshot);
+
+    TestBed.inject(I18n).use('de');
+    fixture.detectChanges();
+
+    expect(text()).toContain('Arbeitsspeicher');
+    expect(text()).toContain('12,5 %');
+    expect(text()).toContain('4 Kerne');
+    expect(text()).toContain('2,0 GiB von 8,0 GiB');
+    localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   });
 
   it('keeps the last values and warns when the backend is unreachable', () => {
