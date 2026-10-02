@@ -1,14 +1,21 @@
 @if (devices.devices().length > 1) {
-  <mat-button-toggle-group
-    hideSingleSelectionIndicator
-    [value]="devices.selectedId()"
-    (change)="devices.selectedId.set($event.value)"
-    [attr.aria-label]="i18n.t('devices.label')"
-  >
+  <mat-chip-listbox hideSingleSelectionIndicator [attr.aria-label]="i18n.t('devices.label')">
     @for (device of devices.devices(); track device.id) {
-      <mat-button-toggle [value]="device.id">{{ deviceName(device) }}</mat-button-toggle>
+      @let selected = device.id === devices.selectedId();
+      <mat-chip-option
+        [selected]="selected"
+        [selectable]="!selected"
+        [title]="status(device)"
+        (selectionChange)="$event.selected && devices.selectedId.set(device.id)"
+      >
+        <span class="status" [class.unreachable]="device.unreachable" aria-hidden="true"></span>
+        {{ deviceName(device) }}
+        @if (device.unreachable) {
+          <span class="visually-hidden">({{ i18n.t('devices.unreachable') }})</span>
+        }
+      </mat-chip-option>
     }
-  </mat-button-toggle-group>
+  </mat-chip-listbox>
 }
 <button mat-stroked-button type="button" class="manage" (click)="openDevices()">
   {{ i18n.t(devices.devices().length > 1 ? 'devices.manage' : 'devices.addOther') }}

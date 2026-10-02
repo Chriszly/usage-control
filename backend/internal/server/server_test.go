@@ -277,3 +277,32 @@ func TestHistoryRefusesInvalidRanges(t *testing.T) {
 		}
 	}
 }
+
+type fakeAvailability hub.Availability
+
+func (f fakeAvailability) Availability(context.Context) (hub.Availability, error) {
+	return hub.Availability(f), nil
+}
+
+func TestAvailabilityOfAnotherDevice(t *testing.T) {
+	since := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	handler := newHandler([]Device{
+		{ID: "local"},
+		{ID: "pi", Availability: fakeAvailability{Since: since, OfflineSeconds: 90, Outages: 1}},
+	}, 0, site)
+
+	if rec := get(handler, "/api/availability", "192.168.1.20:5000"); rec.Code != http.StatusNotFound {
+		t.Errorf("status for this device = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	rec := get(handler, "/api/availability?device=pi", "192.168.1.20:5000")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got hub.Availability
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !got.Since.Equal(since) || got.OfflineSeconds != 90 || got.Outages != 1 || got.LastOutage != nil {
+		t.Errorf("availability = %+v", got)
+	}
+}

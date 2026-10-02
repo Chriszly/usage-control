@@ -1,12 +1,12 @@
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet, formatDate } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { catchError, of, switchMap, tap, timer } from 'rxjs';
+import { EMPTY, catchError, of, switchMap, tap, timer } from 'rxjs';
 
-import { DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
+import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import { MetricsService, NetworkInterface, Snapshot } from '../metrics/metrics';
@@ -14,13 +14,16 @@ import { MetricsService, NetworkInterface, Snapshot } from '../metrics/metrics';
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
 
+/** How often the availability of another device is read again. */
+export const AVAILABILITY_REFRESH_MS = 10000;
+
 /** Why no new values arrived: the backend did not answer, or the device it collects from did not. */
 type Problem = 'backend' | 'device';
 
 /** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe, MatCardModule, MatProgressBarModule],
+  imports: [BytesPipe, DecimalPipe, MatCardModule, MatProgressBarModule, NgTemplateOutlet],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })
@@ -32,6 +35,8 @@ export class Dashboard {
   protected readonly problem = signal<Problem | null>(null);
   protected readonly i18n = inject(I18n);
   protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
+  /** How long the picked device did not answer since it was added; null for this device. */
+  protected readonly availability = signal<Availability | null>(null);
 
   constructor() {
     toObservable(this.devices.selectedId)
@@ -60,6 +65,47 @@ export class Dashboard {
           this.snapshot.set(result);
         }
       });
+
+    toObservable(this.devices.selectedId)
+      .pipe(
+        tap(() => this.availability.set(null)),
+        switchMap((device) =>
+          device === LOCAL_DEVICE.id
+            ? EMPTY
+            : timer(0, AVAILABILITY_REFRESH_MS).pipe(
+                switchMap(() => this.devices.availability(device).pipe(catchError(() => EMPTY))),
+              ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe((availability) => this.availability.set(availability));
+  }
+
+  /** The share of the time since the device was added that it answered, rounded down. */
+  protected availablePercent(a: Availability): number {
+    const seconds = Math.max(1, (Date.now() - Date.parse(a.since)) / 1000);
+    const percent = 100 * (1 - Math.min(a.offlineSeconds, seconds) / seconds);
+    return Math.floor(percent * 100) / 100;
+  }
+
+  /** The length of an outage, from its start and end as ISO times. */
+  protected outageLength(outage: { start: string; end: string }): string {
+    return this.formatDuration((Date.parse(outage.end) - Date.parse(outage.start)) / 1000);
+  }
+
+  /** A date and time in the page's language, from an ISO time. */
+  protected when(time: string): string {
+    return formatDate(time, 'short', this.i18n.language());
+  }
+
+  protected formatDuration(seconds: number): string {
+    if (seconds < 60) {
+      return this.i18n.t('dashboard.seconds', { seconds: Math.round(seconds) });
+    }
+    if (seconds < 3600) {
+      return this.i18n.t('dashboard.minutes', { minutes: Math.floor(seconds / 60) });
+    }
+    return this.formatUptime(seconds);
   }
 
   /**

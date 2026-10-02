@@ -54,6 +54,25 @@ describe('DevicePicker', () => {
     expect(TestBed.inject(DeviceService).selected().name).toBe('Living room Pi');
   });
 
+  it('marks the picked device and the ones that do not answer', () => {
+    respond([
+      { id: 'local', name: '' },
+      { id: 'pi', name: 'Pi' },
+      { id: 'office-pc', name: 'Office PC', unreachable: true },
+    ]);
+
+    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll('mat-chip-option');
+    expect(Array.from(chips, (c) => c.classList.contains('mat-mdc-chip-selected'))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(chips[1].getAttribute('title')).toBe('Reachable');
+    expect(chips[2].getAttribute('title')).toBe('Not reachable');
+    expect(chips[2].querySelector('.status')?.classList).toContain('unreachable');
+    expect(labels()[2]).toBe('Office PC (Not reachable)');
+  });
+
   it('shows only this device when the list cannot be read', () => {
     http.expectOne('/api/devices').flush('down', { status: 502, statusText: 'Bad Gateway' });
     fixture.detectChanges();

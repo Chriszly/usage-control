@@ -4,6 +4,11 @@
   gap: 1rem;
 }
 
+/* A card shown on its own keeps the width it has next to others. */
+.cards.alone {
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+}
+
 h2 {
   margin: 0 0 0.5rem;
   font: var(--mat-sys-title-small);

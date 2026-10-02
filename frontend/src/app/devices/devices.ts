@@ -14,6 +14,21 @@ export interface Device {
   address?: string;
   /** Set for a device added on the page, which can be removed there too. */
   removable?: boolean;
+  /** Set for another device that has not answered the backend recently. */
+  unreachable?: boolean;
+  /** When it stopped answering, as an ISO time, when that is known. */
+  unreachableSince?: string;
+}
+
+/** The body of GET /api/availability: how long another device did not answer since it was added. */
+export interface Availability {
+  /** When the device was added, as an ISO time. */
+  since: string;
+  /** All outages added up; time the backend itself was not running is not counted. */
+  offlineSeconds: number;
+  outages: number;
+  /** The newest outage; its end is the newest failed reading while it lasts. */
+  lastOutage?: { start: string; end: string };
 }
 
 /** The body of GET /api/devices. */
@@ -67,6 +82,11 @@ export class DeviceService {
   /** Adds a device; without a password yet, `password` becomes the password. */
   add(name: string, address: string, password: string): Observable<Device> {
     return this.http.post<Device>('/api/devices', { name, address, password });
+  }
+
+  /** Reads how long another device did not answer since it was added. */
+  availability(id: string): Observable<Availability> {
+    return this.http.get<Availability>('/api/availability', { params: { device: id } });
   }
 
   /** Removes a device added on the page, and its history unless `keepHistory` is set. */
