@@ -38,6 +38,7 @@ cd frontend && npm ci && npm start
 - [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
 - [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md): every pull request fills it in; the "PR Template Validation" workflow checks it
 - `ci/`: checks that CI runs and that you can run locally
+- [SECURITY.md](SECURITY.md): how to report a vulnerability and who can change the code
 
 ## Checks
 
