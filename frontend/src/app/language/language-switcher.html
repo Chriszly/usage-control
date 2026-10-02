@@ -1,13 +1,14 @@
 <nav aria-label="Language" i18n-aria-label="@@languageSwitcher.label">
   @for (language of languages; track language.code) {
-    <a
-      [href]="'/' + language.code + '/'"
+    <button
+      type="button"
       [attr.lang]="language.code"
       [attr.aria-label]="language.name"
       [title]="language.name"
-      [attr.aria-current]="language.code === current ? 'page' : null"
-      (click)="remember(language)"
-      ><img [src]="'flags/' + language.code + '.svg'" alt="" width="24" height="16"
-    /></a>
+      [attr.aria-pressed]="language.code === current"
+      (click)="switchTo(language)"
+    >
+      <img [src]="'flags/' + language.code + '.svg'" alt="" width="24" height="16" />
+    </button>
   }
 </nav>
