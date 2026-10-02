@@ -1,0 +1,8 @@
+# Local settings hold passwords and must never be committed.
+.env
+.env.*
+!.env.example
+
+# Editor and IDE files
+.idea/
+.vscode/

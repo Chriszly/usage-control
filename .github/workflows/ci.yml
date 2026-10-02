@@ -1,0 +1,42 @@
+name: CI
+
+# Docs-only and .claude/ (agent settings) changes cannot break anything this workflow checks.
+on:
+  pull_request:
+    paths-ignore: &paths-ignore ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
+  push:
+    branches:
+      - main
+    paths-ignore: *paths-ignore
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Only cancel superseded PR runs; let pushes to main finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: Lint and secret check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: No settings, keys or passwords committed
+        run: bash ci/check-no-secrets.sh
+
+      # shellcheck ships with the hosted runner image.
+      - name: Check shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(git ls-files '*.sh')
+          for f in "${scripts[@]}"; do bash -n "$f"; done
+          shellcheck --color=never "${scripts[@]}"
+
+      - name: Lint GitHub Actions workflows
+        run: |
+          docker run --rm -v "$PWD:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.12 -no-color -oneline
