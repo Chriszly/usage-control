@@ -18,21 +18,25 @@ describe('LanguageSwitcher', () => {
     document.cookie = `${LANGUAGE_COOKIE}=; path=/; max-age=0`;
   });
 
-  it('links to every language in its own name', () => {
-    const shown = links('en').map((a) => [a.textContent?.trim(), a.getAttribute('href')]);
+  it('links to every language with its flag, named in that language', () => {
+    const shown = links('en').map((a) => [
+      a.getAttribute('aria-label'),
+      a.getAttribute('href'),
+      a.querySelector('img')?.getAttribute('src'),
+    ]);
 
     expect(shown).toEqual([
-      ['English', '/en/'],
-      ['Deutsch', '/de/'],
-      ['Français', '/fr/'],
-      ['Español', '/es/'],
+      ['English', '/en/', 'flags/en.svg'],
+      ['Deutsch', '/de/', 'flags/de.svg'],
+      ['Français', '/fr/', 'flags/fr.svg'],
+      ['Español', '/es/', 'flags/es.svg'],
     ]);
   });
 
   it('marks the language the page is shown in', () => {
     const current = links('fr').filter((a) => a.getAttribute('aria-current') === 'page');
 
-    expect(current.map((a) => a.textContent?.trim())).toEqual(['Français']);
+    expect(current.map((a) => a.getAttribute('aria-label'))).toEqual(['Français']);
   });
 
   it('remembers the picked language for the next visit', () => {

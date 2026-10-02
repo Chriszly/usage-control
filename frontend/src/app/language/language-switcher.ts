@@ -1,6 +1,9 @@
 import { Component, LOCALE_ID, inject } from '@angular/core';
 
-/** A language the website is translated into, with its name in that language. */
+/**
+ * A language the website is translated into, with its name in that language.
+ * Its flag is public/flags/<code>.svg.
+ */
 export interface Language {
   code: string;
   name: string;
@@ -20,7 +23,7 @@ export const LANGUAGE_COOKIE = 'lang';
 const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60;
 
 /**
- * Links to the website in the other languages. The backend opens the page in
+ * Flag links to the website in the other languages. The backend opens the page in
  * the language of the browser; picking one here remembers it instead.
  */
 @Component({

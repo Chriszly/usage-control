@@ -6,7 +6,7 @@ It is built with a Go backend and an Angular frontend (storing history in SQLite
 
 It shows CPU, memory and disk usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network.
 
-The page is in English, German, French and Spanish. It opens in the browser's language, and the links at the top switch to another one.
+The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one.
 
 ## Run it with Docker (Linux, Raspberry Pi)
 
@@ -58,7 +58,7 @@ cd frontend && npm ci && npm start
 
 ### Translations
 
-The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`/en/`, `/de/`, `/fr/`, `/es/`), and the backend sends a visit to `/` on to the language picked in the page's language links, else the browser's language, else English.
+The website uses Angular's built-in translations (`@angular/localize`). English is the source language; `npm run build` builds the website once per language into its own folder (`/en/`, `/de/`, `/fr/`, `/es/`), and the backend sends a visit to `/` on to the language picked with the page's flag buttons, else the browser's language, else English.
 
 - Mark new text in a template with `i18n="@@area.name"` (or `i18n-aria-label` for an attribute) and in TypeScript with `` $localize`:@@area.name:Text` ``
 - Run `npm run extract-i18n` to update `src/locale/messages.json`, then add the same keys to `messages.de.json`, `messages.fr.json` and `messages.es.json`. The build fails when a translation is missing

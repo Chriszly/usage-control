@@ -1,18 +1,28 @@
 nav {
   display: flex;
-  gap: 0.75rem;
-  font: var(--mat-sys-label-large);
+  gap: 0.25rem;
 }
 
 a {
-  color: var(--mat-sys-on-surface-variant);
-  text-decoration: none;
+  display: flex;
+  padding: 0.25rem;
+  border-radius: var(--mat-sys-corner-extra-small);
+  outline-offset: 1px;
+  opacity: 0.6;
 }
 
-a:hover {
-  text-decoration: underline;
+a:hover,
+a:focus-visible {
+  opacity: 1;
 }
 
 a[aria-current='page'] {
-  color: var(--mat-sys-primary);
+  opacity: 1;
+  outline: 2px solid var(--mat-sys-primary);
+}
+
+img {
+  display: block;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--mat-sys-outline-variant);
 }

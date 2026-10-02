@@ -3,9 +3,11 @@
     <a
       [href]="'/' + language.code + '/'"
       [attr.lang]="language.code"
+      [attr.aria-label]="language.name"
+      [title]="language.name"
       [attr.aria-current]="language.code === current ? 'page' : null"
       (click)="remember(language)"
-      >{{ language.name }}</a
-    >
+      ><img [src]="'flags/' + language.code + '.svg'" alt="" width="24" height="16"
+    /></a>
   }
 </nav>
