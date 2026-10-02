@@ -1,13 +1,14 @@
 name: CI
 
-# Docs-only and .claude/ (agent settings) changes cannot break anything this workflow checks.
+# Pull requests always run this workflow: "Lint and secret check" is a required
+# check on main, and the secret check covers docs too. Pushes to main skip changes
+# that cannot break anything checked here.
 on:
   pull_request:
-    paths-ignore: &paths-ignore ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
   push:
     branches:
       - main
-    paths-ignore: *paths-ignore
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
   workflow_dispatch:
 
 permissions:
