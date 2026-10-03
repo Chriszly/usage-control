@@ -20,6 +20,9 @@ type gpuReader struct {
 	query   uintptr
 	engines uintptr
 	memory  uintptr
+	// adapters is what the registry tells about each GPU, read when the
+	// query is opened and again only when the counters name an unknown GPU.
+	adapters map[luid]adapter
 	// err is why the counters could not be opened; then no GPU is read.
 	err error
 }
@@ -69,6 +72,7 @@ func (r *gpuReader) open() error {
 	// Usage is measured between two readings, so the first one starts it.
 	// A failed start shows as a missing GPU.
 	_, _, _ = pdhCollectQueryData.Call(r.query)
+	r.adapters = adapters()
 	return nil
 }
 
@@ -89,7 +93,10 @@ func (r *gpuReader) read(context.Context) []GPU {
 	if r.memory != 0 {
 		memory, _ = counterValues(r.memory)
 	}
-	return gpusFromCounters(engines, memory, adapters())
+	if !allKnown(engines, r.adapters) {
+		r.adapters = adapters()
+	}
+	return gpusFromCounters(engines, memory, r.adapters)
 }
 
 // counterValues returns the value of each instance of a counter, by instance

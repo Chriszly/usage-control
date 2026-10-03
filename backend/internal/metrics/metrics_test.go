@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/sensors"
 )
 
 func TestCollectReadsThisMachine(t *testing.T) {
@@ -58,6 +60,20 @@ func TestNewCollectorRefusesUnreadableDiskPaths(t *testing.T) {
 		if _, err := NewCollector(context.Background(), []string{path}); err == nil {
 			t.Errorf("NewCollector(%q) error = nil, want an error", path)
 		}
+	}
+}
+
+func TestTemperaturesOfNumbersSensorsWithTheSameName(t *testing.T) {
+	got := temperaturesOf([]sensors.TemperatureStat{
+		{SensorKey: "coretemp", Temperature: 50},
+		{SensorKey: "acpitz", Temperature: 0}, // reports nothing
+		{SensorKey: "nvme", Temperature: 40},
+		{SensorKey: "coretemp", Temperature: 52},
+	})
+
+	want := []Temperature{{Sensor: "coretemp 1", Celsius: 50}, {Sensor: "nvme", Celsius: 40}, {Sensor: "coretemp 2", Celsius: 52}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("temperaturesOf() = %+v, want %+v", got, want)
 	}
 }
 

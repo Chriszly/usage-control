@@ -43,6 +43,19 @@ func parseInstance(name string) (id luid, engine string, ok bool) {
 	return luid(high<<32 | low), engine, true
 }
 
+// allKnown reports whether every GPU the engine counters name is among the
+// adapters, so the registry need not be read again.
+func allKnown(engines map[string]float64, adapters map[luid]adapter) bool {
+	for instance := range engines {
+		if id, _, ok := parseInstance(instance); ok {
+			if _, known := adapters[id]; !known {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // gpusFromCounters returns the usage of each GPU the way Task Manager shows
 // it: the usage of each engine (3D, copy, video decode, ...) is the sum over
 // all processes, and the GPU is as busy as its busiest engine.

@@ -72,8 +72,34 @@ func TestIsVirtualInterface(t *testing.T) {
 	}
 }
 
-func TestLoopbackInterfacesFindsLoopback(t *testing.T) {
-	if len(loopbackInterfaces()) == 0 {
-		t.Error("loopbackInterfaces() is empty, want at least the loopback interface")
+func TestReadLoopbackInterfacesFindsLoopback(t *testing.T) {
+	if len(readLoopbackInterfaces()) == 0 {
+		t.Error("readLoopbackInterfaces() is empty, want at least the loopback interface")
+	}
+}
+
+func TestLoopbackListReadsOnceAMinute(t *testing.T) {
+	reads := 0
+	list := &loopbackList{read: func() map[string]bool {
+		reads++
+		if reads == 1 {
+			return nil // the OS could not list them
+		}
+		return map[string]bool{"lo": true}
+	}}
+	now := time.Unix(1_800_000_000, 0)
+
+	if got := list.get(now); len(got) != 0 || reads != 1 {
+		t.Errorf("first get() = %v after %d reads, want none after 1", got, reads)
+	}
+	// A failed listing is tried again at once; a listing that worked is kept.
+	if got := list.get(now.Add(time.Second)); !got["lo"] || reads != 2 {
+		t.Errorf("second get() = %v after %d reads, want lo after 2", got, reads)
+	}
+	if got := list.get(now.Add(59 * time.Second)); !got["lo"] || reads != 2 {
+		t.Errorf("get() within the minute = %v after %d reads, want lo after 2", got, reads)
+	}
+	if got := list.get(now.Add(61 * time.Second)); !got["lo"] || reads != 3 {
+		t.Errorf("get() after the minute = %v after %d reads, want lo after 3", got, reads)
 	}
 }

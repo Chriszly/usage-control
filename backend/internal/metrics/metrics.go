@@ -129,9 +129,13 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read CPU usage: %w", err)
 	}
-	cores, err := cpu.CountsWithContext(ctx, true)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("count CPU cores: %w", err)
+	// The per-core usage lists every core; only the first reading, which has
+	// none yet, counts them, which parses /proc/cpuinfo on Linux.
+	cores := len(cpuUsage.CoreUsagePercent)
+	if cores == 0 {
+		if cores, err = cpu.CountsWithContext(ctx, true); err != nil {
+			return Snapshot{}, fmt.Errorf("count CPU cores: %w", err)
+		}
 	}
 	memory, err := mem.VirtualMemoryWithContext(ctx)
 	if err != nil {
@@ -213,13 +217,24 @@ func readTemperatures(ctx context.Context) []Temperature {
 	// gopsutil returns partial results together with an error when some
 	// sensors cannot be read, so the readings are used even if err is set.
 	readings, _ := sensors.TemperaturesWithContext(ctx)
+	return temperaturesOf(readings)
+}
 
+// temperaturesOf turns the sensor readings into temperatures, leaving out the
+// sensors that report none. Sensors with the same name, such as one coretemp
+// per core, are numbered, so each name stands for one sensor in the history.
+func temperaturesOf(readings []sensors.TemperatureStat) []Temperature {
 	temperatures := make([]Temperature, 0, len(readings))
+	names := make([]string, 0, len(readings))
 	for _, r := range readings {
 		if r.Temperature <= 0 {
 			continue
 		}
 		temperatures = append(temperatures, Temperature{Sensor: r.SensorKey, Celsius: r.Temperature})
+		names = append(names, r.SensorKey)
+	}
+	for i, name := range numberDuplicates(names) {
+		temperatures[i].Sensor = name
 	}
 	return temperatures
 }
