@@ -15,6 +15,9 @@
 //	                website and history (default false)
 //	RESET_PASSWORD  true to delete the password for adding and removing
 //	                devices on the page, if it is forgotten (default false)
+//	UPDATE_CHECK    false to stop asking GitHub once a day whether a newer
+//	                release exists, which the page then tells (default true;
+//	                only releases check, and never with DATA_ONLY)
 package main
 
 import (
@@ -37,6 +40,8 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/password"
 	"github.com/Chriszly/usage-control/backend/internal/server"
+	"github.com/Chriszly/usage-control/backend/internal/update"
+	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/Chriszly/usage-control/backend/internal/web"
 )
 
@@ -196,6 +201,15 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 		Password:  devicesPassword,
 		Retention: retention,
 		Files:     web.Files(),
+		Update:    func() update.Status { return update.Status{Current: version.Version} },
+	}
+	checkUpdates, err := boolSettingOr("UPDATE_CHECK", true)
+	if err != nil {
+		return server.Site{}, nil, err
+	}
+	if checker := update.NewChecker(version.Version); checker != nil && checkUpdates {
+		site.Update = checker.Status
+		recording.Go(func() { checker.Run(ctx) })
 	}
 	wait := func() {
 		recording.Wait()
@@ -240,9 +254,15 @@ func dataOnly() (bool, error) {
 
 // boolSetting reads a setting that is true or false (default false).
 func boolSetting(name string) (bool, error) {
+	return boolSettingOr(name, false)
+}
+
+// boolSettingOr reads a setting that is true or false, with a default for
+// when it is not set.
+func boolSettingOr(name string, fallback bool) (bool, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return false, nil
+		return fallback, nil
 	}
 	on, err := strconv.ParseBool(value)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
+	"github.com/Chriszly/usage-control/backend/internal/update"
 )
 
 // Collector reads the current usage of the machine.
@@ -74,6 +75,9 @@ type Site struct {
 	Retention time.Duration
 	// Files is the built website.
 	Files fs.FS
+	// Update tells the running version and whether a newer release exists;
+	// nil leaves out GET /api/update.
+	Update func() update.Status
 }
 
 // New returns the handler for the whole site: the JSON API under /api/ and
@@ -91,6 +95,11 @@ func New(site Site) http.Handler {
 		return historyHandler(d.History, site.Retention)
 	}))
 	mux.HandleFunc("GET /api/availability", forDevice(site.Devices, availabilityHandler))
+	if site.Update != nil {
+		mux.HandleFunc("GET /api/update", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, site.Update())
+		})
+	}
 	mux.Handle("GET /", websiteHandler(site.Files))
 	return localNetworkOnly(mux)
 }

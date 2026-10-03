@@ -69,3 +69,27 @@ func TestDataOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestBoolSettingOr(t *testing.T) {
+	tests := []struct {
+		value    string
+		fallback bool
+		want     bool
+	}{
+		{"", true, true},
+		{"", false, false},
+		{"false", true, false},
+		{" TRUE ", false, true},
+	}
+	for _, tt := range tests {
+		t.Setenv("UPDATE_CHECK", tt.value)
+		got, err := boolSettingOr("UPDATE_CHECK", tt.fallback)
+		if err != nil || got != tt.want {
+			t.Errorf("boolSettingOr() with %q and default %v = %v, %v, want %v", tt.value, tt.fallback, got, err, tt.want)
+		}
+	}
+	t.Setenv("UPDATE_CHECK", "sometimes")
+	if _, err := boolSettingOr("UPDATE_CHECK", true); err == nil {
+		t.Error("boolSettingOr() with \"sometimes\" error = nil, want one")
+	}
+}

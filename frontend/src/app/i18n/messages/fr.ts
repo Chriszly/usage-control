@@ -154,4 +154,6 @@ export const fr: Messages = {
   'bytes.unit.mib': 'Mio',
   'bytes.unit.gib': 'Gio',
   'bytes.unit.tib': 'Tio',
+  'update.available': 'La version {latest} est disponible (cet appareil a la {current}).',
+  'update.whatsNew': 'Nouveautés',
 };

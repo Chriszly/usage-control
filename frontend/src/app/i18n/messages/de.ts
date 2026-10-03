@@ -155,4 +155,6 @@ export const de: Messages = {
   'bytes.unit.mib': 'MiB',
   'bytes.unit.gib': 'GiB',
   'bytes.unit.tib': 'TiB',
+  'update.available': 'Version {latest} ist verfügbar (dieses Gerät hat {current}).',
+  'update.whatsNew': 'Was ist neu',
 };
