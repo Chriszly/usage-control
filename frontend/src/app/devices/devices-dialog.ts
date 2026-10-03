@@ -10,7 +10,7 @@ import {
 } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { EMPTY, Observable, catchError, filter, finalize, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, filter, finalize, of, switchMap, tap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
 import { Device, DeviceService, problemMessage } from './devices';
@@ -86,7 +86,13 @@ export class DevicesDialog {
           this.busy.set(true);
           this.problem.set('');
         }),
-        switchMap((result) => makeChange(result).pipe(switchMap(() => this.devices.load()))),
+        // Once the change worked, a list that cannot be read is no failure of
+        // the change: the device picker reads the list again in a few seconds.
+        switchMap((result) =>
+          makeChange(result).pipe(
+            switchMap(() => this.devices.load().pipe(catchError(() => of(null)))),
+          ),
+        ),
         catchError((error: unknown) => {
           this.problem.set(problemMessage(error, this.i18n));
           return EMPTY;

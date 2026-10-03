@@ -4,7 +4,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { EMPTY, catchError, of, switchMap, tap, timer } from 'rxjs';
+import { EMPTY, catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
@@ -17,6 +17,7 @@ import {
   ThrottlingCondition,
   TimeZone,
 } from '../metrics/metrics';
+import { PageVisibility } from '../page-visibility';
 
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
@@ -37,6 +38,7 @@ type Problem = 'backend' | 'device';
 export class Dashboard {
   private readonly metrics = inject(MetricsService);
   private readonly devices = inject(DeviceService);
+  private readonly page = inject(PageVisibility);
 
   protected readonly snapshot = signal<Snapshot | null>(null);
   protected readonly problem = signal<Problem | null>(null);
@@ -53,14 +55,18 @@ export class Dashboard {
           this.snapshot.set(null);
           this.problem.set(null);
         }),
+        // A tick while the previous reading is still on its way is skipped, so a
+        // slow backend is not asked again and again for what it has not answered.
         switchMap((device) =>
-          timer(0, REFRESH_INTERVAL_MS).pipe(
-            switchMap(() =>
-              this.metrics
-                .current(device)
-                .pipe(catchError((error: unknown) => of(problemOf(error, device)))),
+          this.page
+            .ticks(REFRESH_INTERVAL_MS)
+            .pipe(
+              exhaustMap(() =>
+                this.metrics
+                  .current(device)
+                  .pipe(catchError((error: unknown) => of(problemOf(error, device)))),
+              ),
             ),
-          ),
         ),
         takeUntilDestroyed(),
       )
@@ -79,9 +85,11 @@ export class Dashboard {
         switchMap((device) =>
           device === LOCAL_DEVICE.id
             ? EMPTY
-            : timer(0, AVAILABILITY_REFRESH_MS).pipe(
-                switchMap(() => this.devices.availability(device).pipe(catchError(() => EMPTY))),
-              ),
+            : this.page
+                .ticks(AVAILABILITY_REFRESH_MS)
+                .pipe(
+                  exhaustMap(() => this.devices.availability(device).pipe(catchError(() => EMPTY))),
+                ),
         ),
         takeUntilDestroyed(),
       )

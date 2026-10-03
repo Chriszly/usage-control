@@ -1,8 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  TestRequest,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { DevicePicker } from './device-picker';
+import { DEVICES_REFRESH_MS, DevicePicker } from './device-picker';
 import { Device, DeviceService } from './devices';
 
 describe('DevicePicker', () => {
@@ -10,6 +14,7 @@ describe('DevicePicker', () => {
   let http: HttpTestingController;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     TestBed.configureTestingModule({
       imports: [DevicePicker],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -18,10 +23,20 @@ describe('DevicePicker', () => {
     fixture = TestBed.createComponent(DevicePicker);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** The pending request for the list. */
+  function request(): TestRequest {
+    vi.advanceTimersByTime(0);
+    return http.expectOne('/api/devices');
+  }
 
   function respond(devices: Device[]): void {
-    http.expectOne('/api/devices').flush({ devices, passwordSet: false });
+    request().flush({ devices, passwordSet: false });
     fixture.detectChanges();
   }
 
@@ -74,10 +89,32 @@ describe('DevicePicker', () => {
   });
 
   it('shows only this device when the list cannot be read', () => {
-    http.expectOne('/api/devices').flush('down', { status: 502, statusText: 'Bad Gateway' });
+    request().flush('down', { status: 502, statusText: 'Bad Gateway' });
     fixture.detectChanges();
 
     expect(labels()).toEqual(['Add other devices']);
     expect(TestBed.inject(DeviceService).selected().id).toBe('local');
+  });
+
+  it('reads the list again every few seconds, but not while the page is hidden', () => {
+    let visibilityState: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState);
+    respond([{ id: 'local', name: '' }]);
+
+    vi.advanceTimersByTime(DEVICES_REFRESH_MS);
+    respond([{ id: 'local', name: '' }]);
+
+    visibilityState = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(10 * DEVICES_REFRESH_MS);
+    http.expectNone('/api/devices');
+
+    visibilityState = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    respond([
+      { id: 'local', name: '' },
+      { id: 'pi', name: 'Pi' },
+    ]);
+    expect(labels()).toEqual(['Host Hub', 'Pi', 'Devices']);
   });
 });
