@@ -46,9 +46,11 @@ type Checker struct {
 	client  *http.Client
 	url     string
 
-	// mu guards latest.
+	// mu guards latest and tag.
 	mu     sync.Mutex
 	latest string
+	// tag is latest as the release names it, with or without the v.
+	tag string
 }
 
 // NewChecker returns a Checker for the running version current, or nil when
@@ -86,13 +88,13 @@ func (c *Checker) Run(ctx context.Context) {
 // release.
 func (c *Checker) Status() Status {
 	c.mu.Lock()
-	latest := c.latest
+	latest, tag := c.latest, c.tag
 	c.mu.Unlock()
 
 	status := Status{Current: c.current}
 	if latest != "" && newer(latest, c.current) {
 		status.Latest = latest
-		status.URL = releaseURL + "v" + latest
+		status.URL = releaseURL + tag
 	}
 	return status
 }
@@ -131,7 +133,8 @@ func (c *Checker) check(ctx context.Context) error {
 	latest := match[1] + "." + match[2] + "." + match[3]
 
 	c.mu.Lock()
-	c.latest = latest
+	// The tag matched release, so it is only digits, dots and a v.
+	c.latest, c.tag = latest, body.TagName
 	c.mu.Unlock()
 	return nil
 }
