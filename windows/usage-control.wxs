@@ -3,16 +3,18 @@
   "Usage Control", which starts with Windows, and opens its port in the
   Windows firewall for private networks only. By default the service only
   serves this PC's usage to a hub (DATA_ONLY); with WEBSITE=1 it also shows
-  the website and keeps the history itself.
+  the website and keeps the history itself. Double-clicking the installer
+  asks which of the two this PC should do (the "Mode" page below).
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
-      -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -o usage-control.msi
+      -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
+      -o usage-control.msi
 
   Install options (msiexec /i usage-control.msi PORT=8090 WEBSITE=1):
     PORT            port the PC is reachable on (default 9393)
-    WEBSITE         1 to show the website and keep the history on this PC
-                    (default: only serve the usage to a hub)
+    WEBSITE         1 to show the website and keep the history on this PC,
+                    0 to only serve the usage to a hub (default 0)
     DEVICE_NAME     with WEBSITE=1, how the page names this PC
     HUB_DEVICES     with WEBSITE=1, other devices to collect from (hub mode)
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
@@ -25,6 +27,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Usage Control"
            Manufacturer="usage-control"
@@ -53,10 +56,16 @@
       the service only serves the usage to a hub, and ignores HUB_DEVICES.
     -->
     <SetProperty Action="DefaultPORT" Id="PORT" Value="9393" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
+    <SetProperty Action="DefaultWEBSITE" Id="WEBSITE" Value="0" After="LaunchConditions" Sequence="both" Condition="NOT WEBSITE" />
     <Property Id="DATA_ONLY" Value="true" Secure="yes" />
     <Property Id="SERVICE_HUB_DEVICES" Secure="yes" />
     <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
     <SetProperty Action="WebsiteHubDevices" Id="SERVICE_HUB_DEVICES" Value="[HUB_DEVICES]" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
+
+    <!-- The setup wizard: welcome, the Mode page, ready to install. -->
+    <UIRef Id="SetupWizard" />
+    <!-- No "Change" in Apps and Features: running the installer again changes the mode. -->
+    <Property Id="ARPNOMODIFY" Value="1" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Usage Control" />
@@ -122,4 +131,62 @@
       </CreateFolder>
     </Component>
   </Package>
+
+  <!--
+    The wizard is WiX's minimal one with the Mode page added after the
+    welcome page. Silent installs (msiexec /qn) skip it and use WEBSITE.
+  -->
+  <Fragment>
+    <UI Id="SetupWizard">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Dialog Id="ModeDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What should this PC do?" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Running the installer again later changes it." />
+        <Control Id="Mode" Type="RadioButtonGroup" X="20" Y="60" Width="330" Height="110" Property="WEBSITE">
+          <RadioButtonGroup Property="WEBSITE">
+            <RadioButton Value="0" X="0" Y="0" Width="330" Height="15" Text="&amp;Only collect this PC's usage for a hub (recommended)" />
+            <RadioButton Value="1" X="0" Y="45" Width="330" Height="15" Text="&amp;Collect and also show the website on this PC" />
+          </RadioButtonGroup>
+        </Control>
+        <Control Id="CollectorText" Type="Text" X="38" Y="77" Width="310" Height="24" NoPrefix="yes" Text="Another device, such as a Raspberry Pi, shows this PC and keeps its history. Nothing else runs here." />
+        <Control Id="WebsiteText" Type="Text" X="38" Y="122" Width="310" Height="24" NoPrefix="yes" Text="This PC also shows the page and keeps its own history in C:\ProgramData\Usage Control." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
+      <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ModeDlg" Condition="NOT Installed" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Condition="Installed" />
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
 </Wix>

@@ -91,13 +91,17 @@ To update, unpack the newer archive and run its `install.sh` again; settings and
 
 Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer. From the [releases page](https://github.com/Chriszly/usage-control/releases), download `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM, and run it. The installers are not code-signed, so SmartScreen warns before it runs.
 
-The installer:
+The setup wizard asks what the PC should do:
+
+- **Only collect this PC's usage for a hub** (preselected): the website is off (`DATA_ONLY=true`), and the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
+- **Collect and also show the website on this PC**: the PC also shows the page and keeps its own history in `C:\ProgramData\Usage Control`
+
+To switch later, run the installer again and pick the other one. Either way, the installer:
 
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
-- turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
 - opens port 9393 in the Windows firewall, for **private networks only**. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 
-To change the defaults, install from a command prompt run as administrator and add options:
+To change the other defaults, or to install without the wizard (`/qn`), install from a command prompt run as administrator and add options:
 
 ```bat
 msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
@@ -106,7 +110,7 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | Option | Meaning |
 | --- | --- |
 | `PORT` | port the PC is reachable on (default 9393) |
-| `WEBSITE` | `1` to show the website on this PC too and keep its history in `C:\ProgramData\Usage Control`, which uninstalling keeps; `0` to turn it off again (default off) |
+| `WEBSITE` | the wizard's choice: `1` to show the website on this PC too and keep its history in `C:\ProgramData\Usage Control`, which uninstalling keeps; `0` to only collect (default `0`) |
 | `DEVICE_NAME` | with `WEBSITE=1`, how the page names this PC (default *Host Hub*) |
 | `HUB_DEVICES` | with `WEBSITE=1`, other devices this PC collects from |
 | `RETENTION_DAYS` | with `WEBSITE=1`, days of history to keep (default 30) |
@@ -117,7 +121,7 @@ An update keeps the options it was installed with, so double-clicking a newer in
 
 The service writes errors to the Windows event log (*Application*, source *UsageControl*). When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
 
-Builds of `main` are also available, as artifacts of the *Windows installer* workflow runs. They are numbered `0.0.<run>`, which counts as older than any release, so they only install on a PC without a release.
+Builds of `main` are also available, as artifacts of the *Windows installer* workflow runs (pull requests only build the installers when they change them). They are numbered `0.0.<run>`, which counts as older than any release, so they only install on a PC without a release.
 
 ## 3. Add another Linux machine
 
