@@ -28,6 +28,7 @@ Temperature is not available on every platform; where the OS does not expose it,
 - Match the surrounding code: its naming, comment density and idioms
 - Keep changes small and focused; one topic per pull request
 - Shell scripts (`ci/*.sh`) use `#!/usr/bin/env bash` and `set -euo pipefail`, and pass `bash -n` and `shellcheck`
+- Actions in `.github/workflows` are pinned to a commit SHA, with the version as a comment after it (`uses: actions/checkout@<sha> # v7.0.1`); Dependabot updates both
 - Don't hardcode fallback versions or dates; fail with an actionable error instead
 - The website must work without an account or login at an outside service: it reads the hardware it runs on and serves the page itself, no cloud sign-in
 
