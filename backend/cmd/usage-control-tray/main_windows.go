@@ -110,10 +110,7 @@ func (t *tray) refresh() {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if service != serviceStopped {
-		// Started or stopped some other way than Pause.
-		t.paused = false
-	}
+	t.paused = stillPaused(service, t.paused)
 	if hub != "" {
 		t.hub = hub
 	}

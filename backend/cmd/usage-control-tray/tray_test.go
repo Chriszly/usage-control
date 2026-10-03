@@ -32,6 +32,23 @@ func TestStateOf(t *testing.T) {
 	}
 }
 
+func TestStillPaused(t *testing.T) {
+	for service, want := range map[serviceState]bool{
+		serviceStopping: true,
+		serviceStopped:  true,
+		serviceMissing:  true,
+		serviceStarting: false,
+		serviceRunning:  false,
+	} {
+		if got := stillPaused(service, true); got != want {
+			t.Errorf("stillPaused(%d, true) = %v, want %v", service, got, want)
+		}
+		if stillPaused(service, false) {
+			t.Errorf("stillPaused(%d, false) = true, want false", service)
+		}
+	}
+}
+
 func TestNewSettings(t *testing.T) {
 	tests := []struct {
 		port, website string

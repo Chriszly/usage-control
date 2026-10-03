@@ -65,6 +65,13 @@ func stateOf(service serviceState, answers, paused bool) state {
 	return stateStopped
 }
 
+// stillPaused tells whether a pause from the icon still holds: until the
+// service starts again, from the icon or some other way. A service that is
+// still stopping after Pause stays paused.
+func stillPaused(service serviceState, paused bool) bool {
+	return paused && service != serviceRunning && service != serviceStarting
+}
+
 // icon is the file in icons/ that shows the state.
 func (s state) icon() string {
 	switch s {
