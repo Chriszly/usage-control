@@ -100,8 +100,8 @@ export class HistoryCharts {
   private readonly page = inject(PageVisibility);
   protected readonly i18n = inject(I18n);
 
-  /** The length of the shown time, in seconds. */
-  protected readonly span = signal(86400);
+  /** The length of the shown time, in seconds; opens on the last 30 minutes. */
+  protected readonly span = signal(30 * 60);
 
   protected readonly history = signal<History | null>(null);
   protected readonly unreachable = signal(false);
