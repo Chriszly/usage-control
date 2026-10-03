@@ -1,0 +1,41 @@
+# Runs usage-control on a Linux machine without Docker. linux/install.sh puts
+# it in /etc/systemd/system; settings go in /etc/usage-control.env.
+[Unit]
+Description=Usage Control: shows the usage of this machine on the local network
+Documentation=https://github.com/Chriszly/usage-control
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/usage-control
+EnvironmentFile=-/etc/usage-control.env
+# The history database, kept in /var/lib/usage-control across updates.
+Environment=DATABASE_PATH=/var/lib/usage-control/usage-control.db
+StateDirectory=usage-control
+Restart=on-failure
+RestartSec=5
+
+# The site only reads hardware data, so it runs as a throwaway user without
+# privileges and can write nowhere but its own state folder.
+DynamicUser=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

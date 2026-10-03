@@ -82,6 +82,20 @@ Once a day the hub asks GitHub's public releases API whether a newer release exi
 UPDATE_CHECK=false
 ```
 
+## Install it on Linux without Docker
+
+Each [release](https://github.com/Chriszly/usage-control/releases) also has an archive for Linux machines without Docker: `usage-control-<version>-linux-arm64.tar.gz` for a Raspberry Pi with a 64-bit system, `-amd64.tar.gz` for a PC. It holds the program, a systemd service and an install script:
+
+```bash
+tar -xzf usage-control-0.1.0-linux-arm64.tar.gz
+cd usage-control-0.1.0-linux-arm64
+sudo ./install.sh
+```
+
+The service starts right away and at every boot, on port 8080. Settings go in `/etc/usage-control.env` (the same ones as in `.env` for Docker), followed by `sudo systemctl restart usage-control`. The history is kept in `/var/lib/usage-control`. Running natively, it sees every disk and needs no `HOST_PROC` or mounts. Like the container, the service runs as an unprivileged throwaway user that can write only its own folder.
+
+To update, unpack the newer archive and run its `install.sh` again; settings and history are kept. `sudo ./install.sh --uninstall` removes it, and `--uninstall --purge` also deletes its settings and history.
+
 ## Install it on Windows
 
 On Windows, usage-control by default only collects the PC's usage for a hub on Linux, such as a Raspberry Pi, which shows it and keeps its history. Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.
