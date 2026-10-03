@@ -6,7 +6,7 @@
 services:
   usage-control:
     build: .
-    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-main}
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${PORT:-8080}:8080"
