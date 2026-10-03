@@ -50,6 +50,37 @@ func TestRetentionDaysRefusesInvalidValues(t *testing.T) {
 	}
 }
 
+func TestPagePort(t *testing.T) {
+	tests := []struct {
+		public, listen, want string
+	}{
+		{"", ":9393", "9393"},
+		{"", "0.0.0.0:8080", "8080"},
+		{"8090", ":9393", "8090"},
+		{" 8090 ", ":9393", "8090"},
+	}
+	for _, tt := range tests {
+		t.Setenv("PUBLIC_PORT", tt.public)
+		got, err := pagePort(tt.listen)
+		if err != nil || got != tt.want {
+			t.Errorf("pagePort(%q) with PUBLIC_PORT=%q = %q, %v, want %q", tt.listen, tt.public, got, err, tt.want)
+		}
+	}
+}
+
+func TestPagePortRefusesInvalidValues(t *testing.T) {
+	for _, value := range []string{"0", "65536", "port", "80/x"} {
+		t.Setenv("PUBLIC_PORT", value)
+		if _, err := pagePort(":9393"); err == nil {
+			t.Errorf("pagePort() with PUBLIC_PORT=%q error = nil, want an error", value)
+		}
+	}
+	t.Setenv("PUBLIC_PORT", "")
+	if _, err := pagePort("9393"); err == nil {
+		t.Error("pagePort(\"9393\") error = nil, want an error for a LISTEN_ADDR without a port")
+	}
+}
+
 func TestHistoryMaxEntries(t *testing.T) {
 	tests := []struct {
 		value string

@@ -106,7 +106,7 @@ func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 	if !reflect.DeepEqual(got.CPU, want.CPU) {
 		t.Errorf("CPU = %+v, want %+v", got.CPU, want.CPU)
 	}
-	for _, path := range []string{"/", "/api/devices", "/api/history?range=1h"} {
+	for _, path := range []string{"/", "/api/devices", "/api/history?range=1h", "/api/update"} {
 		if rec := get(handler, path, "192.168.1.20:5000"); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want %d", path, rec.Code, http.StatusNotFound)
 		}

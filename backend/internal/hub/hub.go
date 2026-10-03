@@ -30,6 +30,9 @@ type Hub struct {
 	// historyEntries is how many disks, sensors, network cards and GPUs each
 	// the history keeps per device.
 	historyEntries int
+	// pagePort is the port the hub's page is reachable on, which every
+	// device is told; see PagePortHeader.
+	pagePort string
 	// ctx ends every recorder when the program stops.
 	ctx       context.Context
 	recording sync.WaitGroup
@@ -58,8 +61,9 @@ type Remote struct {
 // New starts collecting from the fixed devices and the ones added on the page
 // earlier, until ctx is done. The history is kept in store, with the first
 // historyEntries disks, sensors, network cards and GPUs each of a device.
-func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, ctx: ctx}
+// Every device is told pagePort, the port the hub's page is reachable on.
+func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, pagePort string) (*Hub, error) {
+	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -195,6 +199,7 @@ func (h *Hub) Wait() {
 // start begins collecting from a device. The caller holds mu, or New runs.
 func (h *Hub) start(device Device, fixed bool) {
 	agent := NewAgent(device.Address)
+	agent.pagePort = h.pagePort
 	if err := watch(h.ctx, h.store.DB(), device.ID, time.Now()); err != nil {
 		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)
 	}

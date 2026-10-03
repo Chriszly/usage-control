@@ -27,6 +27,11 @@ const (
 	staleAfter = 20 * time.Second
 )
 
+// PagePortHeader is sent with every request a hub makes, with the port its
+// page is reachable on. The device combines it with the address the request
+// came from, so its tray icon can link to the hub's page.
+const PagePortHeader = "Usage-Control-Hub-Port"
+
 // ErrUnreachable is returned when a device has not answered recently.
 var ErrUnreachable = errors.New("the device has not answered recently")
 
@@ -36,6 +41,8 @@ var ErrUnreachable = errors.New("the device has not answered recently")
 type Agent struct {
 	url    string
 	client *http.Client
+	// pagePort is sent as PagePortHeader; empty sends none.
+	pagePort string
 
 	mu       sync.Mutex
 	latest   metrics.Snapshot
@@ -95,6 +102,9 @@ func (a *Agent) ask(ctx context.Context) (metrics.Snapshot, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.url, nil)
 	if err != nil {
 		return metrics.Snapshot{}, err
+	}
+	if a.pagePort != "" {
+		request.Header.Set(PagePortHeader, a.pagePort)
 	}
 	response, err := a.client.Do(request)
 	if err != nil {

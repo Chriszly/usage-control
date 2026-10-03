@@ -66,3 +66,21 @@ func TestAgentOnlyConnectsToTheLocalNetwork(t *testing.T) {
 		t.Errorf("Collect() error = %v, want it refused as not on the local network", err)
 	}
 }
+
+func TestAgentTellsTheHubsPagePort(t *testing.T) {
+	sent := make(chan string, 1)
+	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent <- r.Header.Get(PagePortHeader)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer device.Close()
+	agent := NewAgent(strings.TrimPrefix(device.URL, "http://"))
+	agent.pagePort = "9393"
+
+	if _, err := agent.Collect(context.Background()); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if got := <-sent; got != "9393" {
+		t.Errorf("%s = %q, want 9393", PagePortHeader, got)
+	}
+}
