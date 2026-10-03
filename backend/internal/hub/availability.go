@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
@@ -65,6 +67,36 @@ func forget(ctx context.Context, db *sql.DB, device string) error {
 	return err
 }
 
+// forgetOthers deletes the availability of every device but the kept ones:
+// the devices dropped from HUB_DEVICES without being added on the page.
+func forgetOthers(ctx context.Context, db *sql.DB, kept []string) error {
+	rows, err := db.QueryContext(ctx, `SELECT device FROM hub_watched UNION SELECT device FROM hub_outages`)
+	if err != nil {
+		return err
+	}
+	var gone []string
+	for rows.Next() {
+		var device string
+		if err := rows.Scan(&device); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !slices.Contains(kept, device) {
+			gone = append(gone, device)
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, device := range gone {
+		if err := forget(ctx, db, device); err != nil {
+			return err
+		}
+		slog.Info("forgot the availability of a device no longer collected from", "device", device)
+	}
+	return nil
+}
+
 // readAvailability adds up the outages of device.
 func readAvailability(ctx context.Context, db *sql.DB, device string) (Availability, error) {
 	var since int64
@@ -92,37 +124,58 @@ func readAvailability(ctx context.Context, db *sql.DB, device string) (Availabil
 	return availability, nil
 }
 
+// noteInterval is how often an outage is written to the database while it
+// lasts, so a crash of the hub loses at most that much of it. In between, the
+// page gets its current end from memory, not from every failed reading.
+const noteInterval = 5 * time.Minute
+
 // watchedAgent asks the device for its usage like its Agent, and keeps track
 // of the times it does not answer. Only the device's recorder calls Collect.
 type watchedAgent struct {
 	agent  *Agent
 	db     *sql.DB
 	device string
+	// clock tells the time; nil for time.Now, replaced in tests.
+	clock func() time.Time
+
+	// mu guards the outage, which Collect changes and ongoing reads.
+	mu sync.Mutex
 	// outageStart is when the device stopped answering; zero while it answers.
 	outageStart time.Time
+	// lastFailed is the newest failed reading of the outage.
+	lastFailed time.Time
+	// noted is the end the database has for the outage.
+	noted time.Time
 	// lastEnd is when the previous outage ended. A new one starts after it,
 	// so the two never share the start that keys them in the database.
 	lastEnd time.Time
 }
 
 // Collect asks the device for its usage and notes an outage when it does not
-// answer.
+// answer: in the database when it starts, every noteInterval while it lasts
+// and when it ends, and in memory at every failed reading.
 func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := w.agent.Collect(ctx)
 	if ctx.Err() != nil {
 		// The hub is stopping or the device was removed; the device is not to blame.
 		return snapshot, err
 	}
-	now := time.Now()
+	now := w.now()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	switch {
-	case err != nil:
-		if w.outageStart.IsZero() {
-			w.outageStart = now
-			if earliest := w.lastEnd.Truncate(time.Millisecond).Add(time.Millisecond); now.Before(earliest) {
-				w.outageStart = earliest
-			}
+	case err != nil && w.outageStart.IsZero():
+		w.outageStart = now
+		if earliest := w.lastEnd.Truncate(time.Millisecond).Add(time.Millisecond); now.Before(earliest) {
+			w.outageStart = earliest
 		}
+		w.lastFailed = now
 		w.note(ctx, now)
+	case err != nil:
+		w.lastFailed = now
+		if now.Sub(w.noted) >= noteInterval {
+			w.note(ctx, now)
+		}
 	case !w.outageStart.IsZero():
 		w.note(ctx, now)
 		w.outageStart, w.lastEnd = time.Time{}, now
@@ -130,7 +183,18 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	return snapshot, err
 }
 
-// note stores the current outage as lasting until end.
+// ongoing returns the outage that lasts, ending at the newest failed reading,
+// and how much of it the database does not have yet.
+func (w *watchedAgent) ongoing() (outage Outage, unwritten time.Duration, ok bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.outageStart.IsZero() {
+		return Outage{}, 0, false
+	}
+	return Outage{Start: w.outageStart.UTC(), End: w.lastFailed.UTC()}, max(0, w.lastFailed.Sub(w.noted)), true
+}
+
+// note stores the current outage as lasting until end. The caller holds mu.
 func (w *watchedAgent) note(ctx context.Context, end time.Time) {
 	if end.Before(w.outageStart) {
 		end = w.outageStart
@@ -141,5 +205,14 @@ func (w *watchedAgent) note(ctx context.Context, end time.Time) {
 		w.device, w.outageStart.UnixMilli(), end.UnixMilli())
 	if err != nil {
 		slog.Error("store that a device does not answer", "device", w.device, "error", err)
+		return
 	}
+	w.noted = end
+}
+
+func (w *watchedAgent) now() time.Time {
+	if w.clock == nil {
+		return time.Now()
+	}
+	return w.clock()
 }

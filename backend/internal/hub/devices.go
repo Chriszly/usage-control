@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
 )
@@ -85,7 +86,7 @@ func NewDevice(name, address string) (Device, error) {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "the port must be a number from 1 to 65535"}
 	}
 
-	if name == "" || len(name) > maxNameLength {
+	if name == "" || utf8.RuneCountInString(name) > maxNameLength {
 		return Device{}, &InputError{Problem: ProblemName, Message: fmt.Sprintf("the name must have 1 to %d characters", maxNameLength)}
 	}
 	id := idOf(name)

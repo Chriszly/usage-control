@@ -2,6 +2,7 @@ package hub
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,16 @@ func TestParseDevicesRefusesInvalidEntries(t *testing.T) {
 		if _, err := ParseDevices(value); err == nil {
 			t.Errorf("ParseDevices(%q) error = nil, want an error", value)
 		}
+	}
+}
+
+func TestNewDeviceCountsTheNameLengthInCharacters(t *testing.T) {
+	name := strings.Repeat("ü", maxNameLength) // twice as many bytes
+	if _, err := NewDevice(name, "192.168.1.20:8080"); err != nil {
+		t.Errorf("NewDevice(%d umlauts) error = %v, want it accepted", maxNameLength, err)
+	}
+	if _, err := NewDevice(name+"ü", "192.168.1.20:8080"); problemOf(err) != ProblemName {
+		t.Errorf("NewDevice(%d umlauts) error = %v, want problem %q", maxNameLength+1, err, ProblemName)
 	}
 }
 
