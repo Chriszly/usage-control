@@ -4,14 +4,16 @@ name: Windows installer
 # and checks on a Windows machine that the x64 one installs, starts the service
 # and keeps its options across an update (windows/check-installer.ps1). Pull
 # requests and main keep the installers as a workflow artifact; a version tag
-# (v1.2.3) also attaches them to that GitHub release.
+# (v1.2.3 or 1.2.3) also attaches them to that GitHub release.
 on:
   pull_request:
   push:
     branches:
       - main
+    # A release tag, with or without the v: v1.2.3 or 1.2.3.
     tags:
       - 'v*.*.*'
+      - '[0-9]*.[0-9]*.[0-9]*'
     paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
   workflow_dispatch:
 
@@ -43,7 +45,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version="${GITHUB_REF_NAME#v}"
             if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3." >&2
+              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3 (the v is optional)." >&2
               exit 1
             fi
           else

@@ -36,6 +36,18 @@ func TestStatusNamesANewerRelease(t *testing.T) {
 	}
 }
 
+func TestStatusLinksATagWithoutV(t *testing.T) {
+	c := checkerAgainst(t, "0.1.0", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name": "0.2.0"}`))
+	})
+	if err := c.check(context.Background()); err != nil {
+		t.Fatalf("check() error = %v", err)
+	}
+	if got := c.Status().URL; got != "https://github.com/Chriszly/usage-control/releases/tag/0.2.0" {
+		t.Errorf("Status().URL = %q, want the release page of tag 0.2.0", got)
+	}
+}
+
 func TestStatusLeavesOutTheSameOrAnOlderRelease(t *testing.T) {
 	for _, tag := range []string{"v1.2.3", "v1.2.2", "v0.9.9"} {
 		c := checkerAgainst(t, "1.2.3", func(w http.ResponseWriter, _ *http.Request) {
