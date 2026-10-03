@@ -28,6 +28,7 @@ export const en = {
   'dashboard.gpuMemory': '{used} of {total} memory',
   'dashboard.temperature': 'Temperature',
   'dashboard.noTemperature': 'Not available on this machine',
+  'dashboard.time': 'Time',
   'dashboard.uptime': 'Uptime',
   'dashboard.loading': 'Loading…',
   'dashboard.uptimeDays': '{days} d {hours} h',

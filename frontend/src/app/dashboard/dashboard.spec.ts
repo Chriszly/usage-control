@@ -111,6 +111,31 @@ describe('Dashboard', () => {
     expect(text()).toContain('Version 0.1.0');
   });
 
+  it("shows the time of the device's clock in its own time zone", () => {
+    respond({ ...snapshot, timeZone: { name: 'CEST', offsetSeconds: 2 * 3600 } });
+    expect(text().replace(/\s+/g, ' ')).toContain('7:00 PM');
+    expect(text()).toContain('Friday, October 2, 2026 · CEST (UTC+2)');
+  });
+
+  it('names a zone by its offset when it has no short name, and leaves out UTC offsets', () => {
+    respond({ ...snapshot, timeZone: { name: '-0330', offsetSeconds: -3.5 * 3600 } });
+    expect(text().replace(/\s+/g, ' ')).toContain('1:30 PM');
+    expect(text()).toContain('Friday, October 2, 2026 · UTC-3:30');
+
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http
+      .expectOne('/api/metrics')
+      .flush({ ...snapshot, timeZone: { name: 'UTC', offsetSeconds: 0 } });
+    fixture.detectChanges();
+    expect(text().replace(/\s+/g, ' ')).toContain('5:00 PM');
+    expect(text()).toContain('Friday, October 2, 2026 · UTC');
+  });
+
+  it('leaves out the time when the device runs an older version', () => {
+    respond(snapshot);
+    expect(text()).not.toContain('Friday');
+  });
+
   it('shows processes, I/O wait, memory breakdown, disk operations and network errors', () => {
     respond({
       ...snapshot,

@@ -15,6 +15,7 @@ import {
   Snapshot,
   Throttling,
   ThrottlingCondition,
+  TimeZone,
 } from '../metrics/metrics';
 
 /** How often the dashboard asks the backend for new values. */
@@ -161,6 +162,22 @@ export class Dashboard {
     return conditions.map((c) => this.i18n.t(`dashboard.throttling.${c}`)).join(', ');
   }
 
+  /** The time of a reading as the device's own clock shows it, in the device's time zone. */
+  protected deviceTime(time: string, zone: TimeZone, format: string): string {
+    return formatDate(time, format, this.i18n.language(), offsetParts(zone.offsetSeconds).join(''));
+  }
+
+  /** The zone's name with its distance from UTC, such as "CEST (UTC+2)" or "IST (UTC+5:30)". */
+  protected zoneLabel(zone: TimeZone): string {
+    if (zone.offsetSeconds === 0) {
+      return 'UTC';
+    }
+    const [sign, hours, minutes] = offsetParts(zone.offsetSeconds);
+    const offset = `UTC${sign}${Number(hours)}${minutes === '00' ? '' : `:${minutes}`}`;
+    // Zones without a short name are named by their offset, such as "+03".
+    return /^[+-]/.test(zone.name) ? offset : `${zone.name} (${offset})`;
+  }
+
   protected formatUptime(seconds: number): string {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
@@ -169,6 +186,13 @@ export class Dashboard {
       ? this.i18n.t('dashboard.uptimeDays', { days, hours })
       : this.i18n.t('dashboard.uptimeHours', { hours, minutes });
   }
+}
+
+/** The sign, hours and minutes of an offset from UTC, such as ["+", "02", "00"]. */
+function offsetParts(seconds: number): [string, string, string] {
+  const minutes = Math.abs(Math.round(seconds / 60));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return [seconds < 0 ? '-' : '+', pad(Math.floor(minutes / 60)), pad(minutes % 60)];
 }
 
 /** The backend answers 503 when a device it collects from has not answered recently. */

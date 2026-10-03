@@ -22,8 +22,11 @@ import (
 type Snapshot struct {
 	// Version is the version of usage-control that read the usage. Devices
 	// running a version from before it was reported leave it out.
-	Version       string             `json:"version,omitempty"`
-	Time          time.Time          `json:"time"`
+	Version string    `json:"version,omitempty"`
+	Time    time.Time `json:"time"`
+	// TimeZone is the zone the device's clock is set to. Devices running a
+	// version from before it was reported leave it out.
+	TimeZone      *TimeZone          `json:"timeZone,omitempty"`
 	UptimeSeconds uint64             `json:"uptimeSeconds"`
 	CPU           CPU                `json:"cpu"`
 	Memory        Memory             `json:"memory"`
@@ -144,13 +147,15 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	}
 	c.addLinks(network)
 
+	now := time.Now()
 	cpuUsage.Cores = cores
 	cpuUsage.ClockMHz = readClockMHz(c.clockFiles)
 	cpuUsage.LoadAverage, cpuUsage.Processes = readLoadAverage(ctx)
 
 	return Snapshot{
 		Version:       version.Version,
-		Time:          time.Now().UTC(),
+		Time:          now.UTC(),
+		TimeZone:      timeZone(now),
 		UptimeSeconds: uptime,
 		CPU:           cpuUsage,
 		Memory: Memory{
