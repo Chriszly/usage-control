@@ -29,6 +29,8 @@ type Snapshot struct {
 	GPUs          []GPU              `json:"gpus"`
 	// Throttling is only reported by Raspberry Pis.
 	Throttling *Throttling `json:"throttling,omitempty"`
+	// Battery is only reported by machines with a battery.
+	Battery *Battery `json:"battery,omitempty"`
 }
 
 // CPU is the processor usage across all cores. The usage of each core, the
@@ -60,6 +62,7 @@ type Temperature struct {
 type Collector struct {
 	diskPaths      []string
 	gpus           *gpuReader
+	batteries      *batteryReader
 	clockFiles     []string
 	throttlingFile string
 
@@ -84,6 +87,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 	return &Collector{
 		diskPaths:      diskPaths,
 		gpus:           newGPUReader(),
+		batteries:      newBatteryReader(),
 		clockFiles:     clockFiles(),
 		throttlingFile: throttlingFile(),
 	}, nil
@@ -137,6 +141,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Network:      network,
 		GPUs:         c.gpus.read(ctx),
 		Throttling:   readThrottling(c.throttlingFile),
+		Battery:      c.batteries.read(),
 	}, nil
 }
 

@@ -181,6 +181,20 @@ describe('chartsOf with swap and disk activity', () => {
   });
 });
 
+describe('chartsOf with a battery', () => {
+  it('charts the battery charge', () => {
+    const charts = chartsOf(
+      [
+        { metric: 'cpu', points: [{ time: 0, value: 10 }] },
+        { metric: 'battery', points: [{ time: 0, value: 80 }] },
+      ],
+      (key, params) => translate('en', key, params),
+    );
+    expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Battery']);
+    expect(charts[1].lines[0].label).toBe('Charge');
+  });
+});
+
 describe('chartsOf with GPUs', () => {
   it('shows the usage and memory of each GPU in one chart', () => {
     const charts = chartsOf(
