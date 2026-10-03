@@ -26,6 +26,7 @@ export const fr: Messages = {
   'dashboard.gpuMemory': '{used} sur {total} de mémoire',
   'dashboard.temperature': 'Température',
   'dashboard.noTemperature': 'Non disponible sur cette machine',
+  'dashboard.time': 'Heure',
   'dashboard.uptime': 'Temps de fonctionnement',
   'dashboard.loading': 'Chargement…',
   'dashboard.uptimeDays': '{days} j {hours} h',

@@ -141,7 +141,8 @@ Every value is a small read the system offers to programs without extra rights, 
 | Value | Linux | Windows | Kept in the history |
 | --- | --- | --- | --- |
 | Usage per core | yes | yes | no, only the total |
-| Clock | where the kernel scales it (not in most virtual machines) | no | no |
+| CPU clock | where the kernel scales it (not in most virtual machines) | no | no |
+| Time and time zone | yes; in Docker, the host's zone when `/etc/localtime` is mounted (as in `compose.yaml`), else UTC | yes | no |
 | Load average | yes | no, Windows has none | no |
 | Processes (total and running) | yes | no | no |
 | I/O wait and steal | yes | no | no |

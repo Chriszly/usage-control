@@ -375,6 +375,16 @@
       </mat-card>
     }
 
+    @if (s.timeZone; as zone) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>{{ i18n.t('dashboard.time') }}</h2>
+          <p class="value">{{ deviceTime(s.time, zone, 'shortTime') }}</p>
+          <p class="detail">{{ deviceTime(s.time, zone, 'fullDate') }} · {{ zoneLabel(zone) }}</p>
+        </mat-card-content>
+      </mat-card>
+    }
+
     <mat-card appearance="outlined">
       <mat-card-content>
         <h2>{{ i18n.t('dashboard.uptime') }}</h2>

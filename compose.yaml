@@ -32,6 +32,8 @@ services:
       - data:/data
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      # Shows the host's time zone on the page instead of UTC.
+      - /etc/localtime:/etc/localtime:ro
       # For example a USB disk mounted at /mnt/usb on the host:
       # - /mnt/usb:/mnt/usb:ro
     # The site only reads hardware data, so it needs no privileges.

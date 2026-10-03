@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -134,5 +135,14 @@ func TestCountProcessesCountsNumberedDirectories(t *testing.T) {
 	}
 	if got, err := countProcesses(dir); err != nil || got != 3 {
 		t.Errorf("countProcesses() = %d, %v, want 3", got, err)
+	}
+}
+
+func TestTimeZone(t *testing.T) {
+	berlin := time.FixedZone("CEST", 2*60*60)
+	got := timeZone(time.Date(2026, 10, 3, 7, 0, 0, 0, berlin))
+	want := &TimeZone{Name: "CEST", OffsetSeconds: 7200}
+	if *got != *want {
+		t.Errorf("timeZone() = %+v, want %+v", *got, *want)
 	}
 }

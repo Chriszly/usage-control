@@ -9,6 +9,8 @@ export interface Snapshot {
   /** The version of usage-control on the device; missing on versions from before it was reported. */
   version?: string;
   time: string;
+  /** The time zone the device's clock is set to; missing on versions from before it was reported. */
+  timeZone?: TimeZone;
   uptimeSeconds: number;
   cpu: {
     usagePercent: number;
@@ -69,6 +71,12 @@ export interface Battery {
 }
 
 /** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
+/** The time zone of a device's clock: its short name, such as "CEST", and how far it is ahead of UTC. */
+export interface TimeZone {
+  name: string;
+  offsetSeconds: number;
+}
+
 export interface LoadAverage {
   one: number;
   five: number;
