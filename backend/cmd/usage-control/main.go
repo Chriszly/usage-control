@@ -8,6 +8,8 @@
 //	                or the system drive such as "C:\" on Windows)
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
+//	HISTORY_MAX_ENTRIES  how many disks, temperature sensors, network cards and
+//	                GPUs each the history keeps per device (default 64)
 //	DEVICE_NAME     how the page names this device (default "Host Hub")
 //	HUB_DEVICES     other devices to collect from, which turns on hub mode:
 //	                comma-separated name=host:port entries (default none)
@@ -72,6 +74,10 @@ func run(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	historyEntries, err := historyMaxEntries()
+	if err != nil {
+		return err
+	}
 	remotes, err := hub.ParseDevices(os.Getenv("HUB_DEVICES"))
 	if err != nil {
 		return fmt.Errorf("check HUB_DEVICES: %w", err)
@@ -109,7 +115,7 @@ func run(parent context.Context) error {
 		}
 		defer func() { _ = store.Close() }()
 
-		site, waitForRecorders, err := withHistory(ctx, collector, store, remotes, retention)
+		site, waitForRecorders, err := withHistory(ctx, collector, store, remotes, retention, historyEntries)
 		if err != nil {
 			return err
 		}
@@ -157,8 +163,9 @@ func run(parent context.Context) error {
 // and every device the hub collects from, from HUB_DEVICES or added on the
 // page. Each gets a recorder that reads its usage into the history until ctx
 // is done, and one pruner deletes what is older than retention; the returned
-// function waits until they have stopped.
-func withHistory(ctx context.Context, collector *metrics.Collector, store *history.Store, fixed []hub.Device, retention time.Duration) (server.Site, func(), error) {
+// function waits until they have stopped. Of each device's disks, sensors,
+// network cards and GPUs, the first historyEntries are kept.
+func withHistory(ctx context.Context, collector *metrics.Collector, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int) (server.Site, func(), error) {
 	// The recorder measures with its own collector, so CPU usage and network
 	// speed in the history are averages over its own interval.
 	recorderCollector, err := metrics.NewCollector(ctx, diskPaths())
@@ -181,13 +188,13 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
 	}
 
-	others, err := hub.New(ctx, store, fixed)
+	others, err := hub.New(ctx, store, fixed, historyEntries)
 	if err != nil {
 		return server.Site{}, nil, err
 	}
 
 	recent := &history.Recent{}
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, MaxEntries: historyEntries}
 	pruner := &history.Pruner{Store: store, Retention: retention}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
@@ -307,6 +314,21 @@ func systemDisk() string {
 		return os.Getenv("SystemDrive") + `\`
 	}
 	return "/"
+}
+
+// historyMaxEntries returns how many disks, sensors, network cards and GPUs
+// each the history keeps per device, from HISTORY_MAX_ENTRIES, or
+// history.DefaultMaxEntries when it is not set.
+func historyMaxEntries() (int, error) {
+	value := strings.TrimSpace(os.Getenv("HISTORY_MAX_ENTRIES"))
+	if value == "" {
+		return history.DefaultMaxEntries, nil
+	}
+	entries, err := strconv.Atoi(value)
+	if err != nil || entries < 1 || entries > 10000 {
+		return 0, fmt.Errorf("HISTORY_MAX_ENTRIES is %q; set it to a whole number from 1 to 10000", value)
+	}
+	return entries, nil
 }
 
 // retentionDays returns how long the history is kept, from RETENTION_DAYS, or

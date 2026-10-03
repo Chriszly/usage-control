@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS hub_devices (
 // the ones added on the page. Each has a recorder that keeps its history.
 type Hub struct {
 	store *history.Store
+	// historyEntries is how many disks, sensors, network cards and GPUs each
+	// the history keeps per device.
+	historyEntries int
 	// ctx ends every recorder when the program stops.
 	ctx       context.Context
 	recording sync.WaitGroup
@@ -53,9 +56,10 @@ type Remote struct {
 }
 
 // New starts collecting from the fixed devices and the ones added on the page
-// earlier, until ctx is done. The history is kept in store.
-func New(ctx context.Context, store *history.Store, fixed []Device) (*Hub, error) {
-	h := &Hub{store: store, ctx: ctx}
+// earlier, until ctx is done. The history is kept in store, with the first
+// historyEntries disks, sensors, network cards and GPUs each of a device.
+func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int) (*Hub, error) {
+	h := &Hub{store: store, historyEntries: historyEntries, ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -199,7 +203,7 @@ func (h *Hub) start(device Device, fixed bool) {
 		stop:     stop,
 		recorded: make(chan struct{}),
 	}
-	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched}
+	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries}
 	h.recording.Go(func() {
 		defer close(remote.recorded)
 		recorder.Run(ctx)

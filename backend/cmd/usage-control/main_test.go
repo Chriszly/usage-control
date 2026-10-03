@@ -50,6 +50,30 @@ func TestRetentionDaysRefusesInvalidValues(t *testing.T) {
 	}
 }
 
+func TestHistoryMaxEntries(t *testing.T) {
+	tests := []struct {
+		value string
+		want  int
+	}{
+		{"", 64},
+		{"1", 1},
+		{" 200 ", 200},
+	}
+	for _, tt := range tests {
+		t.Setenv("HISTORY_MAX_ENTRIES", tt.value)
+		got, err := historyMaxEntries()
+		if err != nil || got != tt.want {
+			t.Errorf("historyMaxEntries() with HISTORY_MAX_ENTRIES=%q = %v, %v, want %v", tt.value, got, err, tt.want)
+		}
+	}
+	for _, value := range []string{"0", "-1", "many", "1.5", "10001"} {
+		t.Setenv("HISTORY_MAX_ENTRIES", value)
+		if _, err := historyMaxEntries(); err == nil {
+			t.Errorf("historyMaxEntries() with HISTORY_MAX_ENTRIES=%q error = nil, want an error", value)
+		}
+	}
+}
+
 func TestDataOnly(t *testing.T) {
 	tests := []struct {
 		value   string

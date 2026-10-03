@@ -69,7 +69,7 @@ HUB_DEVICES=Living room Pi=192.168.1.20:9393,Office PC=192.168.1.30:9393
 
 `DEVICE_NAME` optionally sets how the page names the hub itself (default *Host Hub*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true` in its `.env`, as the [Windows installer](#install-it-on-windows) does.
 
-The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices; a dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). A device that does not answer is shown as such, and its history has a gap for that time. Its *Availability* card shows the share of time it answered since it was added, how long it was offline in total, and its last outage. Time the hub itself was not running is not counted as offline. A device taken out of `HUB_DEVICES` loses its availability record at the next start, as a device removed on the page does; its history is kept until it ages out. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
+The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices; a dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). A device that does not answer is shown as such, and its history has a gap for that time. Its *Availability* card shows the share of time it answered since it was added, how long it was offline in total, and its last outage. Time the hub itself was not running is not counted as offline. A device taken out of `HUB_DEVICES` loses its availability record at the next start, as a device removed on the page does; its history is kept until it ages out. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history. Of each device's disks, temperature sensors, network cards and GPUs, the history keeps the first 64; the dashboard shows them all. A machine with more can raise `HISTORY_MAX_ENTRIES` in the hub's `.env`.
 
 ### Updating
 
@@ -129,6 +129,7 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *Host Hub*) |
 | `HUB_DEVICES` | With `WEBSITE=1`, other devices this PC collects from, as on Linux ([hub mode](#several-devices-hub-mode)) |
 | `RETENTION_DAYS` | With `WEBSITE=1`, days of history to keep (default 30) |
+| `HISTORY_MAX_ENTRIES` | With `WEBSITE=1`, how many disks, sensors, network cards and GPUs each the history keeps per device (default 64) |
 | `ALLOWED_HOSTS` | Other names this PC answers to, besides its IP addresses, `localhost`, its hostname and `.local` names; comma-separated, for a hub that lists the PC by a name from the router's DNS |
 
 An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones.
