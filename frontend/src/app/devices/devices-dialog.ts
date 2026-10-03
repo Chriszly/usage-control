@@ -1,4 +1,5 @@
 import { Component, Injector, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import {
@@ -13,7 +14,7 @@ import { MatInputModule } from '@angular/material/input';
 import { EMPTY, Observable, catchError, filter, finalize, of, switchMap, tap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
-import { Device, DeviceService, problemMessage } from './devices';
+import { Device, DeviceService, Suggestion, problemMessage } from './devices';
 import { PasswordDialog, PasswordDialogData, PasswordDialogResult } from './password-dialog';
 
 /**
@@ -47,6 +48,31 @@ export class DevicesDialog {
   protected readonly address = signal('');
   protected readonly problem = signal('');
   protected readonly busy = signal(false);
+  /** The device the page is open on, as the hub suggested it. */
+  private readonly suggestion = signal<Suggestion | null>(null);
+  /** Whether the form holds the suggested device. */
+  protected readonly suggested = computed(
+    () => this.suggestion()?.address === this.address().trim(),
+  );
+
+  constructor() {
+    // Filled in only when nothing has been typed yet; a suggestion that
+    // cannot be read leaves the form empty, as before.
+    this.devices
+      .suggestion()
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(),
+      )
+      .subscribe((suggestion) => {
+        if (!suggestion || this.name() || this.address()) {
+          return;
+        }
+        this.suggestion.set(suggestion);
+        this.name.set(suggestion.name);
+        this.address.set(suggestion.address);
+      });
+  }
 
   protected add(): void {
     const name = this.name().trim();

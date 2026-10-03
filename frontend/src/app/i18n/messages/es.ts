@@ -98,6 +98,7 @@ export const es: Messages = {
   'devicesDialog.fixed': 'Definido en .env',
   'devicesDialog.empty': 'Aún no hay otros dispositivos.',
   'devicesDialog.addTitle': 'Añadir un dispositivo',
+  'devicesDialog.suggested': 'Rellenado con el dispositivo en el que está abierta esta página.',
   'devicesDialog.name': 'Nombre',
   'devicesDialog.address': 'Dirección',
   'devicesDialog.addressHint': 'Dirección IP o nombre, y puerto',
@@ -108,6 +109,8 @@ export const es: Messages = {
   'devices.problem.name':
     'Da al dispositivo un nombre de hasta 64 caracteres, con al menos una letra o un número.',
   'devices.problem.nameTaken': 'Otro dispositivo ya tiene este nombre. Elige otro.',
+  'devices.problem.addressTaken':
+    'Ya hay un dispositivo con esta dirección y este puerto en la lista. Se puede añadir un dispositivo en otro puerto.',
   'devices.problem.address':
     'Escribe la dirección como dirección IP y puerto, por ejemplo 192.168.1.20:9393.',
   'devices.problem.unreachable':

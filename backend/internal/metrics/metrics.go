@@ -20,6 +20,9 @@ import (
 
 // Snapshot is the usage of the machine at one point in time.
 type Snapshot struct {
+	// Name is what the device calls itself, which a hub offers as the name
+	// when the device is added. Left out when it is not known.
+	Name string `json:"name,omitempty"`
 	// Version is the version of usage-control that read the usage. Devices
 	// running a version from before it was reported leave it out.
 	Version string    `json:"version,omitempty"`
@@ -78,6 +81,9 @@ type Temperature struct {
 
 // Collector reads snapshots of the machine's usage.
 type Collector struct {
+	// Name is reported as the Snapshot's Name.
+	Name string
+
 	diskPaths      []string
 	gpus           *gpuReader
 	batteries      *batteryReader
@@ -148,6 +154,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	cpuUsage.LoadAverage, cpuUsage.Processes = readLoadAverage(ctx)
 
 	return Snapshot{
+		Name:          c.Name,
 		Version:       version.Version,
 		Time:          now.UTC(),
 		TimeZone:      timeZone(now),

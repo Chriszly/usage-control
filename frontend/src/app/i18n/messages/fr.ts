@@ -97,6 +97,7 @@ export const fr: Messages = {
   'devicesDialog.fixed': 'Défini dans .env',
   'devicesDialog.empty': 'Aucun autre appareil pour l’instant.',
   'devicesDialog.addTitle': 'Ajouter un appareil',
+  'devicesDialog.suggested': "Rempli avec l'appareil sur lequel cette page est ouverte.",
   'devicesDialog.name': 'Nom',
   'devicesDialog.address': 'Adresse',
   'devicesDialog.addressHint': 'Adresse IP ou nom, et port',
@@ -107,6 +108,8 @@ export const fr: Messages = {
   'devices.problem.name':
     'Donnez à l’appareil un nom de 64 caractères au plus, avec au moins une lettre ou un chiffre.',
   'devices.problem.nameTaken': 'Un autre appareil porte déjà ce nom. Choisissez-en un autre.',
+  'devices.problem.addressTaken':
+    'Un appareil à cette adresse et ce port est déjà dans la liste. Un appareil sur un autre port peut être ajouté.',
   'devices.problem.address':
     'Écrivez l’adresse sous la forme adresse IP et port, par exemple 192.168.1.20:9393.',
   'devices.problem.unreachable':

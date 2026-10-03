@@ -33,6 +33,8 @@ type Hub struct {
 	// pagePort is the port the hub's page is reachable on, which every
 	// device is told; see PagePortHeader.
 	pagePort string
+	// suggester works out which device the page offers to add.
+	suggester suggester
 	// ctx ends every recorder when the program stops.
 	ctx       context.Context
 	recording sync.WaitGroup
@@ -63,7 +65,7 @@ type Remote struct {
 // historyEntries disks, sensors, network cards and GPUs each of a device.
 // Every device is told pagePort, the port the hub's page is reachable on.
 func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, pagePort string) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, ctx: ctx}
+	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -111,6 +113,14 @@ func (h *Hub) Add(ctx context.Context, name, address string) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
+	// Checked before asking the device, so a device added already is refused
+	// at once, and again below, in case another change came in meanwhile.
+	h.mu.Lock()
+	err = h.taken(device)
+	h.mu.Unlock()
+	if err != nil {
+		return Device{}, err
+	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
 	if _, err := NewAgent(device.Address).Collect(ctx); err != nil {
@@ -119,8 +129,8 @@ func (h *Hub) Add(ctx context.Context, name, address string) (Device, error) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.find(device.ID) != nil {
-		return Device{}, &InputError{Problem: ProblemNameTaken, Message: "another device has the same name; give each device its own name"}
+	if err := h.taken(device); err != nil {
+		return Device{}, err
 	}
 	_, err = h.store.DB().ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES (?, ?, ?, ?)`,
 		device.ID, device.Name, device.Address, time.Now().Unix())
@@ -223,6 +233,29 @@ func (h *Hub) start(device Device, fixed bool) {
 	})
 	h.remotes = append(h.remotes, remote)
 	slog.Info("collecting from another device", "name", device.Name, "address", device.Address)
+}
+
+// taken refuses a device whose name or whose address and port another
+// device has. The caller holds mu.
+func (h *Hub) taken(device Device) error {
+	if h.find(device.ID) != nil {
+		return &InputError{Problem: ProblemNameTaken, Message: "another device has the same name; give each device its own name"}
+	}
+	if other := h.findAddress(device.Address); other != nil {
+		return &InputError{Problem: ProblemAddressTaken, Message: fmt.Sprintf("%s is already collected from at this address and port", other.Name)}
+	}
+	return nil
+}
+
+// findAddress returns the device at the same address and port. The caller
+// holds mu.
+func (h *Hub) findAddress(address string) *Remote {
+	for _, r := range h.remotes {
+		if SameAddress(r.Address, address) {
+			return r
+		}
+	}
+	return nil
 }
 
 func (h *Hub) find(id string) *Remote {

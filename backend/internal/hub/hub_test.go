@@ -95,6 +95,8 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 	}{
 		{"Office PC", address, ProblemNameTaken},
 		{"Local", address, ProblemNameTaken},
+		{"Laptop", address, ProblemAddressTaken},
+		{"Laptop", strings.ToUpper(strings.Replace(address, "127.0.0.1", "[::ffff:127.0.0.1]", 1)), ProblemAddressTaken},
 		{"Laptop", "192.168.1.30", ProblemAddress},
 		{"--", address, ProblemName},
 		{"Laptop", "127.0.0.1:1", ProblemUnreachable},
@@ -110,10 +112,9 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 func TestRemoveForgetsTheDeviceAndItsHistory(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	address := startDevice(t)
-	h := openTestHub(t, store, []Device{{ID: "pi", Name: "Pi", Address: address}})
+	h := openTestHub(t, store, []Device{{ID: "pi", Name: "Pi", Address: startDevice(t)}})
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, address); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t)); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}
@@ -181,15 +182,14 @@ func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
 func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	address := startDevice(t)
-	pi := Device{ID: "pi", Name: "Pi", Address: address}
-	nas := Device{ID: "nas", Name: "NAS", Address: address}
+	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
+	nas := Device{ID: "nas", Name: "NAS", Address: startDevice(t)}
 	first, cancel := context.WithCancel(ctx)
 	h, err := New(first, store, []Device{pi, nas}, 0, "9393")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := h.Add(ctx, "Laptop", address); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t)); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()

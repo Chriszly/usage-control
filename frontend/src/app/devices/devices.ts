@@ -38,6 +38,17 @@ export interface DeviceList {
   passwordSet: boolean;
 }
 
+/**
+ * The body of GET /api/devices/suggestion: the device the page is open on,
+ * which the hub offers to add when it does not collect from it yet.
+ */
+export interface Suggestion {
+  /** Where its usage-control would be reachable, as host:port. */
+  address: string;
+  /** What the device calls itself, or its name in the local DNS; empty when neither is known. */
+  name: string;
+}
+
 /** The machine the backend runs on. The API answers for it when a request names no device. */
 export const LOCAL_DEVICE: Device = { id: 'local', name: '' };
 
@@ -84,6 +95,14 @@ export class DeviceService {
     return this.http.post<Device>('/api/devices', { name, address, password });
   }
 
+  /**
+   * Asks the hub which device the page is open on, to offer adding it. Emits
+   * null when there is none to offer, as when it is added already.
+   */
+  suggestion(): Observable<Suggestion | null> {
+    return this.http.get<Suggestion | null>('/api/devices/suggestion');
+  }
+
   /** Reads how long another device did not answer since it was added. */
   availability(id: string): Observable<Availability> {
     return this.http.get<Availability>('/api/availability', { params: { device: id } });
@@ -102,6 +121,7 @@ const KNOWN_PROBLEMS = [
   'wrongPassword',
   'name',
   'nameTaken',
+  'addressTaken',
   'address',
   'unreachable',
   'fixed',
