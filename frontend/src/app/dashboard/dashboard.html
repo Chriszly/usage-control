@@ -290,6 +290,9 @@
       <mat-card-content>
         <h2>{{ i18n.t('dashboard.uptime') }}</h2>
         <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
+        @if (s.version) {
+          <p class="detail">{{ i18n.t('dashboard.version', { version: s.version }) }}</p>
+        }
       </mat-card-content>
     </mat-card>
 

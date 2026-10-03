@@ -14,13 +14,17 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS backend
 ARG TARGETOS
 ARG TARGETARCH
+# The version the program reports: 1.2.3 for a release, see the Docker image workflow.
+ARG VERSION=dev
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 COPY --from=frontend /src/backend/internal/web/files/build ./internal/web/files/build
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/usage-control ./cmd/usage-control
+    go build -trimpath \
+      -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
+      -o /out/usage-control ./cmd/usage-control
 # The folder the history database is kept in, mounted as a volume at run time.
 RUN mkdir /out/data
 

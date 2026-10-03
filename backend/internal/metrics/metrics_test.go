@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/shirou/gopsutil/v4/cpu"
 )
 
@@ -21,6 +22,9 @@ func TestCollectReadsThisMachine(t *testing.T) {
 
 	if snapshot.Time.IsZero() {
 		t.Error("Time is not set")
+	}
+	if snapshot.Version != version.Version {
+		t.Errorf("Version = %q, want %q", snapshot.Version, version.Version)
 	}
 	if snapshot.CPU.Cores < 1 {
 		t.Errorf("CPU.Cores = %d, want at least 1", snapshot.CPU.Cores)

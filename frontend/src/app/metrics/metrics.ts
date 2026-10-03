@@ -6,6 +6,8 @@ import { LOCAL_DEVICE } from '../devices/devices';
 
 /** The usage of the machine at one point in time, as served by GET /api/metrics. */
 export interface Snapshot {
+  /** The version of usage-control on the device; missing on versions from before it was reported. */
+  version?: string;
   time: string;
   uptimeSeconds: number;
   cpu: {
