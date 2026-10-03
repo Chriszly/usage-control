@@ -23,6 +23,30 @@ var migrations = []string{
 	// Version 0 is the layout from before databases had a version, which is
 	// version 1 unchanged.
 	"",
+	// Version 2 adds samples_hourly, the average of each hour's values with
+	// how many it is over, and fills it from the values so far. The tables
+	// are the ones in schema, which adds the index.
+	`
+CREATE TABLE IF NOT EXISTS samples (
+	device TEXT    NOT NULL,
+	time   INTEGER NOT NULL,
+	metric TEXT    NOT NULL,
+	value  REAL    NOT NULL,
+	PRIMARY KEY (device, time, metric)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS samples_hourly (
+	device TEXT    NOT NULL,
+	time   INTEGER NOT NULL,
+	metric TEXT    NOT NULL,
+	value  REAL    NOT NULL,
+	count  INTEGER NOT NULL,
+	PRIMARY KEY (device, time, metric)
+) WITHOUT ROWID;
+INSERT OR REPLACE INTO samples_hourly (device, time, metric, value, count)
+SELECT device, time / 3600 * 3600, metric, AVG(value), COUNT(*)
+FROM samples
+GROUP BY device, time / 3600 * 3600, metric;
+`,
 }
 
 // migrate brings the database at path up to the version of this program. It

@@ -27,7 +27,7 @@ func startDevice(t *testing.T) string {
 func openTestHub(t *testing.T, store *history.Store, fixed []Device) *Hub {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	h, err := New(ctx, store, time.Hour, fixed)
+	h, err := New(ctx, store, fixed)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

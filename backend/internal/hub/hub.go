@@ -26,8 +26,7 @@ CREATE TABLE IF NOT EXISTS hub_devices (
 // Hub collects the usage of the other devices: the ones in HUB_DEVICES and
 // the ones added on the page. Each has a recorder that keeps its history.
 type Hub struct {
-	store     *history.Store
-	retention time.Duration
+	store *history.Store
 	// ctx ends every recorder when the program stops.
 	ctx       context.Context
 	recording sync.WaitGroup
@@ -51,9 +50,9 @@ type Remote struct {
 }
 
 // New starts collecting from the fixed devices and the ones added on the page
-// earlier, until ctx is done. The history is kept in store, for retention.
-func New(ctx context.Context, store *history.Store, retention time.Duration, fixed []Device) (*Hub, error) {
-	h := &Hub{store: store, retention: retention, ctx: ctx}
+// earlier, until ctx is done. The history is kept in store.
+func New(ctx context.Context, store *history.Store, fixed []Device) (*Hub, error) {
+	h := &Hub{store: store, ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -173,7 +172,7 @@ func (h *Hub) start(device Device, fixed bool) {
 		recorded: make(chan struct{}),
 	}
 	recorder := &history.Recorder{
-		Store: h.store, Recent: recent, Retention: h.retention, Device: device.ID,
+		Store: h.store, Recent: recent, Device: device.ID,
 		Collector: &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID},
 	}
 	h.recording.Go(func() {

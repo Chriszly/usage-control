@@ -5,7 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DeviceService } from '../devices/devices';
 import { History } from '../metrics/metrics';
 import { translate } from '../i18n/i18n';
-import { HistoryCharts, chartsOf } from './history';
+import { HistoryCharts, chartsOf, refreshIntervalMs } from './history';
 
 const NOW = new Date('2026-10-02T20:00:00Z');
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -133,6 +133,17 @@ describe('HistoryCharts', () => {
     const request = http.expectOne((r) => r.url === '/api/history');
     expect(request.request.params.get('device')).toBe('living-room-pi');
     request.flush(historyFor(NOW_SECONDS - 86400, NOW_SECONDS, 30));
+  });
+});
+
+describe('refreshIntervalMs', () => {
+  it('refreshes short ranges every 5 seconds, a day every minute and longer ranges every 5 minutes', () => {
+    expect(refreshIntervalMs(60)).toBe(5_000);
+    expect(refreshIntervalMs(30 * 60)).toBe(5_000);
+    expect(refreshIntervalMs(60 * 60)).toBe(60_000);
+    expect(refreshIntervalMs(86400)).toBe(60_000);
+    expect(refreshIntervalMs(7 * 86400)).toBe(300_000);
+    expect(refreshIntervalMs(30 * 86400)).toBe(300_000);
   });
 });
 

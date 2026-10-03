@@ -48,6 +48,52 @@ func TestRangeAveragesEachStep(t *testing.T) {
 	}
 }
 
+func TestRangeReadsStepsOfAnHourAndMoreFromTheHourlyAverages(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	hour := time.Unix(1_800_000_000, 0) // the start of an hour
+	for _, sample := range []struct {
+		at  time.Duration
+		cpu float64
+	}{{time.Minute, 10}, {2 * time.Minute, 20}, {time.Hour + time.Minute, 60}} {
+		if err := store.Add(ctx, LocalDevice, hour.Add(sample.at), map[string]float64{MetricCPU: sample.cpu}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+	if _, err := store.Add(ctx, "other", hour, map[string]float64{MetricCPU: 99}), error(nil); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	hourly, err := store.Range(ctx, LocalDevice, hour, hour.Add(2*time.Hour), time.Hour)
+	if err != nil {
+		t.Fatalf("Range(1 h) error = %v", err)
+	}
+	want := []Series{{Metric: MetricCPU, Points: []Point{{hour.Unix(), 15}, {hour.Unix() + 3600, 60}}}}
+	if !reflect.DeepEqual(hourly, want) {
+		t.Errorf("Range(1 h) = %+v, want %+v", hourly, want)
+	}
+	// Two hours averaged together weigh each hour by its number of values.
+	twoHourly, err := store.Range(ctx, LocalDevice, hour, hour.Add(2*time.Hour), 2*time.Hour)
+	if err != nil {
+		t.Fatalf("Range(2 h) error = %v", err)
+	}
+	want = []Series{{Metric: MetricCPU, Points: []Point{{hour.Unix(), 30}}}}
+	if !reflect.DeepEqual(twoHourly, want) {
+		t.Errorf("Range(2 h) = %+v, want %+v", twoHourly, want)
+	}
+
+	// The hourly averages are read, not the values: they answer without them.
+	if _, err := store.DB().ExecContext(ctx, `DELETE FROM samples`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Range(ctx, LocalDevice, hour, hour.Add(2*time.Hour), 2*time.Hour); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Range(2 h) without the values = %+v, %v; want %+v from the hourly averages", got, err, want)
+	}
+	if got, err := store.Range(ctx, LocalDevice, hour, hour.Add(2*time.Hour), time.Minute); err != nil || len(got) != 0 {
+		t.Errorf("Range(1 min) without the values = %+v, %v; want it empty", got, err)
+	}
+}
+
 func TestRangeWithoutValuesIsEmpty(t *testing.T) {
 	got, err := openTestStore(t).Range(context.Background(), LocalDevice, time.Unix(0, 0), time.Now(), time.Minute)
 	if err != nil {
@@ -79,6 +125,56 @@ func TestDeleteBeforeKeepsNewerValues(t *testing.T) {
 	got, _ := store.Range(ctx, LocalDevice, old, recent.Add(time.Second), time.Second)
 	if len(got) != 1 || len(got[0].Points) != 1 || got[0].Points[0].Time != recent.Unix() {
 		t.Errorf("after DeleteBefore, Range() = %+v, want only the recent value", got)
+	}
+}
+
+func TestDeleteBeforeKeepsTheAveragesOfHoursWithValues(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	hour := time.Unix(1_800_000_000, 0)
+	for _, at := range []time.Duration{time.Minute, time.Hour + time.Minute, time.Hour + 2*time.Minute} {
+		if err := store.Add(ctx, LocalDevice, hour.Add(at), map[string]float64{MetricCPU: 1}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+
+	// Deleting into the second hour removes the first hour's average and keeps
+	// the second one, which still has a value.
+	if _, err := store.DeleteBefore(ctx, hour.Add(time.Hour+90*time.Second)); err != nil {
+		t.Fatalf("DeleteBefore() error = %v", err)
+	}
+
+	got, err := store.Range(ctx, LocalDevice, hour, hour.Add(2*time.Hour), time.Hour)
+	if err != nil {
+		t.Fatalf("Range() error = %v", err)
+	}
+	want := []Series{{Metric: MetricCPU, Points: []Point{{hour.Unix() + 3600, 1}}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("after DeleteBefore, Range(1 h) = %+v, want %+v", got, want)
+	}
+}
+
+func TestDeleteDeviceDeletesItsValuesAndHourlyAverages(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	hour := time.Unix(1_800_000_000, 0)
+	for _, device := range []string{LocalDevice, "other"} {
+		if err := store.Add(ctx, device, hour.Add(time.Minute), map[string]float64{MetricCPU: 1}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+
+	if err := store.DeleteDevice(ctx, "other"); err != nil {
+		t.Fatalf("DeleteDevice() error = %v", err)
+	}
+
+	for _, step := range []time.Duration{time.Minute, time.Hour} {
+		if got, err := store.Range(ctx, "other", hour, hour.Add(time.Hour), step); err != nil || len(got) != 0 {
+			t.Errorf("Range(other, %v) = %+v, %v; want it empty", step, got, err)
+		}
+		if got, err := store.Range(ctx, LocalDevice, hour, hour.Add(time.Hour), step); err != nil || len(got) != 1 {
+			t.Errorf("Range(local, %v) = %+v, %v; want this device's value kept", step, got, err)
+		}
 	}
 }
 
