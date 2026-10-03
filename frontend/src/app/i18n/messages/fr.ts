@@ -63,7 +63,7 @@ export const fr: Messages = {
   'dashboard.throttling.throttled': 'Bridé',
   'dashboard.throttling.softTemperatureLimit': 'Limite de température douce',
   'devices.label': 'Appareil',
-  'devices.thisDevice': 'Cet appareil',
+  'devices.hostHub': 'Hub hôte',
   'devices.reachable': 'Joignable',
   'devices.unreachable': 'Injoignable',
   'devices.unreachableSince': 'Injoignable depuis le {since}',

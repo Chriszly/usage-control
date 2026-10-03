@@ -59,7 +59,7 @@ Devices can also be listed in the hub's `.env`, each as `name=address:port`, sep
 HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 ```
 
-`DEVICE_NAME` optionally sets how the page names the hub itself (default *This device*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true`, as the [Windows installer](#install-it-on-windows) does.
+`DEVICE_NAME` optionally sets how the page names the hub itself (default *Host hub*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true`, as the [Windows installer](#install-it-on-windows) does.
 
 The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices; a dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). A device that does not answer is shown as such, and its history has a gap for that time. Its *Availability* card shows the share of time it answered since it was added, how long it was offline in total, and its last outage. Time the hub itself was not running is not counted as offline. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
@@ -93,7 +93,7 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | --- | --- |
 | `PORT` | Port the PC is reachable on (default 8080) |
 | `WEBSITE` | `1` to show the website on this PC too and keep its history in `C:\ProgramData\Usage Control`, which uninstalling keeps; `0` to turn it off again (default off) |
-| `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *This device*) |
+| `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *Host hub*) |
 | `HUB_DEVICES` | With `WEBSITE=1`, other devices this PC collects from, as on Linux ([hub mode](#several-devices-hub-mode)) |
 | `RETENTION_DAYS` | With `WEBSITE=1`, days of history to keep (default 30) |
 

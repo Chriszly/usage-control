@@ -64,7 +64,7 @@ export const es: Messages = {
   'dashboard.throttling.throttled': 'Ralentizado',
   'dashboard.throttling.softTemperatureLimit': 'Límite suave de temperatura',
   'devices.label': 'Dispositivo',
-  'devices.thisDevice': 'Este dispositivo',
+  'devices.hostHub': 'Hub anfitrión',
   'devices.reachable': 'Accesible',
   'devices.unreachable': 'No accesible',
   'devices.unreachableSince': 'No accesible desde el {since}',

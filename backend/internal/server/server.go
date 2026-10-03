@@ -27,7 +27,7 @@ type Device struct {
 	// ID picks the device in the API, as ?device=<id>.
 	ID string `json:"id"`
 	// Name is how the page shows the device. It is empty for the machine the
-	// site runs on when no name is set; the page then calls it "This device".
+	// site runs on when no name is set; the page then calls it "Host hub".
 	Name string `json:"name"`
 	// Address is where another device is reachable, as host:port; empty for
 	// the machine the site runs on.
