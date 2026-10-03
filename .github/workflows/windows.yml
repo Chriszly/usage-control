@@ -191,12 +191,22 @@ jobs:
       # TEMPORARY, removed before merge: screenshots of the setup wizard for the PR.
       - name: Screenshot the setup wizard
         run: |
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -Namespace Win32 -Name Window -MemberDefinition @'
+          [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+          [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+          [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+          '@
+          # Saves the setup window and prints it as base64 between markers.
           function Save-Screen([string] $Name) {
-            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-            [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $rect = New-Object Win32.Window+Rect
+            $null = [Win32.Window]::GetWindowRect([Win32.Window]::GetForegroundWindow(), [ref]$rect)
+            $bitmap = New-Object System.Drawing.Bitmap ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top)
+            [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
             $bitmap.Save("shots\$Name.png")
+            Write-Host "BEGIN-SHOT $Name"
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes("shots\$Name.png"), 'InsertLineBreaks') | Write-Host
+            Write-Host "END-SHOT $Name"
           }
           New-Item -ItemType Directory shots -Force | Out-Null
           $msi = (Resolve-Path "msi\usage-control-$env:VERSION-x64.msi").Path
