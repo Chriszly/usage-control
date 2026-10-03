@@ -3,6 +3,7 @@ module github.com/Chriszly/usage-control/backend
 go 1.27.1
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/shirou/gopsutil/v4 v4.26.9
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.60.1
@@ -12,6 +13,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

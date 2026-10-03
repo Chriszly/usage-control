@@ -1,7 +1,9 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website on, updates it to a newer version without
-# options and checks the options were kept, uninstalls it, then installs it
-# with the defaults and checks it only serves the usage data.
+# installs it with the website on, checks the tray icon pauses, resumes and
+# stops the service, updates it to a newer version without options and checks
+# the options were kept and the tray icon was closed for the update,
+# uninstalls it, then installs it with the defaults and checks it only serves
+# the usage data.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.4-x64.msi
 param(
@@ -53,14 +55,68 @@ function Assert-Website([string] $Port) {
     Assert-FirewallPort $Port
 }
 
+# The tray icon's hidden window, which its menu commands are sent to.
+Add-Type -Namespace Win32 -Name Tray -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string windowName);
+[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+'@
+$trayExe = "$env:ProgramFiles\Usage Control\usage-control-tray.exe"
+
+function Wait-Until([scriptblock] $Condition, [string] $What) {
+    foreach ($try in 1..30) {
+        if (& $Condition) { return }
+        Start-Sleep -Seconds 1
+    }
+    throw "Waited in vain until $What"
+}
+
+function Start-Tray {
+    Start-Process $trayExe
+    Wait-Until { [Win32.Tray]::FindWindow('SystrayClass', '') -ne [IntPtr]::Zero } 'the tray icon started'
+}
+
+# Clicks a menu entry of the tray icon. The entries are numbered in the order
+# the tray program adds them: 6 is Pause, Resume or Start, 7 is Stop and exit.
+function Invoke-TrayMenu([int] $Entry) {
+    $window = [Win32.Tray]::FindWindow('SystrayClass', '')
+    $null = [Win32.Tray]::PostMessage($window, 0x0111, [IntPtr]$Entry, [IntPtr]::Zero)
+}
+
+function Assert-Tray {
+    if (-not (Test-Path $trayExe)) { throw 'The tray program is missing' }
+    $run = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'Usage Control').'Usage Control'
+    if ($run -ne "`"$trayExe`"") { throw "The tray icon starts at login as '$run', not '`"$trayExe`"'" }
+    $rights = (sc.exe sdshow UsageControl) -join ''
+    if ($rights -notlike '*(A;;CCLCSWRPWPLOCRRC;;;IU)*') { throw "Logged-in users may not start and stop the service: $rights" }
+
+    Start-Tray
+    # The tray checks the service every 5 seconds; each wait gives it time to
+    # notice the change before the next click.
+    Invoke-TrayMenu 6
+    Wait-Until { (Get-Service UsageControl).Status -eq 'Stopped' } 'Pause stopped the service'
+    Start-Sleep -Seconds 6
+    Invoke-TrayMenu 6
+    Wait-Until { (Get-Service UsageControl).Status -eq 'Running' } 'Resume started the service'
+    Start-Sleep -Seconds 6
+    Invoke-TrayMenu 7
+    Wait-Until { (Get-Service UsageControl).Status -eq 'Stopped' -and -not (Get-Process usage-control-tray -ErrorAction SilentlyContinue) } 'Stop and exit stopped the service and closed the icon'
+    Start-Service UsageControl
+}
+
 Write-Host 'Installing with the website on'
 Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
 
-Write-Host 'Updating without options keeps them'
+Write-Host 'The tray icon pauses, resumes and stops the service'
+Assert-Tray
+Assert-Website 8091
+
+Write-Host 'Updating without options keeps them and closes the tray icon'
+Start-Tray
 Invoke-Installer "/i `"$NewerMsi`""
+if (Get-Process usage-control-tray -ErrorAction SilentlyContinue) { throw 'The update left the old tray icon running' }
 Assert-Website 8091
 
 Write-Host 'Uninstalling'
@@ -68,6 +124,8 @@ Invoke-Installer "/x `"$NewerMsi`""
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
+if (Test-Path $trayExe) { throw 'The tray program is still there' }
+if (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The tray icon still starts at login' }
 
 Write-Host 'Installing with the defaults serves only the usage data'
 Invoke-Installer "/i `"$Msi`""

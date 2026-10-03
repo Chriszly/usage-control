@@ -10,6 +10,9 @@
 # Built website, embedded into the Go binary at build time
 backend/internal/web/files/build/
 
+# Tray icons, drawn from the mascot by backend/cmd/tray-icons at build time
+backend/cmd/usage-control-tray/icons/*.ico
+
 # History database written when running the backend locally
 *.db
 *.db-shm

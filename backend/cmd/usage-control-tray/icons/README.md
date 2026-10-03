@@ -1,0 +1,1 @@
+The tray icons are drawn here by `go run ./cmd/tray-icons` (from `backend/`, after the website is built), from the website's mascot in the colors of its theme. They are not committed; the Windows workflow draws them before it builds the programs.
