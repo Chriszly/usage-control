@@ -47,7 +47,7 @@ describe('DevicePicker', () => {
       },
     ]);
 
-    expect(labels()).toEqual(['Host hub', 'Living room Pi', 'Devices']);
+    expect(labels()).toEqual(['Host Hub', 'Living room Pi', 'Devices']);
 
     (fixture.nativeElement as HTMLElement).querySelectorAll('button')[1].click();
 

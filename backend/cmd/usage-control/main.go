@@ -8,7 +8,7 @@
 //	                or the system drive such as "C:\" on Windows)
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
-//	DEVICE_NAME     how the page names this device (default "Host hub")
+//	DEVICE_NAME     how the page names this device (default "Host Hub")
 //	HUB_DEVICES     other devices to collect from, which turns on hub mode:
 //	                comma-separated name=host:port entries (default none)
 //	DATA_ONLY       true to serve only the usage data for a hub, without the
