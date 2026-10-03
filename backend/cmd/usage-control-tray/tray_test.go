@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"testing"
@@ -145,5 +146,43 @@ func TestEveryLanguageHasEveryText(t *testing.T) {
 				t.Errorf("%s: state %d has no text", language, s)
 			}
 		}
+	}
+}
+
+func TestPickAddress(t *testing.T) {
+	addr := netip.MustParseAddr
+	tests := []struct {
+		name       string
+		routed     netip.Addr
+		candidates []netip.Addr
+		want       string
+	}{
+		{"the routed one first", addr("192.168.60.20"), []netip.Addr{addr("10.0.75.1"), addr("192.168.60.20")}, "192.168.60.20"},
+		{"no route", netip.Addr{}, []netip.Addr{addr("fe80::1"), addr("169.254.3.4"), addr("172.16.0.5")}, "172.16.0.5"},
+		{"public route", addr("203.0.113.7"), []netip.Addr{addr("203.0.113.7"), addr("10.1.2.3")}, "10.1.2.3"},
+		{"IPv4 in IPv6", addr("::ffff:192.168.1.9"), nil, "192.168.1.9"},
+		{"none", addr("203.0.113.7"), []netip.Addr{addr("fd00::1"), addr("127.0.0.1")}, ""},
+	}
+	for _, tt := range tests {
+		got, found := pickAddress(tt.routed, tt.candidates)
+		if (tt.want == "" && found) || (tt.want != "" && (!found || got.String() != tt.want)) {
+			t.Errorf("%s: pickAddress() = %v, %v, want %q", tt.name, got, found, tt.want)
+		}
+	}
+}
+
+func TestAddressText(t *testing.T) {
+	text := translations["en"]
+	if got, want := text.addressText(netip.MustParseAddr("192.168.60.20"), true, "9393"), "Address: 192.168.60.20:9393"; got != want {
+		t.Errorf("addressText() = %q, want %q", got, want)
+	}
+	if got, want := text.addressText(netip.Addr{}, false, "9393"), "Address: no local network"; got != want {
+		t.Errorf("addressText() without an address = %q, want %q", got, want)
+	}
+}
+
+func TestLocalAddressIsAPrivateIPv4Address(t *testing.T) {
+	if addr, found := localAddress(); found && (!addr.Is4() || !addr.IsPrivate()) {
+		t.Errorf("localAddress() = %v, want a private IPv4 address or none", addr)
 	}
 }

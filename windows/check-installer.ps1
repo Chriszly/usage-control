@@ -76,7 +76,7 @@ function Start-Tray {
 }
 
 # Clicks a menu entry of the tray icon. The entries are numbered in the order
-# the tray program adds them: 6 is Pause, Resume or Start, 7 is Stop and exit.
+# the tray program adds them: 7 is Pause, Resume or Start, 8 is Stop and exit.
 function Invoke-TrayMenu([int] $Entry) {
     $window = [Win32.Tray]::FindWindow('SystrayClass', '')
     $null = [Win32.Tray]::PostMessage($window, 0x0111, [IntPtr]$Entry, [IntPtr]::Zero)
@@ -92,13 +92,13 @@ function Assert-Tray {
     Start-Tray
     # The tray checks the service every 5 seconds; each wait gives it time to
     # notice the change before the next click.
-    Invoke-TrayMenu 6
+    Invoke-TrayMenu 7
     Wait-Until { (Get-Service UsageControl).Status -eq 'Stopped' } 'Pause stopped the service'
     Start-Sleep -Seconds 6
-    Invoke-TrayMenu 6
+    Invoke-TrayMenu 7
     Wait-Until { (Get-Service UsageControl).Status -eq 'Running' } 'Resume started the service'
     Start-Sleep -Seconds 6
-    Invoke-TrayMenu 7
+    Invoke-TrayMenu 8
     Wait-Until { (Get-Service UsageControl).Status -eq 'Stopped' -and -not (Get-Process usage-control-tray -ErrorAction SilentlyContinue) } 'Stop and exit stopped the service and closed the icon'
     Start-Service UsageControl
 }

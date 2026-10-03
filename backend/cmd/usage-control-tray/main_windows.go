@@ -55,7 +55,7 @@ type tray struct {
 	state    state
 	shown    string
 
-	status, openHub, openPage, toggle, stop *systray.MenuItem
+	status, address, openHub, openPage, toggle, stop *systray.MenuItem
 }
 
 // ready builds the menu. windows/check-installer.ps1 clicks its entries by
@@ -64,6 +64,8 @@ func (t *tray) ready() {
 	systray.SetTooltip("Usage Control")
 	t.status = systray.AddMenuItem("Usage Control", "")
 	t.status.Disable()
+	t.address = systray.AddMenuItem(t.text.address, "")
+	t.address.Disable()
 	systray.AddSeparator()
 	t.openHub = systray.AddMenuItem(t.text.noHub, "")
 	t.openPage = systray.AddMenuItem(t.text.openPage, "")
@@ -130,6 +132,8 @@ func (t *tray) refresh() {
 	text := t.text.stateText(t.state)
 	systray.SetTooltip("Usage Control: " + text)
 	t.status.SetTitle("Usage Control: " + text)
+	addr, found := localAddress()
+	t.address.SetTitle(t.text.addressText(addr, found, t.settings.port))
 	if t.hub != "" {
 		t.openHub.SetTitle(t.text.openHub)
 		t.openHub.Enable()

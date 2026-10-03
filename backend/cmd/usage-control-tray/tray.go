@@ -13,7 +13,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -113,6 +115,58 @@ func (s settings) pageURL() string {
 	return "http://localhost:" + s.port + "/"
 }
 
+// localAddress is the address other devices on the network reach this PC
+// at: the IPv4 address Windows sends from on its default route, else the
+// first private IPv4 address of a network adapter that is up. A PC can have
+// many adapters (VPNs, virtual switches), so the routed one comes first.
+func localAddress() (netip.Addr, bool) {
+	var routed netip.Addr
+	// Connecting a UDP socket only picks the route; nothing is sent.
+	if conn, err := net.Dial("udp4", "192.0.2.1:9"); err == nil {
+		if local, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+			routed, _ = netip.AddrFromSlice(local.IP)
+		}
+		_ = conn.Close()
+	}
+	var candidates []netip.Addr
+	if interfaces, err := net.Interfaces(); err == nil {
+		for _, adapter := range interfaces {
+			if adapter.Flags&net.FlagUp == 0 || adapter.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addrs, err := adapter.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				if prefix, err := netip.ParsePrefix(addr.String()); err == nil {
+					candidates = append(candidates, prefix.Addr())
+				}
+			}
+		}
+	}
+	return pickAddress(routed, candidates)
+}
+
+// pickAddress prefers the routed address when it is a private IPv4 one, else
+// the first private IPv4 address among the candidates.
+func pickAddress(routed netip.Addr, candidates []netip.Addr) (netip.Addr, bool) {
+	for _, addr := range append([]netip.Addr{routed}, candidates...) {
+		if addr = addr.Unmap(); addr.Is4() && addr.IsPrivate() {
+			return addr, true
+		}
+	}
+	return netip.Addr{}, false
+}
+
+// addressText is the menu line that tells where this PC is reachable.
+func (t texts) addressText(addr netip.Addr, found bool, port string) string {
+	if !found {
+		return t.address + ": " + t.noNetwork
+	}
+	return t.address + ": " + net.JoinHostPort(addr.String(), port)
+}
+
 // askHub asks the service on this PC where the page of the hub that collects
 // from it is. An empty link means no hub has asked yet; an error means the
 // service does not answer.
@@ -147,6 +201,10 @@ func askHub(ctx context.Context, client *http.Client, port string) (string, erro
 type texts struct {
 	running, starting, stopping, notAnswering, stopped, paused, missing string
 
+	// address names the line with this PC's address and port; noNetwork
+	// stands for the address when the PC has none on a local network.
+	address, noNetwork string
+
 	openHub, noHub, openPage, pause, resume, start, stopAndExit string
 	// startFailed and stopFailed take the error.
 	startFailed, stopFailed string
@@ -168,6 +226,7 @@ func (t texts) stateText(s state) string {
 // translations has the languages of the website.
 var translations = map[string]texts{
 	"en": {
+		address: "Address", noNetwork: "no local network",
 		running: "Running", starting: "Starting", stopping: "Stopping",
 		notAnswering: "Running, but not answering", stopped: "Stopped", paused: "Paused", missing: "Not installed",
 		openHub: "Open hub", noHub: "Open hub (no hub has asked yet)", openPage: "Open the page on this PC",
@@ -175,6 +234,7 @@ var translations = map[string]texts{
 		startFailed: "Could not start Usage Control: %v", stopFailed: "Could not stop Usage Control: %v",
 	},
 	"de": {
+		address: "Adresse", noNetwork: "kein lokales Netzwerk",
 		running: "Läuft", starting: "Startet", stopping: "Wird gestoppt",
 		notAnswering: "Läuft, antwortet aber nicht", stopped: "Gestoppt", paused: "Pausiert", missing: "Nicht installiert",
 		openHub: "Hub öffnen", noHub: "Hub öffnen (noch hat kein Hub gefragt)", openPage: "Seite auf diesem PC öffnen",
@@ -182,6 +242,7 @@ var translations = map[string]texts{
 		startFailed: "Usage Control konnte nicht gestartet werden: %v", stopFailed: "Usage Control konnte nicht gestoppt werden: %v",
 	},
 	"fr": {
+		address: "Adresse", noNetwork: "aucun réseau local",
 		running: "En marche", starting: "Lancement", stopping: "Arrêt en cours",
 		notAnswering: "En marche, mais ne répond pas", stopped: "Arrêté", paused: "En pause", missing: "Non installé",
 		openHub: "Ouvrir le hub", noHub: "Ouvrir le hub (aucun hub n'a encore demandé)", openPage: "Ouvrir la page sur ce PC",
@@ -189,6 +250,7 @@ var translations = map[string]texts{
 		startFailed: "Impossible de démarrer Usage Control : %v", stopFailed: "Impossible d'arrêter Usage Control : %v",
 	},
 	"es": {
+		address: "Dirección", noNetwork: "sin red local",
 		running: "En marcha", starting: "Iniciando", stopping: "Deteniendo",
 		notAnswering: "En marcha, pero no responde", stopped: "Detenido", paused: "En pausa", missing: "No instalado",
 		openHub: "Abrir el hub", noHub: "Abrir el hub (ningún hub ha preguntado aún)", openPage: "Abrir la página en este PC",
