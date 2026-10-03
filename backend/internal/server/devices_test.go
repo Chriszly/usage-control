@@ -58,6 +58,7 @@ func (f *fakePassword) Set(_ context.Context, given string) error {
 func send(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.RemoteAddr = "192.168.1.20:5000"
+	req.Host = "192.168.1.9:9393"
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -140,6 +141,7 @@ func TestChangesOnlyAcceptJSON(t *testing.T) {
 	handler := newChangeHandler(&fakeHub{}, &fakePassword{})
 	req := httptest.NewRequest(http.MethodPost, "/api/devices", strings.NewReader("name=x&address=y&password=z"))
 	req.RemoteAddr = "192.168.1.20:5000"
+	req.Host = "192.168.1.9:9393"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 

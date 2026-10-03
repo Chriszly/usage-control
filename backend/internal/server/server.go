@@ -8,13 +8,13 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"path"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/hub"
+	"github.com/Chriszly/usage-control/backend/internal/lan"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/update"
 )
@@ -81,10 +81,14 @@ type Site struct {
 	// Update tells the running version and whether a newer release exists;
 	// nil leaves out GET /api/update.
 	Update func() update.Status
+	// AllowedHosts are names besides its own that this machine answers to,
+	// from ALLOWED_HOSTS; see knownHosts.
+	AllowedHosts []string
 }
 
 // New returns the handler for the whole site: the JSON API under /api/ and
-// the website. Requests from outside the local network are refused.
+// the website. Requests from outside the local network, and requests that
+// address the machine by a name it does not know, are refused.
 func New(site Site) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/devices", devicesHandler(site))
@@ -104,16 +108,17 @@ func New(site Site) http.Handler {
 		})
 	}
 	mux.Handle("GET /", websiteHandler(site.Files))
-	return withHeaders(localNetworkOnly(mux))
+	return withHeaders(localNetworkOnly(knownHostsOnly(newKnownHosts(site.AllowedHosts), mux)))
 }
 
 // NewDataOnly returns the handler for a device that a hub collects from
 // without a website of its own: only GET /api/metrics, with the usage of the
-// machine it runs on. Requests from outside the local network are refused.
-func NewDataOnly(collector Collector) http.Handler {
+// machine it runs on. Requests from outside the local network, and requests
+// that address the machine by a name it does not know, are refused.
+func NewDataOnly(collector Collector, allowedHosts []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/metrics", metricsHandler(Device{ID: hub.LocalID, Metrics: collector}))
-	return withHeaders(localNetworkOnly(mux))
+	return withHeaders(localNetworkOnly(knownHostsOnly(newKnownHosts(allowedHosts), mux)))
 }
 
 // devicesResponse is the body of GET /api/devices.
@@ -252,24 +257,15 @@ func withHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// localNetworkOnly refuses requests whose sender is not on the local network:
-// loopback, private (RFC 1918 and IPv6 ULA) and link-local addresses. It reads
-// the address of the TCP connection, not a header a client could fake.
+// localNetworkOnly refuses requests whose sender is not on the local network,
+// as the lan package defines it. It reads the address of the TCP connection,
+// not a header a client could fake.
 func localNetworkOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLocalNetwork(r.RemoteAddr) {
+		if !lan.Default.LocalAddrPort(r.RemoteAddr) {
 			http.Error(w, "only reachable from the local network", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func isLocalNetwork(remoteAddr string) bool {
-	addrPort, err := netip.ParseAddrPort(remoteAddr)
-	if err != nil {
-		return false
-	}
-	addr := addrPort.Addr().Unmap()
-	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
 }

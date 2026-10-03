@@ -18,6 +18,9 @@
 //	UPDATE_CHECK    false to stop asking GitHub once a day whether a newer
 //	                release exists, which the page then tells (default true;
 //	                only releases check, and never with DATA_ONLY)
+//	ALLOWED_HOSTS   comma-separated names this device answers to besides its
+//	                IP addresses, localhost, its hostname and .local names,
+//	                such as a name from the router's DNS (default none)
 package main
 
 import (
@@ -92,7 +95,7 @@ func run(parent context.Context) error {
 
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
 	// device keeps none and only answers the hub.
-	handler := server.NewDataOnly(collector)
+	handler := server.NewDataOnly(collector, listSetting("ALLOWED_HOSTS"))
 	if dataOnly {
 		slog.Info("serving only the usage data, for a hub; the website is turned off")
 	} else {
@@ -205,6 +208,8 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 		Retention: retention,
 		Files:     web.Files(),
 		Update:    func() update.Status { return update.Status{Current: version.Version} },
+
+		AllowedHosts: listSetting("ALLOWED_HOSTS"),
 	}
 	checkUpdates, err := boolSettingOr("UPDATE_CHECK", true)
 	if err != nil {
@@ -277,17 +282,22 @@ func boolSettingOr(name string, fallback bool) (bool, error) {
 // diskPaths returns the paths from DISK_PATHS, or the system disk when it is
 // not set.
 func diskPaths() []string {
-	value := os.Getenv("DISK_PATHS")
-	if strings.TrimSpace(value) == "" {
+	paths := listSetting("DISK_PATHS")
+	if len(paths) == 0 {
 		return []string{systemDisk()}
 	}
-	var paths []string
-	for _, path := range strings.Split(value, ",") {
-		if path = strings.TrimSpace(path); path != "" {
-			paths = append(paths, path)
+	return paths
+}
+
+// listSetting reads a comma-separated setting, without blank entries.
+func listSetting(name string) []string {
+	var values []string
+	for _, value := range strings.Split(os.Getenv(name), ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
 		}
 	}
-	return paths
+	return values
 }
 
 // systemDisk returns the root of the disk the operating system is installed

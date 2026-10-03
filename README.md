@@ -20,6 +20,14 @@ This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd
 
 Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges. The port is published over IPv4 only, so the program sees each client's real address and can keep requests from outside the local network out; a browser that tries IPv6 first falls back to IPv4 by itself.
 
+The page answers only requests from the local network: private, link-local and loopback addresses, and IPv6 addresses in one of the machine's own subnets. It also answers only when opened by a name it knows: an IP address, `localhost`, its hostname or a `.local` name. A page from the internet could otherwise point its domain at the machine's LAN address and read the API from a browser on the LAN (DNS rebinding). To open the page by another name, such as one from the router's DNS, list it in `.env`:
+
+```bash
+ALLOWED_HOSTS=pi.fritz.box
+```
+
+Inside Docker the hostname is the container's, so a bare `http://raspberrypi:8080` needs that entry too; `raspberrypi.local` does not.
+
 ### Disks
 
 By default the page shows the disk Docker keeps its data on, usually the system disk. The container sees no other host folder unless you mount it. To show another disk, such as a USB disk mounted at `/mnt/usb`, mount it read-only at the same path in `compose.yaml` and list it in `.env`:
@@ -121,6 +129,7 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *Host Hub*) |
 | `HUB_DEVICES` | With `WEBSITE=1`, other devices this PC collects from, as on Linux ([hub mode](#several-devices-hub-mode)) |
 | `RETENTION_DAYS` | With `WEBSITE=1`, days of history to keep (default 30) |
+| `ALLOWED_HOSTS` | Other names this PC answers to, besides its IP addresses, `localhost`, its hostname and `.local` names; comma-separated, for a hub that lists the PC by a name from the router's DNS |
 
 An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones.
 
@@ -197,8 +206,9 @@ The settings are environment variables, listed at the top of `backend/cmd/usage-
 - `LISTEN_ADDR`: the port, such as `:8090` (default `:8080`)
 - `DATABASE_PATH`: where the history is kept (default `usage-control.db` in the current folder)
 - `DATA_ONLY=true`: serve only the usage data for a hub, with no website and no history, like the Windows installer does
+- `ALLOWED_HOSTS`: other names this computer answers to, besides its IP addresses, `localhost`, its hostname and `.local` names
 
-To show this computer on a hub, open the hub's page, click *Devices* and add it with its address and port, such as `192.168.1.30:8080`. The hub and this computer must be on the same local network: usage-control answers only private, link-local and loopback addresses. On Windows, allow `usage-control.exe` on private networks when the firewall asks on the first start. Start the built binary rather than `go run`, which builds a new file each time, so the firewall asks again.
+To show this computer on a hub, open the hub's page, click *Devices* and add it with its address and port, such as `192.168.1.30:8080`. The hub and this computer must be on the same local network: usage-control answers only private, link-local and loopback addresses, and IPv6 addresses in one of its own subnets. On Windows, allow `usage-control.exe` on private networks when the firewall asks on the first start. Start the built binary rather than `go run`, which builds a new file each time, so the firewall asks again.
 
 ### Translations
 

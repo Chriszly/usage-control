@@ -50,6 +50,7 @@ var site = fstest.MapFS{
 func get(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.RemoteAddr = remoteAddr
+	req.Host = "192.168.1.9:9393"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
@@ -88,7 +89,7 @@ func TestMetricsReportsCollectorError(t *testing.T) {
 
 func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 	want := metrics.Snapshot{CPU: metrics.CPU{UsagePercent: 12.5, Cores: 4}}
-	handler := NewDataOnly(fakeCollector{snapshot: want})
+	handler := NewDataOnly(fakeCollector{snapshot: want}, nil)
 
 	rec := get(handler, "/api/metrics", "192.168.1.20:5000")
 	var got metrics.Snapshot
