@@ -1,6 +1,6 @@
 name: Demo page
 
-# Publishes the demo of the page to GitHub Pages
+# Publishes the demo of the page to GitHub Pages on every push to main
 # (https://chriszly.github.io/usage-control/): the real page, built with
 # `npm run build:demo`, with made-up devices instead of a backend. Pull
 # requests only build it, in the CI workflow.
@@ -8,9 +8,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/demo.yml'
   workflow_dispatch:
 
 permissions:

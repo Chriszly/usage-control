@@ -80,7 +80,7 @@ bash ci/check-no-secrets.sh
 | `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags |
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
-| `demo.yml` | publishes the demo page to GitHub Pages on every merge to main that changes the frontend |
+| `demo.yml` | publishes the demo page to GitHub Pages on every push to main |
 
 A release is published on GitHub with a tag such as `0.1.0`; the workflows build and attach everything on their own.
 
