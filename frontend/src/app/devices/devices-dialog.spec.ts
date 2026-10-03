@@ -85,6 +85,28 @@ describe('DevicesDialog', () => {
     expect((element().querySelector('input[name="name"]') as HTMLInputElement).value).toBe('');
   });
 
+  it('counts a change as done when the list cannot be read afterwards', async () => {
+    await type('name', 'Laptop');
+    await type('address', '192.168.1.40:9393');
+    button('Add').click();
+
+    http
+      .expectOne('/api/devices')
+      .flush(
+        { id: 'laptop', name: 'Laptop', removable: true },
+        { status: 201, statusText: 'Created' },
+      );
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush('down', { status: 502, statusText: 'Bad Gateway' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element().querySelector('.error')).toBeNull();
+    expect((element().querySelector('input[name="name"]') as HTMLInputElement).value).toBe('');
+    expect(button('Remove').disabled).toBe(false);
+  });
+
   it('says when the password is wrong', () => {
     button('Remove').click();
 

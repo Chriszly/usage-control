@@ -3,12 +3,13 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
-import { catchError, map, of, switchMap, tap, timer } from 'rxjs';
+import { catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
 import { DeviceService } from '../devices/devices';
 import { I18n, TextParams } from '../i18n/i18n';
 import { MessageKey } from '../i18n/messages/en';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
+import { PageVisibility } from '../page-visibility';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
 /** A time range a chart can show, always ending now. */
@@ -98,6 +99,7 @@ interface Chart {
 export class HistoryCharts {
   private readonly metrics = inject(MetricsService);
   private readonly devices = inject(DeviceService);
+  private readonly page = inject(PageVisibility);
   protected readonly i18n = inject(I18n);
 
   /** The length of the shown time, in seconds. */
@@ -148,13 +150,16 @@ export class HistoryCharts {
             this.history.set(null);
           }
         }),
+        // A tick while the previous answer is still on its way is skipped; long
+        // ranges take the backend a moment.
         switchMap(({ span, device }) =>
-          timer(0, refreshIntervalMs(span)).pipe(map(() => ({ span, device }))),
+          this.page.ticks(refreshIntervalMs(span)).pipe(
+            exhaustMap(() => {
+              const to = nowSeconds();
+              return this.metrics.history(to - span, to, device).pipe(catchError(() => of(null)));
+            }),
+          ),
         ),
-        switchMap(({ span, device }) => {
-          const to = nowSeconds();
-          return this.metrics.history(to - span, to, device).pipe(catchError(() => of(null)));
-        }),
         takeUntilDestroyed(),
       )
       .subscribe((history) => {

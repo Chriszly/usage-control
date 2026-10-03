@@ -42,6 +42,7 @@ describe('Dashboard', () => {
   afterEach(() => {
     http.verify();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   function respond(body: Snapshot | null): void {
@@ -339,6 +340,35 @@ describe('Dashboard', () => {
     respond(null);
 
     expect(text()).toContain('cannot be reached');
+    expect(text()).toContain('12.5 %');
+  });
+
+  it('skips a refresh while the previous reading is still on its way', () => {
+    respond(snapshot);
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    const slow = http.expectOne('/api/metrics');
+
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http.expectNone('/api/metrics');
+
+    slow.flush(snapshot);
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http.expectOne('/api/metrics').flush(snapshot);
+  });
+
+  it('stops refreshing while the page is hidden and refreshes at once when it is shown again', () => {
+    let visibilityState: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState);
+    respond(snapshot);
+
+    visibilityState = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(10 * REFRESH_INTERVAL_MS);
+    http.expectNone('/api/metrics');
+
+    visibilityState = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    respond(snapshot);
     expect(text()).toContain('12.5 %');
   });
 

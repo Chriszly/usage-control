@@ -3,9 +3,10 @@ import { Component, Injector, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
-import { EMPTY, catchError, interval, startWith, switchMap } from 'rxjs';
+import { EMPTY, catchError, exhaustMap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
+import { PageVisibility } from '../page-visibility';
 import { Device, DeviceService, deviceName } from './devices';
 
 /** How often the list is read again, so the buttons show which devices answer. */
@@ -28,10 +29,10 @@ export class DevicePicker {
 
   constructor() {
     // Without the list only this device is shown.
-    interval(DEVICES_REFRESH_MS)
+    inject(PageVisibility)
+      .ticks(DEVICES_REFRESH_MS)
       .pipe(
-        startWith(0),
-        switchMap(() => this.devices.load().pipe(catchError(() => EMPTY))),
+        exhaustMap(() => this.devices.load().pipe(catchError(() => EMPTY))),
         takeUntilDestroyed(),
       )
       .subscribe();

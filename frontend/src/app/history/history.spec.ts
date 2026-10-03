@@ -104,6 +104,19 @@ describe('HistoryCharts', () => {
     expect(respond().to).toBe(NOW_SECONDS + 5);
   });
 
+  it('skips a refresh while the previous answer is still on its way', () => {
+    respond();
+    vi.advanceTimersByTime(60_000);
+    const slow = http.expectOne((r) => r.url === '/api/history');
+
+    vi.advanceTimersByTime(60_000);
+    http.expectNone((r) => r.url === '/api/history');
+
+    slow.flush(historyFor(NOW_SECONDS - 86400 + 60, NOW_SECONDS + 60, 30));
+    vi.advanceTimersByTime(60_000);
+    expect(respond().to).toBe(NOW_SECONDS + 180);
+  });
+
   it('offers all data when more than 30 days are kept', () => {
     respond();
     expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
