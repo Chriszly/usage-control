@@ -141,9 +141,6 @@ jobs:
     needs: [programs, tests]
     if: needs.programs.outputs.installer == 'true'
     runs-on: windows-latest
-    # TEMPORARY, removed before merge: lets the screenshot step push.
-    permissions:
-      contents: write
     env:
       VERSION: ${{ needs.programs.outputs.version }}
     defaults:
@@ -190,54 +187,6 @@ jobs:
             -o "check\usage-control-$newer-x64.msi"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           windows\check-installer.ps1 -Msi "msi\usage-control-$env:VERSION-x64.msi" -NewerMsi "check\usage-control-$newer-x64.msi"
-
-      # TEMPORARY, removed before merge: screenshots of the setup wizard for the PR.
-      - name: Screenshot the setup wizard
-        run: |
-          Add-Type -AssemblyName System.Drawing
-          Add-Type -Namespace Win32 -Name Window -MemberDefinition @'
-          [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
-          [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-          [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
-          '@
-          # Saves the setup window.
-          function Save-Screen([string] $Name) {
-            $rect = New-Object Win32.Window+Rect
-            $null = [Win32.Window]::GetWindowRect([Win32.Window]::GetForegroundWindow(), [ref]$rect)
-            $bitmap = New-Object System.Drawing.Bitmap ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top)
-            [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
-            $bitmap.Save("shots\$Name.png")
-          }
-          New-Item -ItemType Directory shots -Force | Out-Null
-          $msi = (Resolve-Path "msi\usage-control-$env:VERSION-x64.msi").Path
-          $setup = Start-Process msiexec.exe -ArgumentList "/i `"$msi`"" -PassThru
-          Start-Sleep -Seconds 10
-          $shell = New-Object -ComObject WScript.Shell
-          $null = $shell.AppActivate('Usage Control Setup')
-          Start-Sleep -Seconds 1
-          Save-Screen welcome
-          $shell.SendKeys('{ENTER}')
-          Start-Sleep -Seconds 3
-          Save-Screen mode
-          $shell.SendKeys('{DOWN}')
-          Start-Sleep -Seconds 1
-          Save-Screen mode-website
-          Get-Process msiexec -ErrorAction SilentlyContinue | Stop-Process -Force
-          # Commits them to the PR branch, for the PR comment.
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch --depth=1 origin $env:GITHUB_HEAD_REF
-          git checkout -B shots FETCH_HEAD
-          New-Item -ItemType Directory pr-screenshots -Force | Out-Null
-          Copy-Item shots\*.png pr-screenshots\
-          git add pr-screenshots
-          git commit -m 'Screenshots of the setup wizard (removed before merge)'
-          git push origin "HEAD:$env:GITHUB_HEAD_REF"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: setup-wizard-screenshots
-          path: shots/
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
