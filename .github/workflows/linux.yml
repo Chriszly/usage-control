@@ -1,0 +1,123 @@
+name: Linux archives
+
+# Builds the archives for installing without Docker on Linux
+# (usage-control-<version>-linux-amd64.tar.gz and -arm64.tar.gz: the program,
+# a systemd service and install.sh) and checks on a machine with systemd that
+# the amd64 one installs, keeps its settings across an update and uninstalls
+# (linux/check-install.sh). Pull requests and main keep the archives as a
+# workflow artifact; a version tag (v1.2.3 or 1.2.3) also attaches them to
+# that GitHub release.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    # A release tag, with or without the v: v1.2.3 or 1.2.3.
+    tags:
+      - 'v*.*.*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE*', '.claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  # Only cancel superseded PR runs; let pushes to main and tags finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  archives:
+    name: Linux archives (amd64 and arm64)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag v1.2.3 builds version 1.2.3; anything else dev-<commit>, which
+      # the update check leaves alone.
+      - name: Version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Writes the website into backend/internal/web/files/build, which the
+      # program embeds.
+      - name: Build the website
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build the archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            folder="usage-control-$VERSION-linux-$arch"
+            mkdir -p "dist/$folder"
+            (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
+              -o "../dist/$folder/usage-control" ./cmd/usage-control)
+            cp linux/install.sh linux/usage-control.service linux/usage-control.env.example "dist/$folder/"
+            tar -czf "dist/$folder.tar.gz" -C dist "$folder"
+          done
+          ls -l dist/*.tar.gz
+
+      # The runner has systemd, so the archive is installed for real.
+      - name: Install, update and uninstall it
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: sudo linux/check-install.sh "dist/usage-control-$VERSION-linux-amd64.tar.gz" "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: usage-control-${{ steps.version.outputs.version }}-linux
+          path: dist/*.tar.gz
+          retention-days: 14
+
+  release:
+    name: Attach the archives to the release
+    if: github.ref_type == 'tag'
+    needs: archives
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: usage-control-${{ needs.archives.outputs.version }}-linux
+          path: dist
+
+      # Creates the release for the tag if there is none yet (the other
+      # release workflows may at the same time), then adds the archives.
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || gh release view "$GITHUB_REF_NAME" > /dev/null
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz --clobber

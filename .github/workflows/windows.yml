@@ -173,8 +173,9 @@ jobs:
           name: usage-control-${{ needs.programs.outputs.version }}-windows
           path: msi
 
-      # Creates the release for the tag if there is none yet, then adds the
-      # installers, replacing ones from an earlier run of the same tag.
+      # Creates the release for the tag if there is none yet (the other
+      # release workflows may at the same time), then adds the installers,
+      # replacing ones from an earlier run of the same tag.
       - name: Upload to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -182,6 +183,6 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || gh release view "$GITHUB_REF_NAME" > /dev/null
           fi
           gh release upload "$GITHUB_REF_NAME" msi/*.msi --clobber
