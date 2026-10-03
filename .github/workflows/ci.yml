@@ -103,6 +103,8 @@ jobs:
         run: npm audit --audit-level=high
       - run: npm test
       - run: npm run build
+      # The demo on GitHub Pages, so a change that breaks it shows up before the merge.
+      - run: npm run build:demo
 
   docker:
     name: Docker image (arm64 and amd64)

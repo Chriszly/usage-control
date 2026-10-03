@@ -115,6 +115,7 @@ export const es: Messages = {
   'devices.problem.fixed':
     'Este dispositivo está definido en el archivo .env del hub. Quítalo allí.',
   'devices.problem.notFound': 'Este dispositivo ya se ha quitado.',
+  'devices.problem.demo': 'Esto es una demo, así que no se pueden añadir ni quitar dispositivos.',
   'devices.problem.other': 'No se pudieron cambiar los dispositivos. Inténtalo de nuevo.',
   'passwordDialog.enterTitle': 'Introducir la contraseña',
   'passwordDialog.chooseTitle': 'Elegir una contraseña',

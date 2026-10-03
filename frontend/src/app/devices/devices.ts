@@ -106,6 +106,8 @@ const KNOWN_PROBLEMS = [
   'unreachable',
   'fixed',
   'notFound',
+  // Only the demo on GitHub Pages refuses every change with this.
+  'demo',
 ] as const;
 
 /** Explains why adding or removing a device was refused, from the problem the backend names. */
