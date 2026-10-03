@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestAgentReadsTheDevicesUsage(t *testing.T) {
 		t.Fatalf("Collect() error = %v", err)
 	}
 	want := metrics.CPU{UsagePercent: 12.5, Cores: 4}
-	if got.CPU != want {
+	if !reflect.DeepEqual(got.CPU, want) {
 		t.Errorf("CPU = %+v, want %+v", got.CPU, want)
 	}
 	if time.Since(got.Time) > time.Minute {
@@ -40,7 +41,7 @@ func TestAgentReadsTheDevicesUsage(t *testing.T) {
 	}
 
 	latest, err := agent.Latest().Collect(context.Background())
-	if err != nil || latest.CPU != want {
+	if err != nil || !reflect.DeepEqual(latest.CPU, want) {
 		t.Errorf("Latest = %+v, %v; want the reading Collect read", latest.CPU, err)
 	}
 }

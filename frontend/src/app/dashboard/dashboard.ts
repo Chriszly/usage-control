@@ -1,4 +1,4 @@
-import { DecimalPipe, NgTemplateOutlet, formatDate } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet, formatDate, formatNumber } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
@@ -9,7 +9,13 @@ import { EMPTY, catchError, of, switchMap, tap, timer } from 'rxjs';
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
-import { MetricsService, NetworkInterface, Snapshot } from '../metrics/metrics';
+import {
+  MetricsService,
+  NetworkInterface,
+  Snapshot,
+  Throttling,
+  ThrottlingCondition,
+} from '../metrics/metrics';
 
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
@@ -118,6 +124,28 @@ export class Dashboard {
       .filter((n) => total(n) > 0)
       .sort((a, b) => total(b) - total(a) || a.name.localeCompare(b.name));
     return { shown, idle: s.network.length - shown.length };
+  }
+
+  /** A number in the page's language, for text parameters (the number pipe may return null). */
+  protected decimal(value: number, digits: string): string {
+    return formatNumber(value, this.i18n.language(), digits);
+  }
+
+  /** Describes each core's usage for screen readers, which cannot see the bars. */
+  protected coresLabel(usage: number[]): string {
+    const cores = usage.map((u, i) =>
+      this.i18n.t('dashboard.coreUsage', { core: i + 1, usage: this.decimal(u, '1.0-0') }),
+    );
+    return `${this.i18n.t('dashboard.coresUsage')}: ${cores.join(', ')}`;
+  }
+
+  /** The conditions that held since the start but do not hold now. */
+  protected earlierConditions(t: Throttling): ThrottlingCondition[] {
+    return t.sinceBoot.filter((condition) => !t.now.includes(condition));
+  }
+
+  protected conditionList(conditions: ThrottlingCondition[]): string {
+    return conditions.map((c) => this.i18n.t(`dashboard.throttling.${c}`)).join(', ');
   }
 
   protected formatUptime(seconds: number): string {

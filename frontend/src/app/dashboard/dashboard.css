@@ -95,3 +95,46 @@ mat-progress-bar {
 .rate:last-child {
   text-align: end;
 }
+
+/* One bar per core, filled to its usage, side by side under the total. */
+.cores {
+  display: flex;
+  gap: 2px;
+  height: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.core {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--mat-sys-surface-container-highest);
+}
+
+.core-usage {
+  width: 100%;
+  background: var(--mat-sys-primary);
+}
+
+.sensor.swap {
+  margin-top: 1rem;
+}
+
+/* Read and write speed side by side, each kept on one line. */
+.speeds {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speeds > span {
+  white-space: nowrap;
+}
+
+.problem {
+  color: var(--mat-sys-error);
+}

@@ -83,12 +83,16 @@ func TestDeleteBeforeKeepsNewerValues(t *testing.T) {
 }
 
 func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
+	read, write := 4096.0, 512.0
 	snapshot := metrics.Snapshot{
-		CPU:          metrics.CPU{UsagePercent: 12},
-		Memory:       metrics.Memory{UsedPercent: 34},
+		CPU:          metrics.CPU{UsagePercent: 12, CoreUsagePercent: []float64{10, 14}, ClockMHz: 1500},
+		Memory:       metrics.Memory{UsedPercent: 34, Swap: &metrics.Swap{UsedPercent: 5}},
 		Temperatures: []metrics.Temperature{{Sensor: "cpu_thermal", Celsius: 48}},
-		Disks:        []metrics.Disk{{Path: "/mnt/usb", UsedPercent: 56}},
-		Network:      []metrics.NetworkInterface{{Name: "eth0", ReceiveBytesPerSecond: 1000, SendBytesPerSecond: 200}},
+		Disks: []metrics.Disk{
+			{Path: "/", UsedPercent: 20, ReadBytesPerSecond: &read, WriteBytesPerSecond: &write},
+			{Path: "/mnt/usb", UsedPercent: 56},
+		},
+		Network: []metrics.NetworkInterface{{Name: "eth0", ReceiveBytesPerSecond: 1000, SendBytesPerSecond: 200}},
 		GPUs: []metrics.GPU{
 			{Name: "AMD GPU", UsagePercent: 78, MemoryTotalBytes: 400, MemoryUsedBytes: 100},
 			{Name: "VideoCore GPU", UsagePercent: 9},
@@ -98,7 +102,11 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 	want := map[string]float64{
 		"cpu":                     12,
 		"memory":                  34,
+		"swap":                    5,
 		"temperature:cpu_thermal": 48,
+		"disk:/":                  20,
+		"disk.read:/":             4096,
+		"disk.write:/":            512,
 		"disk:/mnt/usb":           56,
 		"network.receive:eth0":    1000,
 		"network.send:eth0":       200,

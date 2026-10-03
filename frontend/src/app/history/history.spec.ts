@@ -155,6 +155,32 @@ describe('chartsOf', () => {
   });
 });
 
+describe('chartsOf with swap and disk activity', () => {
+  it('adds swap to the CPU and memory chart and charts disk speeds', () => {
+    const charts = chartsOf(
+      [
+        { metric: 'cpu', points: [{ time: 0, value: 10 }] },
+        { metric: 'disk.read:/', points: [{ time: 0, value: 2048 }] },
+        { metric: 'disk.write:/', points: [{ time: 0, value: 512 }] },
+        { metric: 'swap', points: [{ time: 0, value: 5 }] },
+      ],
+      (key, params) => translate('en', key, params),
+    );
+
+    expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Disk activity']);
+    expect(charts[0].lines.map((l) => l.label)).toEqual(['CPU', 'Memory', 'Swap']);
+    expect(charts[1].unit).toBe('bytesPerSecond');
+    expect(charts[1].lines.map((l) => l.label)).toEqual(['/ read', '/ written']);
+  });
+
+  it('has no swap line for a machine without swap space', () => {
+    const charts = chartsOf([{ metric: 'cpu', points: [{ time: 0, value: 10 }] }], (key, params) =>
+      translate('en', key, params),
+    );
+    expect(charts[0].lines.map((l) => l.label)).toEqual(['CPU', 'Memory']);
+  });
+});
+
 describe('chartsOf with GPUs', () => {
   it('shows the usage and memory of each GPU in one chart', () => {
     const charts = chartsOf(

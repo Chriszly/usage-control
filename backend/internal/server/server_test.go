@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"testing"
 	"testing/fstest"
@@ -67,7 +68,7 @@ func TestMetricsReturnsSnapshotAsJSON(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got.CPU != want.CPU {
+	if !reflect.DeepEqual(got.CPU, want.CPU) {
 		t.Errorf("CPU = %+v, want %+v", got.CPU, want.CPU)
 	}
 }
@@ -91,7 +92,7 @@ func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/metrics = %d, %v, want 200 with the snapshot", rec.Code, err)
 	}
-	if got.CPU != want.CPU {
+	if !reflect.DeepEqual(got.CPU, want.CPU) {
 		t.Errorf("CPU = %+v, want %+v", got.CPU, want.CPU)
 	}
 	for _, path := range []string{"/", "/api/devices", "/api/history?range=1h"} {

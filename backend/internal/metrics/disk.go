@@ -8,12 +8,15 @@ import (
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
-// Disk is the usage of the filesystem that holds one path.
+// Disk is the usage of the filesystem that holds one path, and how fast its
+// disk reads and writes. The speeds are left out where they cannot be read.
 type Disk struct {
-	Path        string  `json:"path"`
-	TotalBytes  uint64  `json:"totalBytes"`
-	UsedBytes   uint64  `json:"usedBytes"`
-	UsedPercent float64 `json:"usedPercent"`
+	Path                string   `json:"path"`
+	TotalBytes          uint64   `json:"totalBytes"`
+	UsedBytes           uint64   `json:"usedBytes"`
+	UsedPercent         float64  `json:"usedPercent"`
+	ReadBytesPerSecond  *float64 `json:"readBytesPerSecond,omitempty"`
+	WriteBytesPerSecond *float64 `json:"writeBytesPerSecond,omitempty"`
 }
 
 // checkDiskPaths reports the first path that is not absolute or cannot be

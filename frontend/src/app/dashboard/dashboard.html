@@ -53,9 +53,39 @@
           [value]="s.cpu.usagePercent"
           [attr.aria-label]="i18n.t('dashboard.cpuUsage')"
         />
+        @if (s.cpu.coreUsagePercent?.length) {
+          <div class="cores" role="img" [attr.aria-label]="coresLabel(s.cpu.coreUsagePercent!)">
+            @for (usage of s.cpu.coreUsagePercent; track $index) {
+              <span
+                class="core"
+                [title]="
+                  i18n.t('dashboard.coreUsage', {
+                    core: $index + 1,
+                    usage: decimal(usage, '1.0-0'),
+                  })
+                "
+                ><span class="core-usage" [style.height.%]="usage"></span
+              ></span>
+            }
+          </div>
+        }
         <p class="detail">
           {{ i18n.plural(s.cpu.cores, 'dashboard.cores.one', 'dashboard.cores.other') }}
+          @if (s.cpu.clockMHz) {
+            · {{ s.cpu.clockMHz / 1000 | number: '1.1-1' : i18n.language() }} GHz
+          }
         </p>
+        @if (s.cpu.loadAverage; as load) {
+          <p class="detail" [title]="i18n.t('dashboard.loadAverageHint')">
+            {{
+              i18n.t('dashboard.loadAverage', {
+                one: decimal(load.one, '1.2-2'),
+                five: decimal(load.five, '1.2-2'),
+                fifteen: decimal(load.fifteen, '1.2-2'),
+              })
+            }}
+          </p>
+        }
       </mat-card-content>
     </mat-card>
 
@@ -76,6 +106,25 @@
             })
           }}
         </p>
+        @if (s.memory.swap; as swap) {
+          <p class="sensor swap">
+            <span>{{ i18n.t('dashboard.swap') }}</span
+            ><span>{{ swap.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
+          </p>
+          <mat-progress-bar
+            mode="determinate"
+            [value]="swap.usedPercent"
+            [attr.aria-label]="i18n.t('dashboard.swapUsage')"
+          />
+          <p class="detail">
+            {{
+              i18n.t('dashboard.usedOfTotal', {
+                used: (swap.usedBytes | bytes: i18n.language()),
+                total: (swap.totalBytes | bytes: i18n.language()),
+              })
+            }}
+          </p>
+        }
       </mat-card-content>
     </mat-card>
 
@@ -101,6 +150,20 @@
                 })
               }}
             </p>
+            @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
+              <p class="detail speeds">
+                <span>{{
+                  i18n.t('dashboard.diskRead', {
+                    speed: (d.readBytesPerSecond | bytes: i18n.language()),
+                  })
+                }}</span>
+                <span>{{
+                  i18n.t('dashboard.diskWrite', {
+                    speed: (d.writeBytesPerSecond | bytes: i18n.language()),
+                  })
+                }}</span>
+              </p>
+            }
           </div>
         } @empty {
           <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
@@ -178,6 +241,33 @@
         }
       </mat-card-content>
     </mat-card>
+
+    @if (s.throttling; as t) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>{{ i18n.t('dashboard.power') }}</h2>
+          @let earlier = earlierConditions(t);
+          @if (t.now.length > 0 || earlier.length > 0) {
+            <p class="value" [class.problem]="t.now.length > 0">
+              {{ i18n.t('dashboard.powerWarning') }}
+            </p>
+            @if (t.now.length > 0) {
+              <p class="detail problem">
+                {{ i18n.t('dashboard.throttlingNow', { conditions: conditionList(t.now) }) }}
+              </p>
+            }
+            @if (earlier.length > 0) {
+              <p class="detail">
+                {{ i18n.t('dashboard.throttlingEarlier', { conditions: conditionList(earlier) }) }}
+              </p>
+            }
+          } @else {
+            <p class="value">{{ i18n.t('dashboard.powerOk') }}</p>
+            <p class="detail">{{ i18n.t('dashboard.powerNoProblems') }}</p>
+          }
+        </mat-card-content>
+      </mat-card>
+    }
 
     <mat-card appearance="outlined">
       <mat-card-content>

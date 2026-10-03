@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -41,6 +43,9 @@ func TestCollectReadsThisMachine(t *testing.T) {
 	if snapshot.Network == nil {
 		t.Error("Network is nil, want an empty list when there is no network card")
 	}
+	if n := len(snapshot.CPU.CoreUsagePercent); n != 0 && n != snapshot.CPU.Cores {
+		t.Errorf("CPU.CoreUsagePercent has %d cores, want %d", n, snapshot.CPU.Cores)
+	}
 }
 
 func TestNewCollectorRefusesUnreadableDiskPaths(t *testing.T) {
@@ -68,5 +73,30 @@ func TestBusyPercent(t *testing.T) {
 		if got := busyPercent(tt.previous, tt.current); got != tt.want {
 			t.Errorf("%s: busyPercent() = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestSumTimesAddsUpEachCore(t *testing.T) {
+	got := sumTimes([]cpu.TimesStat{{User: 1, Idle: 10, Iowait: 2}, {User: 3, System: 4, Idle: 20}})
+	want := cpu.TimesStat{User: 4, System: 4, Idle: 30, Iowait: 2}
+	if got != want {
+		t.Errorf("sumTimes() = %+v, want %+v", got, want)
+	}
+}
+
+func TestReadClockMHzTakesTheFastestGroupOfCores(t *testing.T) {
+	dir := t.TempDir()
+	little := filepath.Join(dir, "policy0")
+	big := filepath.Join(dir, "policy4")
+	for path, kHz := range map[string]string{little: "1800000\n", big: "2400000\n"} {
+		if err := os.WriteFile(path, []byte(kHz), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := readClockMHz([]string{little, big, filepath.Join(dir, "missing")}); got != 2400 {
+		t.Errorf("readClockMHz() = %v, want 2400", got)
+	}
+	if got := readClockMHz(nil); got != 0 {
+		t.Errorf("readClockMHz(nil) = %v, want 0", got)
 	}
 }
