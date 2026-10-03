@@ -59,7 +59,7 @@ When a new version changes the layout of the database, it first copies the file 
 
 Every device runs the same image. On its own it only shows itself. To see several devices on one page, open the page of the device that should be the hub, click *Add other devices* (later *Devices*) and add each other device with a name and its address, such as `192.168.1.30:9393`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
 
-The first device you add asks you to choose a password, at least 8 characters, repeated once. From then on, adding or removing a device asks for it, and it cannot be changed on the page. Only a salted hash is kept, in the hub's database. If it is forgotten, set `RESET_PASSWORD=true` in the hub's `.env`, restart it, and unset it again: the next device you add chooses a new password. Removing a device deletes its history too, unless you tick *Keep its history*.
+The first device you add asks you to choose a password, at least 8 characters, repeated once. From then on, adding or removing a device asks for it, and it cannot be changed on the page. Only a salted hash is kept, in the hub's database. If it is forgotten, set `RESET_PASSWORD=true` in the hub's `.env`, restart it, and unset it again right away: while it is set, every restart deletes the password, and whoever next adds or removes a device on the page chooses the new one. Removing a device deletes its history too, unless you tick *Keep its history*.
 
 Devices can also be listed in the hub's `.env`, each as `name=address:port`, separated by commas. These show on the page as *Set in .env* and are removed only there:
 
@@ -221,7 +221,6 @@ The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` is the so
 
 ## Repository
 
-- [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
 - [AGENTS.md](AGENTS.md): code style, security, testing and pull request rules (also read by AI agents through `CLAUDE.md`)
 - [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md): every pull request fills it in; the "PR Template Validation" workflow checks it
 - `ci/`: checks that CI runs and that you can run locally

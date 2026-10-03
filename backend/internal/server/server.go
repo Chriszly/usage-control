@@ -60,14 +60,6 @@ type Devices interface {
 	List() []Device
 }
 
-// DeviceList is a fixed list of devices.
-type DeviceList []Device
-
-// List returns the devices.
-func (l DeviceList) List() []Device {
-	return l
-}
-
 // Site is what the website shows and keeps.
 type Site struct {
 	Devices Devices

@@ -48,12 +48,3 @@ func readFans(sensors []fanSensor) []Fan {
 	}
 	return fans
 }
-
-// readText reads a short /sys file, or returns "" when it cannot be read.
-func readText(path string) string {
-	text, err := readFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(text))
-}
