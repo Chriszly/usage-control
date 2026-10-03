@@ -86,6 +86,20 @@
             }}
           </p>
         }
+        @if (s.cpu.processes; as p) {
+          <p class="detail">
+            {{ i18n.t('dashboard.processes', { total: p.total, running: p.running }) }}
+          </p>
+        }
+        @if (s.cpu.ioWaitPercent !== undefined) {
+          <p class="detail" [title]="i18n.t('dashboard.ioWaitHint')">
+            {{ i18n.t('dashboard.ioWait', { percent: decimal(s.cpu.ioWaitPercent, '1.1-1') }) }}
+            @if (s.cpu.stealPercent) {
+              ·
+              {{ i18n.t('dashboard.steal', { percent: decimal(s.cpu.stealPercent, '1.1-1') }) }}
+            }
+          </p>
+        }
       </mat-card-content>
     </mat-card>
 
@@ -106,6 +120,23 @@
             })
           }}
         </p>
+        @if (s.memory.availableBytes) {
+          <p class="detail">
+            {{
+              i18n.t('dashboard.available', {
+                available: (s.memory.availableBytes | bytes: i18n.language()),
+              })
+            }}
+            @if (s.memory.cachedBytes) {
+              ·
+              {{
+                i18n.t('dashboard.cache', {
+                  cache: (s.memory.cachedBytes | bytes: i18n.language()),
+                })
+              }}
+            }
+          </p>
+        }
         @if (s.memory.swap; as swap) {
           <p class="sensor swap">
             <span>{{ i18n.t('dashboard.swap') }}</span
@@ -164,6 +195,23 @@
                 }}</span>
               </p>
             }
+            @if (d.operationsPerSecond !== undefined) {
+              <p class="detail speeds">
+                <span>{{
+                  i18n.t('dashboard.diskOperations', {
+                    count: decimal(d.operationsPerSecond, '1.0-0'),
+                  })
+                }}</span>
+                @if (d.busyPercent !== undefined && d.latencyMs !== undefined) {
+                  <span>{{
+                    i18n.t('dashboard.diskBusy', { percent: decimal(d.busyPercent, '1.0-0') })
+                  }}</span>
+                  <span [title]="i18n.t('dashboard.diskLatencyHint')">{{
+                    i18n.t('dashboard.diskLatency', { ms: decimal(d.latencyMs, '1.1-1') })
+                  }}</span>
+                }
+              </p>
+            }
           </div>
         } @empty {
           <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
@@ -180,6 +228,14 @@
             <span class="label" [title]="n.name">{{ n.name }}</span>
             <span class="rate">↓ {{ n.receiveBytesPerSecond | bytes: i18n.language() }}/s</span>
             <span class="rate">↑ {{ n.sendBytesPerSecond | bytes: i18n.language() }}/s</span>
+            @if (n.errors || n.dropped) {
+              <span class="problems" [title]="i18n.t('dashboard.networkProblemsHint')">{{
+                i18n.t('dashboard.networkProblems', {
+                  errors: n.errors ?? 0,
+                  dropped: n.dropped ?? 0,
+                })
+              }}</span>
+            }
           </div>
         } @empty {
           <p class="detail">{{ i18n.t('dashboard.noNetwork') }}</p>

@@ -14,7 +14,7 @@ func TestThroughputMeasuresSpeedSincePreviousReading(t *testing.T) {
 		"wlan0": {received: 9000, sent: 9000},
 	}
 	current := map[string]counters{
-		"eth0":  {received: 5000, sent: 1500},
+		"eth0":  {received: 5000, sent: 1500, errors: 2, dropped: 7},
 		"wlan0": {received: 10, sent: 20},   // reset since the previous reading
 		"usb0":  {received: 300, sent: 400}, // new since the previous reading
 	}
@@ -22,7 +22,7 @@ func TestThroughputMeasuresSpeedSincePreviousReading(t *testing.T) {
 	got := throughput(previous, current, 2*time.Second)
 
 	want := []NetworkInterface{
-		{Name: "eth0", ReceivedBytes: 5000, SentBytes: 1500, ReceiveBytesPerSecond: 2000, SendBytesPerSecond: 500},
+		{Name: "eth0", ReceivedBytes: 5000, SentBytes: 1500, ReceiveBytesPerSecond: 2000, SendBytesPerSecond: 500, Errors: 2, Dropped: 7},
 		{Name: "usb0", ReceivedBytes: 300, SentBytes: 400},
 		{Name: "wlan0", ReceivedBytes: 10, SentBytes: 20},
 	}

@@ -118,8 +118,14 @@ Every value is a small read the system offers to programs without extra rights, 
 | Usage per core | yes | yes | no, only the total |
 | Clock | where the kernel scales it (not in most virtual machines) | no | no |
 | Load average | yes | no, Windows has none | no |
+| Processes (total and running) | yes | no | no |
+| I/O wait and steal | yes | no | no |
+| Available memory and cache | both | available only | no |
 | Swap | when a swap file or partition exists | page files | yes |
 | Disk read/write speed | disks and partitions; for `/` inside Docker, the host's root disk | per drive letter | yes |
+| Disk operations per second | yes | yes | no |
+| Disk busy % and time per operation | yes | no | no |
+| Network errors and dropped packets | since start | since start | no |
 | Undervoltage and throttling | Raspberry Pi only | no | no |
 | Battery charge and plugged in | laptops and tablets | laptops and tablets | yes, the charge |
 

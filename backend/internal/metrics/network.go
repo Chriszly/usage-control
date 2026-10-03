@@ -20,13 +20,19 @@ type NetworkInterface struct {
 	SentBytes             uint64  `json:"sentBytes"`
 	ReceiveBytesPerSecond float64 `json:"receiveBytesPerSecond"`
 	SendBytesPerSecond    float64 `json:"sendBytesPerSecond"`
+	// Errors and Dropped count the packets that arrived or left broken, and
+	// those the interface threw away, since the machine booted.
+	Errors  uint64 `json:"errors,omitempty"`
+	Dropped uint64 `json:"dropped,omitempty"`
 }
 
 // counters is the number of bytes an interface has received and sent since
-// the machine booted.
+// the machine booted, and of packets with errors and dropped ones.
 type counters struct {
 	received uint64
 	sent     uint64
+	errors   uint64
+	dropped  uint64
 }
 
 // readNetworkCounters returns the byte counters of the machine's physical
@@ -42,7 +48,12 @@ func readNetworkCounters(ctx context.Context) (map[string]counters, error) {
 		if isVirtual(s.Name) {
 			continue
 		}
-		result[s.Name] = counters{received: s.BytesRecv, sent: s.BytesSent}
+		result[s.Name] = counters{
+			received: s.BytesRecv,
+			sent:     s.BytesSent,
+			errors:   s.Errin + s.Errout,
+			dropped:  s.Dropin + s.Dropout,
+		}
 	}
 	return result, nil
 }
@@ -105,7 +116,13 @@ func isVirtualInterface(sysDir, name string) bool {
 func throughput(previous, current map[string]counters, elapsed time.Duration) []NetworkInterface {
 	interfaces := make([]NetworkInterface, 0, len(current))
 	for name, now := range current {
-		iface := NetworkInterface{Name: name, ReceivedBytes: now.received, SentBytes: now.sent}
+		iface := NetworkInterface{
+			Name:          name,
+			ReceivedBytes: now.received,
+			SentBytes:     now.sent,
+			Errors:        now.errors,
+			Dropped:       now.dropped,
+		}
 		if before, ok := previous[name]; ok && elapsed > 0 {
 			iface.ReceiveBytesPerSecond = perSecond(before.received, now.received, elapsed)
 			iface.SendBytesPerSecond = perSecond(before.sent, now.sent, elapsed)

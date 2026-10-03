@@ -8,8 +8,9 @@ import (
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
-// Disk is the usage of the filesystem that holds one path, and how fast its
-// disk reads and writes. The speeds are left out where they cannot be read.
+// Disk is the usage of the filesystem that holds one path, and the activity
+// of its disk. The activity is left out where it cannot be read; busy and
+// latency are only reported by Linux.
 type Disk struct {
 	Path                string   `json:"path"`
 	TotalBytes          uint64   `json:"totalBytes"`
@@ -17,6 +18,9 @@ type Disk struct {
 	UsedPercent         float64  `json:"usedPercent"`
 	ReadBytesPerSecond  *float64 `json:"readBytesPerSecond,omitempty"`
 	WriteBytesPerSecond *float64 `json:"writeBytesPerSecond,omitempty"`
+	OperationsPerSecond *float64 `json:"operationsPerSecond,omitempty"`
+	BusyPercent         *float64 `json:"busyPercent,omitempty"`
+	LatencyMs           *float64 `json:"latencyMs,omitempty"`
 }
 
 // checkDiskPaths reports the first path that is not absolute or cannot be

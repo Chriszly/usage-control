@@ -111,6 +111,40 @@ describe('Dashboard', () => {
     expect(text()).toContain('Version 0.1.0');
   });
 
+  it('shows processes, I/O wait, memory breakdown, disk operations and network errors', () => {
+    respond({
+      ...snapshot,
+      cpu: {
+        ...snapshot.cpu,
+        ioWaitPercent: 2.5,
+        stealPercent: 0,
+        processes: { total: 213, running: 2 },
+      },
+      memory: { ...snapshot.memory, availableBytes: 5 * 1024 ** 3, cachedBytes: 2 * 1024 ** 3 },
+      disks: [
+        {
+          ...snapshot.disks[0],
+          readBytesPerSecond: 0,
+          writeBytesPerSecond: 0,
+          operationsPerSecond: 12,
+          busyPercent: 3,
+          latencyMs: 0.8,
+        },
+      ],
+      network: [{ ...snapshot.network[0], errors: 3, dropped: 120 }],
+    });
+
+    expect(text()).toContain('213 processes, 2 running');
+    expect(text()).toContain('I/O wait 2.5 %');
+    expect(text()).not.toContain('Steal');
+    expect(text()).toContain('5.0 GiB available');
+    expect(text()).toContain('2.0 GiB cache');
+    expect(text()).toContain('12 operations/s');
+    expect(text()).toContain('Busy 3 %');
+    expect(text()).toContain('0.8 ms each');
+    expect(text()).toContain('Errors 3 · Dropped 120');
+  });
+
   it('leaves out what the device does not report', () => {
     respond(snapshot);
 
@@ -123,6 +157,10 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('Power and clock');
     expect(text()).not.toContain('Version');
     expect(text()).not.toContain('Battery');
+    expect(text()).not.toContain('processes');
+    expect(text()).not.toContain('I/O wait');
+    expect(text()).not.toContain('available');
+    expect(text()).not.toContain('Errors');
   });
 
   it('shows the battery charge and whether the machine is plugged in', () => {

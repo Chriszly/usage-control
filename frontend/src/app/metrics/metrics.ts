@@ -19,11 +19,21 @@ export interface Snapshot {
     clockMHz?: number;
     /** Missing on Windows, which has no load average. */
     loadAverage?: LoadAverage;
+    /** Share of time spent waiting for disks; only reported by Linux. */
+    ioWaitPercent?: number;
+    /** Share of time a virtual machine waited for its host; only reported by Linux. */
+    stealPercent?: number;
+    /** Only reported by Linux. */
+    processes?: { total: number; running: number };
   };
   memory: {
     totalBytes: number;
     usedBytes: number;
     usedPercent: number;
+    /** What programs can still get, including cache the system frees when needed. */
+    availableBytes?: number;
+    /** Cache and buffers; only reported by Linux. */
+    cachedBytes?: number;
     /** Missing when the machine has no swap space. */
     swap?: Swap;
   };
@@ -84,6 +94,12 @@ export interface Disk {
   /** Missing where the disk's counters cannot be read, such as a network share. */
   readBytesPerSecond?: number;
   writeBytesPerSecond?: number;
+  /** Reads and writes per second. */
+  operationsPerSecond?: number;
+  /** Share of time the disk was busy; only reported by Linux. */
+  busyPercent?: number;
+  /** Average time per read or write; only reported by Linux. */
+  latencyMs?: number;
 }
 
 /** The traffic of one network interface, with the speed since the previous request. */
@@ -93,6 +109,10 @@ export interface NetworkInterface {
   sentBytes: number;
   receiveBytesPerSecond: number;
   sendBytesPerSecond: number;
+  /** Packets with errors since the machine started; missing when there were none. */
+  errors?: number;
+  /** Packets thrown away since the machine started; missing when there were none. */
+  dropped?: number;
 }
 
 /** The usage of one graphics processor. Memory and temperature are missing where it does not report them. */
