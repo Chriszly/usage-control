@@ -114,6 +114,8 @@ export const fr: Messages = {
   'devices.problem.fixed':
     'Cet appareil est défini dans le fichier .env du hub. Retirez-le là-bas.',
   'devices.problem.notFound': 'Cet appareil a déjà été retiré.',
+  'devices.problem.demo':
+    'Ceci est une démo : les appareils ne peuvent être ni ajoutés ni supprimés.',
   'devices.problem.other': 'Les appareils n’ont pas pu être modifiés. Réessayez.',
   'passwordDialog.enterTitle': 'Saisir le mot de passe',
   'passwordDialog.chooseTitle': 'Choisir un mot de passe',

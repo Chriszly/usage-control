@@ -115,6 +115,8 @@ export const de: Messages = {
   'devices.problem.fixed':
     'Dieses Gerät ist in der .env-Datei des Hubs festgelegt. Entferne es dort.',
   'devices.problem.notFound': 'Dieses Gerät wurde bereits entfernt.',
+  'devices.problem.demo':
+    'Dies ist eine Demo, darum können keine Geräte hinzugefügt oder entfernt werden.',
   'devices.problem.other': 'Die Geräte konnten nicht geändert werden. Versuche es noch einmal.',
   'passwordDialog.enterTitle': 'Passwort eingeben',
   'passwordDialog.chooseTitle': 'Passwort festlegen',

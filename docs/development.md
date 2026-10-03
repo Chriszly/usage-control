@@ -41,6 +41,10 @@ cd frontend && npm ci && npm start
 
 `npm run build` in `frontend/` writes the website into `backend/internal/web/files/build/`, and `go build` embeds it, so one binary serves both. The website is never built on the Raspberry Pi: CI and the Docker build do it, and the Dockerfile cross-compiles the binary for arm64.
 
+## Demo page
+
+`npm run build:demo` in `frontend/` builds the demo published at https://chriszly.github.io/usage-control/ into `frontend/dist/demo/`. It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
+
 ## Translations
 
 The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` is the source, and `de.ts`, `fr.ts` and `es.ts` must have the same keys, which the TypeScript compiler checks, so the build fails when a translation is missing. The `I18n` service holds the page's language as a signal, so switching it updates the page in place. The page starts in the language picked last time (kept in the browser's localStorage), else the browser's language, else English.
@@ -76,6 +80,7 @@ bash ci/check-no-secrets.sh
 | `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags |
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
+| `demo.yml` | publishes the demo page to GitHub Pages on every merge to main that changes the frontend |
 
 A release is published on GitHub with a tag such as `0.1.0`; the workflows build and attach everything on their own.
 

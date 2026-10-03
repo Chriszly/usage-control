@@ -15,6 +15,8 @@ flowchart LR
     hub -- "every 5 s" --> windows["Windows PC"]
 ```
 
+**[Try the demo](https://chriszly.github.io/usage-control/)**: the real page with made-up Windows and Linux devices, to click through before installing anything.
+
 ## Quick start
 
 On a Raspberry Pi or another Linux machine with Docker, in a checkout of this repository:
