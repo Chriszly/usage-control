@@ -25,6 +25,8 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-}
       HUB_DEVICES: ${HUB_DEVICES:-}
       RESET_PASSWORD: ${RESET_PASSWORD:-}
+      # false stops the daily check for a newer release; see .env.example.
+      UPDATE_CHECK: ${UPDATE_CHECK:-}
     volumes:
       # The history database. Kept when the container is updated or recreated.
       - data:/data

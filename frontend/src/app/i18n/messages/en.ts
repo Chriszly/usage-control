@@ -153,6 +153,8 @@ export const en = {
   'bytes.unit.mib': 'MiB',
   'bytes.unit.gib': 'GiB',
   'bytes.unit.tib': 'TiB',
+  'update.available': 'Version {latest} is available (this device runs {current}).',
+  'update.whatsNew': "What's new",
 } as const;
 
 /** The key of one text on the website. */

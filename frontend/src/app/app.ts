@@ -7,10 +7,11 @@ import { I18n } from './i18n/i18n';
 import { LanguageSwitcher } from './language/language-switcher';
 import { Mascot } from './mascot/mascot';
 import { ThemeService } from './theme/theme';
+import { UpdateNotice } from './update/update-notice';
 
 @Component({
   selector: 'app-root',
-  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher, Mascot],
+  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher, Mascot, UpdateNotice],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

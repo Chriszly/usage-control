@@ -63,6 +63,14 @@ HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 
 The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices; a dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). A device that does not answer is shown as such, and its history has a gap for that time. Its *Availability* card shows the share of time it answered since it was added, how long it was offline in total, and its last outage. Time the hub itself was not running is not counted as offline. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
+### New versions
+
+Once a day the hub asks GitHub's public releases API whether a newer release exists, without an account, and the page then names it with a link to what changed. Nothing is downloaded or installed; updating stays your step. Only releases check, not builds of `main`, and devices with `DATA_ONLY=true` never do. To turn the check off, set in `.env`:
+
+```bash
+UPDATE_CHECK=false
+```
+
 ## Install it on Windows
 
 On Windows, usage-control by default only collects the PC's usage for a hub on Linux, such as a Raspberry Pi, which shows it and keeps its history. Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer instead: `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM. Version tags attach both to the [GitHub release](https://github.com/Chriszly/usage-control/releases); every pull request and every commit on main also builds them, under the run's artifacts in the *Windows installer* workflow.

@@ -17,6 +17,7 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/history"
 	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
+	"github.com/Chriszly/usage-control/backend/internal/update"
 )
 
 type fakeCollector struct {
@@ -305,5 +306,23 @@ func TestAvailabilityOfAnotherDevice(t *testing.T) {
 	}
 	if !got.Since.Equal(since) || got.OfflineSeconds != 90 || got.Outages != 1 || got.LastOutage != nil {
 		t.Errorf("availability = %+v", got)
+	}
+}
+
+func TestUpdateTellsANewerRelease(t *testing.T) {
+	want := update.Status{Current: "0.1.0", Latest: "0.2.0", URL: "https://github.com/Chriszly/usage-control/releases/tag/v0.2.0"}
+	handler := New(Site{Devices: DeviceList(device(fakeCollector{}, nil)), Files: site, Update: func() update.Status { return want }})
+
+	rec := get(handler, "/api/update", "192.168.1.20:5000")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got update.Status
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got != want {
+		t.Errorf("update = %+v, want %+v", got, want)
 	}
 }
