@@ -29,12 +29,9 @@ const DefaultMaxEntries = 64
 // usage in percent (also of swap and GPU memory), battery charge in percent,
 // temperatures in °C and disk and network speeds in bytes per second. The load average, clock, each
 // core's usage and throttling are only shown live. Of the disks, sensors,
-// network cards and GPUs, the first maxEntries each are kept (DefaultMaxEntries
-// when it is not positive); dropped tells whether any were left out.
+// network cards and GPUs, the first maxEntries each are kept; dropped tells
+// whether any were left out.
 func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped bool) {
-	if maxEntries <= 0 {
-		maxEntries = DefaultMaxEntries
-	}
 	v = map[string]float64{
 		MetricCPU:    s.CPU.UsagePercent,
 		MetricMemory: s.Memory.UsedPercent,

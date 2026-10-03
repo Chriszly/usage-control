@@ -83,7 +83,7 @@ func run(parent context.Context) error {
 		return fmt.Errorf("check HUB_DEVICES: %w", err)
 	}
 
-	dataOnly, err := boolSetting("DATA_ONLY")
+	dataOnly, err := boolSettingOr("DATA_ONLY", false)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func run(parent context.Context) error {
 	defer stop()
 
 	// One sampler reads the usage for every page, hub and the recorder.
-	sampler := metrics.NewSampler(ctx, collector)
+	sampler := metrics.NewSampler(collector)
 
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
 	// device keeps none and only answers the hub.
@@ -173,7 +173,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 	if err != nil {
 		return server.Site{}, nil, err
 	}
-	reset, err := boolSetting("RESET_PASSWORD")
+	reset, err := boolSettingOr("RESET_PASSWORD", false)
 	if err != nil {
 		return server.Site{}, nil, err
 	}
@@ -238,7 +238,7 @@ type hubDevices struct {
 func (d hubDevices) List() []server.Device {
 	devices := []server.Device{d.local}
 	for _, remote := range d.hub.Remotes() {
-		since, unreachable := remote.Agent.Unreachable()
+		since, unreachable := remote.Unreachable()
 		var unreachableSince *time.Time
 		if unreachable && !since.IsZero() {
 			unreachableSince = &since
@@ -256,11 +256,6 @@ func (d hubDevices) List() []server.Device {
 		})
 	}
 	return devices
-}
-
-// boolSetting reads a setting that is true or false (default false).
-func boolSetting(name string) (bool, error) {
-	return boolSettingOr(name, false)
 }
 
 // boolSettingOr reads a setting that is true or false, with a default for

@@ -68,14 +68,14 @@ describe('HistoryCharts', () => {
     buttons.find((b) => b.textContent?.trim() === label)?.click();
   }
 
-  const UNIT = '.units mat-chip-option button';
-  const RANGE = '.ranges mat-chip-option button';
+  const UNIT = '.units button';
+  const RANGE = '.ranges button';
 
   it('shows the last 24 hours and refreshes them every minute', () => {
     expect(respond()).toEqual({ from: NOW_SECONDS - 86400, to: NOW_SECONDS });
     expect(element().textContent).toContain('CPU and memory');
     expect(labels(RANGE)).toEqual(['1 d', '7 d', '14 d', '30 d']);
-    expect(element().querySelector('.ranges .mat-mdc-chip-selected')?.textContent?.trim()).toBe(
+    expect(element().querySelector('.ranges [aria-pressed="true"]')?.textContent?.trim()).toBe(
       '1 d',
     );
 

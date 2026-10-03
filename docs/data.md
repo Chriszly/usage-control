@@ -17,7 +17,7 @@ usage-control reads only what the operating system offers to programs without ex
 | Windows | the Windows APIs gopsutil uses, and the performance counters Task Manager shows for GPUs |
 | macOS | what gopsutil reports; not tested, low priority |
 
-Readings are cheap: single file reads rather than scanning every process. Values that change rarely, such as a network card's link speed and addresses, are read once a minute. The machine is read once every 2 seconds while someone asks, however many pages are open (see [Inside one device](architecture.md#inside-one-device)).
+Readings are cheap: single file reads rather than scanning every process. Values that change rarely, such as a network card's link speed and addresses, are read once a minute. The machine is read only when asked, and at most once every 2 seconds however many pages are open: every 5 seconds for the history or a hub, every 2 seconds while a page is open (see [Inside one device](architecture.md#inside-one-device)).
 
 CPU usage and disk and network speeds are measured between two readings, so they are averages over the last 2 seconds.
 

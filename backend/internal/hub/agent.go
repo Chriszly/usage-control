@@ -40,8 +40,6 @@ type Agent struct {
 	mu       sync.Mutex
 	latest   metrics.Snapshot
 	latestAt time.Time
-	// failingSince is when asking the device started to fail; zero while it answers.
-	failingSince time.Time
 }
 
 // NewAgent returns an Agent for the device at address (host:port).
@@ -67,30 +65,23 @@ func NewAgent(address string) *Agent {
 // the right time.
 func (a *Agent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := a.ask(ctx)
+	if err != nil {
+		return snapshot, err
+	}
 	now := time.Now().UTC()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err != nil {
-		if a.failingSince.IsZero() {
-			a.failingSince = now
-		}
-		return snapshot, err
-	}
 	snapshot.Time = now
-	a.latest, a.latestAt, a.failingSince = snapshot, now, time.Time{}
+	a.latest, a.latestAt = snapshot, now
 	return snapshot, nil
 }
 
-// Unreachable reports whether the device has not answered recently, as
-// LatestCollector does, and since when asking it fails; since is zero when it
-// has not been asked yet.
-func (a *Agent) Unreachable() (since time.Time, unreachable bool) {
+// answers reports whether the device has answered recently, as
+// LatestCollector serves it.
+func (a *Agent) answers() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.fresh() {
-		return time.Time{}, false
-	}
-	return a.failingSince, true
+	return a.fresh()
 }
 
 // fresh reports whether the newest reading is young enough to serve. The

@@ -43,9 +43,9 @@ type Snapshot struct {
 	Fans []Fan `json:"fans,omitempty"`
 }
 
-// CPU is the processor usage across all cores. The usage of each core, the
-// clock, the load average, I/O wait, steal and the processes are left out
-// where the OS does not report them.
+// CPU is the processor usage across all cores and of each core. The clock,
+// the load average, I/O wait, steal and the processes are left out where the
+// OS does not report them.
 type CPU struct {
 	UsagePercent     float64      `json:"usagePercent"`
 	Cores            int          `json:"cores"`
@@ -129,14 +129,6 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read CPU usage: %w", err)
 	}
-	// The per-core usage lists every core; only the first reading, which has
-	// none yet, counts them, which parses /proc/cpuinfo on Linux.
-	cores := len(cpuUsage.CoreUsagePercent)
-	if cores == 0 {
-		if cores, err = cpu.CountsWithContext(ctx, true); err != nil {
-			return Snapshot{}, fmt.Errorf("count CPU cores: %w", err)
-		}
-	}
 	memory, err := mem.VirtualMemoryWithContext(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read memory usage: %w", err)
@@ -152,7 +144,6 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	c.addLinks(network)
 
 	now := time.Now()
-	cpuUsage.Cores = cores
 	cpuUsage.ClockMHz = readClockMHz(c.clockFiles)
 	cpuUsage.LoadAverage, cpuUsage.Processes = readLoadAverage(ctx)
 

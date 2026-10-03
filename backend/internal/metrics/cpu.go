@@ -29,49 +29,36 @@ type Processes struct {
 }
 
 // readCPUUsage returns the share of time the processor was busy since the
-// previous call, in percent, in total and per core, and on Linux the share it
-// waited for disks and, in a virtual machine, for the host (steal). Each
-// Collector keeps its own previous reading, so the dashboard and the history
-// recorder measure their own intervals. Where the OS does not report each
-// core, only the total is returned.
+// previous call, in percent, in total and per core, the number of cores, and
+// on Linux the share it waited for disks and, in a virtual machine, for the
+// host (steal).
 func (c *Collector) readCPUUsage(ctx context.Context) (CPU, error) {
 	// The times of each core come from the same file or call as the total, so
 	// reading them costs no more than the total alone.
 	perCore, err := cpu.TimesWithContext(ctx, true)
-	if err != nil || len(perCore) == 0 {
-		perCore = nil
+	if err != nil {
+		return CPU{}, err
 	}
-	var sum cpu.TimesStat
-	if perCore != nil {
-		sum = sumTimes(perCore)
-	} else {
-		times, err := cpu.TimesWithContext(ctx, false)
-		if err != nil {
-			return CPU{}, err
-		}
-		if len(times) == 0 {
-			return CPU{}, errors.New("the OS reported no CPU times")
-		}
-		sum = times[0]
+	if len(perCore) == 0 {
+		return CPU{}, errors.New("the OS reported no CPU times")
 	}
+	sum := sumTimes(perCore)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	usage := CPU{UsagePercent: busyPercent(c.cpuTimes, sum)}
+	usage := CPU{UsagePercent: busyPercent(c.cpuTimes, sum), Cores: len(perCore)}
 	if runtime.GOOS == "linux" {
 		ioWait, steal := waitPercents(c.cpuTimes, sum)
 		usage.IOWaitPercent, usage.StealPercent = &ioWait, &steal
 	}
-	if perCore != nil {
-		previous := c.coreTimes
-		if len(previous) != len(perCore) {
-			// The first reading, or a core was switched on or off.
-			previous = make([]cpu.TimesStat, len(perCore))
-		}
-		usage.CoreUsagePercent = make([]float64, len(perCore))
-		for i, times := range perCore {
-			usage.CoreUsagePercent[i] = busyPercent(previous[i], times)
-		}
+	previous := c.coreTimes
+	if len(previous) != len(perCore) {
+		// The first reading, or a core was switched on or off.
+		previous = make([]cpu.TimesStat, len(perCore))
+	}
+	usage.CoreUsagePercent = make([]float64, len(perCore))
+	for i, times := range perCore {
+		usage.CoreUsagePercent[i] = busyPercent(previous[i], times)
 	}
 	c.cpuTimes, c.coreTimes = sum, perCore
 	return usage, nil

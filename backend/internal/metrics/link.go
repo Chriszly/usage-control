@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -82,7 +83,7 @@ func parseLocalAddresses(text string) []netip.Addr {
 		line = strings.TrimSpace(line)
 		if line == "/32 host LOCAL" {
 			address, err := netip.ParseAddr(strings.TrimPrefix(previous, "|-- "))
-			if err == nil && !address.IsLoopback() && !containsAddr(addresses, address) {
+			if err == nil && !address.IsLoopback() && !slices.Contains(addresses, address) {
 				addresses = append(addresses, address)
 			}
 		}
@@ -104,13 +105,4 @@ func addressesByInterface(addresses []netip.Addr, routes []route) map[string][]s
 		}
 	}
 	return result
-}
-
-func containsAddr(addresses []netip.Addr, address netip.Addr) bool {
-	for _, a := range addresses {
-		if a == address {
-			return true
-		}
-	}
-	return false
 }

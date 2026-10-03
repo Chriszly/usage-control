@@ -2,8 +2,6 @@ import { DecimalPipe, NgTemplateOutlet, formatDate, formatNumber } from '@angula
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { MatCardModule } from '@angular/material/card';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { EMPTY, catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
@@ -31,7 +29,7 @@ type Problem = 'backend' | 'device';
 /** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe, MatCardModule, MatProgressBarModule, NgTemplateOutlet],
+  imports: [BytesPipe, DecimalPipe, NgTemplateOutlet],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })

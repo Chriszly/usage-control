@@ -33,3 +33,71 @@ body {
   color: var(--mat-sys-on-surface);
   background: var(--mat-sys-surface);
 }
+
+// An outlined box, as Material's outlined card.
+.card {
+  padding: 1rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface);
+}
+
+// A bar filled to a share, as Material's progress bar.
+progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: none;
+  border-radius: 2px;
+  appearance: none;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-primary);
+}
+
+progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress::-webkit-progress-value {
+  border-radius: 2px;
+  background: var(--mat-sys-primary);
+}
+
+progress::-moz-progress-bar {
+  border-radius: 2px;
+  background: var(--mat-sys-primary);
+}
+
+// A row of buttons of which one is picked, as Material's filter chips.
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  > button {
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: var(--mat-sys-corner-small);
+    background: transparent;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-large);
+    cursor: pointer;
+
+    &:hover {
+      background: color-mix(in srgb, var(--mat-sys-on-surface-variant) 8%, transparent);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--mat-sys-primary);
+      outline-offset: 2px;
+    }
+
+    &[aria-pressed='true'] {
+      border-color: transparent;
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+      cursor: default;
+    }
+  }
+}

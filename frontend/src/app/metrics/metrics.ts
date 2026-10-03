@@ -70,13 +70,13 @@ export interface Battery {
   healthPercent?: number;
 }
 
-/** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
 /** The time zone of a device's clock: its short name, such as "CEST", and how far it is ahead of UTC. */
 export interface TimeZone {
   name: string;
   offsetSeconds: number;
 }
 
+/** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
 export interface LoadAverage {
   one: number;
   five: number;

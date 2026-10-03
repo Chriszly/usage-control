@@ -39,7 +39,7 @@ h3 {
   background: var(--warning-surface);
 }
 
-/* Each row of chips sits on the right. */
+/* Each row of choices sits on the right. */
 .units,
 .ranges {
   margin-left: auto;
@@ -50,7 +50,7 @@ h3 {
   width: fit-content;
 }
 
-/* Centered labels of one width per row, so every chip in a row is equally wide. */
+/* Centered labels of one width per row, so every button in a row is equally wide. */
 .label {
   display: inline-block;
   text-align: center;

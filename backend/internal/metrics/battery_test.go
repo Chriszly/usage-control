@@ -22,8 +22,8 @@ func TestCombineBatteries(t *testing.T) {
 		{
 			"two batteries with power and health",
 			[]supplyReading{
-				{percent: 80, status: "Discharging", watts: 5, hasWatts: true, health: 90, hasHealth: true},
-				{percent: 40, status: "Discharging", watts: 3, hasWatts: true, health: 70, hasHealth: true},
+				{percent: 80, status: "Discharging", watts: ptr(5), health: ptr(90)},
+				{percent: 40, status: "Discharging", watts: ptr(3), health: ptr(70)},
 			},
 			&Battery{Percent: 60, Watts: ptr(8.0), HealthPercent: ptr(80.0)},
 		},

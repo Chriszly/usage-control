@@ -27,7 +27,7 @@ type Recorder struct {
 	// Device is the name the readings are stored under, such as LocalDevice.
 	Device string
 	// MaxEntries is how many disks, sensors, network cards and GPUs each are
-	// kept; DefaultMaxEntries when it is not positive.
+	// kept.
 	MaxEntries int
 
 	// failing is set while readings fail, so an unreachable device is logged
@@ -79,7 +79,7 @@ func (r *Recorder) read(ctx context.Context) {
 	if dropped && !r.dropped {
 		r.dropped = true
 		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
-			"device", r.Device, "kept", max(r.MaxEntries, DefaultMaxEntries))
+			"device", r.Device, "kept", r.MaxEntries)
 	}
 	r.Recent.Add(snapshot.Time, v)
 }
