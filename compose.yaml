@@ -15,6 +15,9 @@ services:
     ports:
       - "0.0.0.0:${PORT:-9393}:9393"
     environment:
+      # The port the page is reachable on from the network, which a hub tells
+      # the devices it collects from so they can link back to it.
+      PUBLIC_PORT: ${PORT:-9393}
       # Read the host's usage instead of the container's.
       HOST_PROC: /host/proc
       HOST_SYS: /host/sys

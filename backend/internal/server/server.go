@@ -89,7 +89,9 @@ func New(site Site) http.Handler {
 		mux.HandleFunc("POST /api/devices", changes.add)
 		mux.HandleFunc("DELETE /api/devices/{id}", changes.remove)
 	}
-	mux.HandleFunc("GET /api/metrics", forDevice(site.Devices, metricsHandler))
+	link := &hubLink{}
+	mux.HandleFunc("GET /api/metrics", link.remember(forDevice(site.Devices, metricsHandler)))
+	mux.HandleFunc("GET /api/hub", link.handler)
 	mux.HandleFunc("GET /api/history", forDevice(site.Devices, func(d Device) http.HandlerFunc {
 		return historyHandler(d.History, site.Retention)
 	}))
@@ -105,11 +107,13 @@ func New(site Site) http.Handler {
 
 // NewDataOnly returns the handler for a device that a hub collects from
 // without a website of its own: only GET /api/metrics, with the usage of the
-// machine it runs on. Requests from outside the local network, and requests
+// machine it runs on, and GET /api/hub, where that hub's page is. Requests from outside the local network, and requests
 // that address the machine by a name it does not know, are refused.
 func NewDataOnly(collector Collector, allowedHosts []string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/metrics", metricsHandler(Device{ID: hub.LocalID, Metrics: collector}))
+	link := &hubLink{}
+	mux.HandleFunc("GET /api/metrics", link.remember(metricsHandler(Device{ID: hub.LocalID, Metrics: collector})))
+	mux.HandleFunc("GET /api/hub", link.handler)
 	return withHeaders(localNetworkOnly(knownHostsOnly(newKnownHosts(allowedHosts), mux)))
 }
 

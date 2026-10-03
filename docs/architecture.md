@@ -18,7 +18,7 @@ usage-control is one program. The same binary runs on every device, and settings
 | --- | --- | --- | --- | --- |
 | **Single device** | the default | yes, shows itself | its own, in SQLite | the whole [API](#http-api) |
 | **Hub** | a single device with other devices added on the page or in `HUB_DEVICES` | yes, shows itself and every other device | its own and every other device's | the whole API |
-| **Data only** | `DATA_ONLY=true`; the default of the Windows installer | no | none | only `GET /api/metrics` |
+| **Data only** | `DATA_ONLY=true`; the default of the Windows installer | no | none | only `GET /api/metrics`, and `GET /api/hub` on the machine itself |
 
 A hub is a single device that also collects from others. There is no separate hub program or image. Any device that has the website can become a hub by adding a device on its page. A data-only device cannot be a hub: it refuses to start when `HUB_DEVICES` is set as well.
 
@@ -64,7 +64,8 @@ What goes over the wire:
 | Browser | Hub | `GET /api/availability?device=<id>`: uptime of another device | every 10 s, while one is selected |
 | Browser | Hub | `GET /api/update`: running version and newer release | every hour |
 | Browser | Hub | `POST /api/devices`, `DELETE /api/devices/<id>` | when a device is added or removed |
-| Hub | Each device | `GET /api/metrics`: the device's current usage as JSON, a few kilobytes | every 5 s |
+| Hub | Each device | `GET /api/metrics`: the device's current usage as JSON, a few kilobytes. The `Usage-Control-Hub-Port` header tells the port of the hub's page; the device remembers it with the hub's address | every 5 s |
+| Program on the device | The device | `GET /api/hub`: the hub's page as `{"url": "http://192.168.1.20:9393/"}`, empty until a hub asked; only answered to 127.0.0.1 and ::1 | when needed |
 | Hub | GitHub | `GET https://api.github.com/repos/Chriszly/usage-control/releases/latest` | once a day, at start and every 24 h after; only on releases, never with `DATA_ONLY` |
 
 The usage, device, availability and chart polls pause while the tab is hidden and read again at once when it is shown. All traffic on the local network is plain HTTP. Nothing else leaves the network: no telemetry, no account, no cloud service. The daily version check only reads the newest release's tag; nothing is downloaded or installed.
@@ -210,7 +211,8 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }] }`, at most 360 points per metric | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
 | `GET /api/availability?device=<id>` | `{ since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |
 | `GET /api/update` | `{ current, latest, url }`; `latest` and `url` only when a newer release exists | |
+| `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |
 
 A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `address`, `unreachable`, `notFound`, `fixed`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
 
-A data-only device answers only `GET /api/metrics`.
+A data-only device answers only `GET /api/metrics` and `GET /api/hub`.

@@ -4,6 +4,8 @@
 // Settings come from environment variables:
 //
 //	LISTEN_ADDR     address to listen on (default ":9393")
+//	PUBLIC_PORT     port the page is reachable on from the network, when it is
+//	                not the one in LISTEN_ADDR (set by compose.yaml)
 //	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/",
 //	                or the system drive such as "C:\" on Windows)
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
@@ -30,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -71,6 +74,10 @@ func run(parent context.Context) error {
 	}
 
 	retention, err := retentionDays()
+	if err != nil {
+		return err
+	}
+	port, err := pagePort(addr)
 	if err != nil {
 		return err
 	}
@@ -118,7 +125,7 @@ func run(parent context.Context) error {
 		}
 		defer func() { _ = store.Close() }()
 
-		site, waitForRecorders, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries)
+		site, waitForRecorders, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port)
 		if err != nil {
 			return err
 		}
@@ -168,7 +175,7 @@ func run(parent context.Context) error {
 // is done, and one pruner deletes what is older than retention; the returned
 // function waits until they have stopped. Of each device's disks, sensors,
 // network cards and GPUs, the first historyEntries are kept.
-func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int) (server.Site, func(), error) {
+func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int, pagePort string) (server.Site, func(), error) {
 	devicesPassword, err := password.Open(ctx, store.DB())
 	if err != nil {
 		return server.Site{}, nil, err
@@ -184,7 +191,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
 	}
 
-	others, err := hub.New(ctx, store, fixed, historyEntries)
+	others, err := hub.New(ctx, store, fixed, historyEntries, pagePort)
 	if err != nil {
 		return server.Site{}, nil, err
 	}
@@ -315,6 +322,25 @@ func historyMaxEntries() (int, error) {
 		return 0, fmt.Errorf("HISTORY_MAX_ENTRIES is %q; set it to a whole number from 1 to 10000", value)
 	}
 	return entries, nil
+}
+
+// pagePort returns the port the page is reachable on from the network, which
+// a hub tells the devices it collects from: PUBLIC_PORT, or the port of
+// LISTEN_ADDR. They differ in Docker, where the host's port is mapped to the
+// container's 9393.
+func pagePort(listenAddr string) (string, error) {
+	value := strings.TrimSpace(os.Getenv("PUBLIC_PORT"))
+	if value == "" {
+		_, port, err := net.SplitHostPort(listenAddr)
+		if err != nil {
+			return "", fmt.Errorf("LISTEN_ADDR is %q; set it to an address and port such as :9393", listenAddr)
+		}
+		return port, nil
+	}
+	if port, err := strconv.Atoi(value); err != nil || port < 1 || port > 65535 {
+		return "", fmt.Errorf("PUBLIC_PORT is %q; set it to a port from 1 to 65535", value)
+	}
+	return value, nil
 }
 
 // retentionDays returns how long the history is kept, from RETENTION_DAYS, or

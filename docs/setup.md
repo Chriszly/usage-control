@@ -175,6 +175,7 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `PORT` | `9393` | Docker only: the port on the host. The container always listens on 9393 inside |
 | `IMAGE_TAG` | `latest` | Docker only: `latest`, a release such as `0.1.0`, or `main` |
 | `LISTEN_ADDR` | `:9393` | outside Docker: the address and port to listen on, such as `:8090` |
+| `PUBLIC_PORT` | the port of `LISTEN_ADDR`; `PORT` in Docker | the port the page is reachable on from the network. A hub sends it to the devices it collects from, so a Windows PC can link to the hub's page |
 | `DISK_PATHS` | `/`, or the system drive on Windows | comma-separated paths whose disks are shown; in Docker, mount each one read-only first |
 | `DATABASE_PATH` | `usage-control.db` in the working folder; set by Docker and the Linux service | the SQLite file for the history |
 | `RETENTION_DAYS` | `30` | days of history to keep, 1 to 3650 |
