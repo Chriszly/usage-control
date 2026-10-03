@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/net"
@@ -82,13 +83,37 @@ func virtualInterfaceCheck() func(name string) bool {
 		sysDir := hostPath("HOST_SYS", "/sys")
 		return func(name string) bool { return isVirtualInterface(sysDir, name) }
 	}
-	loopbacks := loopbackInterfaces()
+	loopbacks := loopbacks.get(time.Now())
 	return func(name string) bool { return loopbacks[name] }
 }
 
-// loopbackInterfaces returns the names of the interfaces the OS flags as
+// loopbackList lists the loopback interfaces at most once a minute: listing
+// the interfaces is a system call per reading otherwise, and loopback
+// interfaces hardly ever change.
+type loopbackList struct {
+	read func() map[string]bool
+
+	mu     sync.Mutex
+	names  map[string]bool
+	readAt time.Time
+}
+
+var loopbacks = &loopbackList{read: readLoopbackInterfaces}
+
+// get returns the loopback interfaces, listed again when the list is a
+// minute old or could not be read last time.
+func (l *loopbackList) get(now time.Time) map[string]bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.names == nil || now.Sub(l.readAt) >= time.Minute {
+		l.names, l.readAt = l.read(), now
+	}
+	return l.names
+}
+
+// readLoopbackInterfaces returns the names of the interfaces the OS flags as
 // loopback. If the OS cannot list them, none are left out.
-func loopbackInterfaces() map[string]bool {
+func readLoopbackInterfaces() map[string]bool {
 	interfaces, err := stdnet.Interfaces()
 	if err != nil {
 		return nil

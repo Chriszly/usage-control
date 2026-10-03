@@ -14,6 +14,22 @@ func TestSortGPUsNumbersGPUsWithTheSameName(t *testing.T) {
 	}
 }
 
+func TestAllKnownTellsWhenACounterNamesAnUnknownGPU(t *testing.T) {
+	engines := map[string]float64{
+		"pid_1_luid_0x00000000_0x0000D1A5_phys_0_eng_0_engtype_3D":   10,
+		"pid_1_luid_0x00000000_0x0000D1A5_phys_0_eng_1_engtype_Copy": 1,
+		"something else": 2,
+	}
+	known := map[luid]adapter{0xD1A5: {name: "Radeon"}}
+	if !allKnown(engines, known) {
+		t.Error("allKnown() = false with every GPU known, want true")
+	}
+	engines["pid_2_luid_0x00000000_0x0000BEEF_phys_0_eng_0_engtype_3D"] = 5
+	if allKnown(engines, known) {
+		t.Error("allKnown() = true with an unknown GPU, want false")
+	}
+}
+
 func TestMemoryUsedPercent(t *testing.T) {
 	if p, ok := (GPU{MemoryTotalBytes: 400, MemoryUsedBytes: 100}).MemoryUsedPercent(); !ok || p != 25 {
 		t.Errorf("MemoryUsedPercent() = %v, %v, want 25, true", p, ok)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,31 @@ func TestGPUReaderReadsAMDAndVideoCoreFromSys(t *testing.T) {
 	}
 	if want := []GPU{amd, {Name: "VideoCore GPU", UsagePercent: 25}}; !reflect.DeepEqual(second, want) {
 		t.Errorf("second read() = %+v, want %+v", second, want)
+	}
+}
+
+func TestGPUReaderAsksNvidiaSMIEveryFewSeconds(t *testing.T) {
+	// A stand-in for nvidia-smi that counts how often it ran.
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	script := filepath.Join(dir, "nvidia-smi")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho run >> "+runs+"\necho 'GeForce, 12, 1024, 8192, 50'\n"), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+	countRuns := func() int {
+		data, _ := os.ReadFile(runs) //nolint:gosec // a file this test created
+		return len(strings.Fields(string(data)))
+	}
+	reader := &gpuReader{sysDir: t.TempDir(), nvidiaSMI: script, v3d: map[string]v3dReading{}}
+
+	first := reader.read(context.Background())
+	second := reader.read(context.Background())
+	if len(first) != 1 || first[0].Name != "GeForce" || !reflect.DeepEqual(first, second) || countRuns() != 1 {
+		t.Errorf("two reads = %+v, %+v after %d runs; want the GeForce twice from one run", first, second, countRuns())
+	}
+
+	reader.nvidiaAt = reader.nvidiaAt.Add(-nvidiaSMIInterval)
+	if got := reader.read(context.Background()); len(got) != 1 || countRuns() != 2 {
+		t.Errorf("read() after the interval = %+v after %d runs; want the GeForce from a second run", got, countRuns())
 	}
 }

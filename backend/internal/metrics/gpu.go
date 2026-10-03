@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 )
@@ -30,16 +29,12 @@ func (g GPU) MemoryUsedPercent() (float64, bool) {
 // identical graphics cards, so each name stands for one GPU in the history.
 func sortGPUs(gpus []GPU) []GPU {
 	slices.SortStableFunc(gpus, func(a, b GPU) int { return strings.Compare(a.Name, b.Name) })
-	count := make(map[string]int, len(gpus))
-	for _, g := range gpus {
-		count[g.Name]++
-	}
-	seen := make(map[string]int, len(gpus))
+	names := make([]string, len(gpus))
 	for i, g := range gpus {
-		if count[g.Name] > 1 {
-			seen[g.Name]++
-			gpus[i].Name = fmt.Sprintf("%s %d", g.Name, seen[g.Name])
-		}
+		names[i] = g.Name
+	}
+	for i, name := range numberDuplicates(names) {
+		gpus[i].Name = name
 	}
 	return gpus
 }

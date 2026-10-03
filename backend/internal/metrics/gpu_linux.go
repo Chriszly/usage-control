@@ -25,10 +25,18 @@ type gpuReader struct {
 	nvidiaSMI string
 
 	// mu guards the previous gpu_stats reading of each v3d GPU, which its
-	// usage is measured against.
+	// usage is measured against, and the last nvidia-smi answer.
 	mu  sync.Mutex
 	v3d map[string]v3dReading
+	// nvidia is what nvidia-smi answered at nvidiaAt; see nvidiaSMIInterval.
+	nvidia   []GPU
+	nvidiaAt time.Time
 }
+
+// nvidiaSMIInterval is how long an nvidia-smi answer is used again. Starting
+// a process for every reading costs more than the values are worth, and the
+// page's 2 second refresh does not need every one of them.
+const nvidiaSMIInterval = 4 * time.Second
 
 // v3dReading is one reading of a v3d GPU's gpu_stats: the clock and how long
 // each of its queues has been busy, all in nanoseconds.
@@ -61,9 +69,20 @@ func (r *gpuReader) read(ctx context.Context) []GPU {
 		}
 	}
 	if r.nvidiaSMI != "" {
-		gpus = append(gpus, readNvidiaSMI(ctx, r.nvidiaSMI)...)
+		gpus = append(gpus, r.readNvidia(ctx)...)
 	}
 	return sortGPUs(gpus)
+}
+
+// readNvidia returns the NVIDIA GPUs, asking nvidia-smi again once the last
+// answer is nvidiaSMIInterval old.
+func (r *gpuReader) readNvidia(ctx context.Context) []GPU {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now := time.Now(); now.Sub(r.nvidiaAt) >= nvidiaSMIInterval {
+		r.nvidia, r.nvidiaAt = readNvidiaSMI(ctx, r.nvidiaSMI), now
+	}
+	return r.nvidia
 }
 
 // readCard reads one DRM card, and reports false for a card whose usage the
