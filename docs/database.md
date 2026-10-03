@@ -48,7 +48,7 @@ flowchart LR
 
 **Writing.** Each device's recorder takes a reading every 5 seconds and keeps the readings of the last 30 minutes in memory. Every minute it writes their average to `samples` and, in the same transaction, adds it into the running average of the hour in `samples_hourly`. One write per device per minute keeps the SD card of a Raspberry Pi from wearing out. The first reading after a start is not kept, since its CPU usage is the average since the machine booted.
 
-**Reading.** A chart asks for a range and gets at most 360 points per metric, each the average over one step:
+**Reading.** The page opens on the last 30 minutes. A chart asks for a range and gets at most 360 points per metric, each the average over one step:
 
 - Ranges up to 30 minutes come from memory, in steps of 5 seconds or more.
 - Longer ranges come from `samples`, in steps of whole minutes.

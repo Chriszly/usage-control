@@ -71,31 +71,35 @@ describe('HistoryCharts', () => {
   const UNIT = '.units button';
   const RANGE = '.ranges button';
 
-  it('shows the last 24 hours and refreshes them every minute', () => {
-    expect(respond()).toEqual({ from: NOW_SECONDS - 86400, to: NOW_SECONDS });
+  it('shows the last 30 minutes and refreshes them every 5 seconds', () => {
+    expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 60, to: NOW_SECONDS });
     expect(element().textContent).toContain('CPU and memory');
-    expect(labels(RANGE)).toEqual(['1 d', '7 d', '14 d', '30 d']);
+    expect(labels(RANGE)).toEqual(['1 min', '5 min', '10 min', '30 min']);
+    expect(element().querySelector('.units [aria-pressed="true"]')?.textContent?.trim()).toBe(
+      'Minutes',
+    );
     expect(element().querySelector('.ranges [aria-pressed="true"]')?.textContent?.trim()).toBe(
-      '1 d',
+      '30 min',
     );
 
-    vi.advanceTimersByTime(60_000);
-    expect(respond().to).toBe(NOW_SECONDS + 60);
+    vi.advanceTimersByTime(5_000);
+    expect(respond().to).toBe(NOW_SECONDS + 5);
   });
 
   it('shows the longest range of a chosen unit, then the chosen range', () => {
     respond();
 
-    click(UNIT, 'Minutes');
-    expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 60, to: NOW_SECONDS });
-    expect(labels(RANGE)).toEqual(['1 min', '5 min', '10 min', '30 min']);
-
     click(UNIT, 'Hours');
     expect(respond()).toEqual({ from: NOW_SECONDS - 12 * 3600, to: NOW_SECONDS });
     expect(labels(RANGE)).toEqual(['1 h', '3 h', '6 h', '12 h']);
 
+    click(UNIT, 'Days');
+    expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 86400, to: NOW_SECONDS });
+    expect(labels(RANGE)).toEqual(['1 d', '7 d', '14 d', '30 d']);
+
     click(UNIT, 'Minutes');
-    respond();
+    expect(respond()).toEqual({ from: NOW_SECONDS - 30 * 60, to: NOW_SECONDS });
+    expect(labels(RANGE)).toEqual(['1 min', '5 min', '10 min', '30 min']);
 
     click(RANGE, '1 min');
     expect(respond()).toEqual({ from: NOW_SECONDS - 60, to: NOW_SECONDS });
@@ -105,6 +109,10 @@ describe('HistoryCharts', () => {
   });
 
   it('skips a refresh while the previous answer is still on its way', () => {
+    respond();
+    click(UNIT, 'Days');
+    respond();
+    click(RANGE, '1 d');
     respond();
     vi.advanceTimersByTime(60_000);
     const slow = http.expectOne((r) => r.url === '/api/history');
@@ -121,18 +129,20 @@ describe('HistoryCharts', () => {
     respond();
     expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(5_000);
     respond(90);
     expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days', 'All']);
 
     click(UNIT, 'All');
-    expect(respond(90).from).toBe(NOW_SECONDS + 60 - 90 * 86400);
+    expect(respond(90).from).toBe(NOW_SECONDS + 5 - 90 * 86400);
     expect(labels(RANGE)).toEqual([]);
   });
 
   it('offers only ranges within the retention', () => {
     respond(7);
     expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
+    click(UNIT, 'Days');
+    respond(7);
     expect(labels(RANGE)).toEqual(['1 d', '7 d']);
   });
 
@@ -145,7 +155,7 @@ describe('HistoryCharts', () => {
 
     const request = http.expectOne((r) => r.url === '/api/history');
     expect(request.request.params.get('device')).toBe('living-room-pi');
-    request.flush(historyFor(NOW_SECONDS - 86400, NOW_SECONDS, 30));
+    request.flush(historyFor(NOW_SECONDS - 30 * 60, NOW_SECONDS, 30));
   });
 });
 
