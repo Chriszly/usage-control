@@ -11,11 +11,19 @@ export interface Snapshot {
   cpu: {
     usagePercent: number;
     cores: number;
+    /** The usage of each core; missing where the OS does not report it. */
+    coreUsagePercent?: number[];
+    /** The clock of the fastest group of cores; missing where the OS does not report it. */
+    clockMHz?: number;
+    /** Missing on Windows, which has no load average. */
+    loadAverage?: LoadAverage;
   };
   memory: {
     totalBytes: number;
     usedBytes: number;
     usedPercent: number;
+    /** Missing when the machine has no swap space. */
+    swap?: Swap;
   };
   /** Empty when the machine exposes no temperature sensor. */
   temperatures: Temperature[];
@@ -25,6 +33,31 @@ export interface Snapshot {
   network: NetworkInterface[];
   /** The GPUs whose usage the OS reports; missing from devices that run an older version. */
   gpus?: Gpu[];
+  /** Only reported by Raspberry Pis. */
+  throttling?: Throttling;
+}
+
+/** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
+export interface LoadAverage {
+  one: number;
+  five: number;
+  fifteen: number;
+}
+
+export interface Swap {
+  totalBytes: number;
+  usedBytes: number;
+  usedPercent: number;
+}
+
+/** A condition a Raspberry Pi's firmware reports about its power supply and clock. */
+export type ThrottlingCondition =
+  'undervoltage' | 'frequencyCapped' | 'throttled' | 'softTemperatureLimit';
+
+/** The conditions that hold now, and those that held at some point since the Pi started. */
+export interface Throttling {
+  now: ThrottlingCondition[];
+  sinceBoot: ThrottlingCondition[];
 }
 
 export interface Temperature {
@@ -32,12 +65,15 @@ export interface Temperature {
   celsius: number;
 }
 
-/** The usage of the filesystem that holds one path. */
+/** The usage of the filesystem that holds one path, and how fast its disk reads and writes. */
 export interface Disk {
   path: string;
   totalBytes: number;
   usedBytes: number;
   usedPercent: number;
+  /** Missing where the disk's counters cannot be read, such as a network share. */
+  readBytesPerSecond?: number;
+  writeBytesPerSecond?: number;
 }
 
 /** The traffic of one network interface, with the speed since the previous request. */
@@ -72,10 +108,11 @@ export interface History {
 }
 
 /**
- * The values of one metric over time. The metric is "cpu" or "memory" (percent),
+ * The values of one metric over time. The metric is "cpu", "memory" or "swap" (percent),
  * or a kind followed by the disk, sensor or interface it belongs to: "disk:/"
- * (percent), "temperature:cpu_thermal" (°C), "network.receive:eth0" or
- * "network.send:eth0" (bytes per second), "gpu:AMD GPU" or "gpu.memory:AMD GPU" (percent).
+ * (percent), "disk.read:/" or "disk.write:/" (bytes per second), "temperature:cpu_thermal" (°C),
+ * "network.receive:eth0" or "network.send:eth0" (bytes per second), "gpu:AMD GPU" or
+ * "gpu.memory:AMD GPU" (percent).
  */
 export interface Series {
   metric: string;

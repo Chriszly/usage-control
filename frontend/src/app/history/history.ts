@@ -178,9 +178,9 @@ function nowSeconds(): number {
 }
 
 /**
- * Groups the stored metrics into charts: CPU and memory, GPUs, temperatures,
- * network speed and disks, with titles and labels in the language of t. Charts without
- * values are left out.
+ * Groups the stored metrics into charts: CPU, memory and swap, GPUs,
+ * temperatures, network speed, disk usage and disk activity, with titles and
+ * labels in the language of t. Charts without values are left out.
  */
 export function chartsOf(
   series: Series[],
@@ -200,6 +200,10 @@ export function chartsOf(
       lines: [
         { label: t('history.cpu'), points: metric('cpu') },
         { label: t('history.memory'), points: metric('memory') },
+        // Machines without swap space have no swap line.
+        ...(metric('swap').length > 0
+          ? [{ label: t('history.swap'), points: metric('swap') }]
+          : []),
       ],
     },
     {
@@ -238,6 +242,20 @@ export function chartsOf(
       unit: 'percent',
       max: 100,
       lines: named('disk'),
+    },
+    {
+      title: t('history.diskActivity'),
+      unit: 'bytesPerSecond',
+      lines: [
+        ...named('disk.read').map((line) => ({
+          ...line,
+          label: t('history.diskRead', { path: line.label }),
+        })),
+        ...named('disk.write').map((line) => ({
+          ...line,
+          label: t('history.diskWritten', { path: line.label }),
+        })),
+      ],
     },
   ];
   return charts.filter((chart) => chart.lines.some((line) => line.points.length > 0));

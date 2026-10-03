@@ -4,7 +4,7 @@ A website that shows the usage of the hardware it runs on (CPU, memory, disk, te
 
 It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs on Linux (starting with a Raspberry Pi) with Docker, and on Windows with an installer. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
-It shows CPU, memory and disk usage, GPU usage, network speed per network card, temperature sensors and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
+It shows CPU usage (also per core, with clock and load average), memory and swap, disk usage and read/write speed, GPU usage, network speed per network card, temperature sensors, a Raspberry Pi's undervoltage and throttling warnings and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
 The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one in place, without reloading the page.
 
@@ -98,6 +98,19 @@ The GPU card appears when usage-control finds a GPU whose usage the system repor
 - **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs, so it is left out
 - **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it, then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image. Intel GPUs report their usage only to programs with extra rights, so they are not shown
 - **macOS:** not shown
+
+### What each system reports
+
+Every value is a small read the system offers to programs without extra rights, taken every few seconds. Values a system does not report are left out of the page:
+
+| Value | Linux | Windows | Kept in the history |
+| --- | --- | --- | --- |
+| Usage per core | yes | yes | no, only the total |
+| Clock | where the kernel scales it (not in most virtual machines) | no | no |
+| Load average | yes | no, Windows has none | no |
+| Swap | when a swap file or partition exists | page files | yes |
+| Disk read/write speed | disks and partitions; for `/` inside Docker, the host's root disk | per drive letter | yes |
+| Undervoltage and throttling | Raspberry Pi only | no | no |
 
 ## Deploy to a Raspberry Pi
 

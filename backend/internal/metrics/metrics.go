@@ -27,19 +27,27 @@ type Snapshot struct {
 	Disks         []Disk             `json:"disks"`
 	Network       []NetworkInterface `json:"network"`
 	GPUs          []GPU              `json:"gpus"`
+	// Throttling is only reported by Raspberry Pis.
+	Throttling *Throttling `json:"throttling,omitempty"`
 }
 
-// CPU is the processor usage across all cores.
+// CPU is the processor usage across all cores. The usage of each core, the
+// clock and the load average are left out where the OS does not report them.
 type CPU struct {
-	UsagePercent float64 `json:"usagePercent"`
-	Cores        int     `json:"cores"`
+	UsagePercent     float64      `json:"usagePercent"`
+	Cores            int          `json:"cores"`
+	CoreUsagePercent []float64    `json:"coreUsagePercent,omitempty"`
+	ClockMHz         float64      `json:"clockMHz,omitempty"`
+	LoadAverage      *LoadAverage `json:"loadAverage,omitempty"`
 }
 
-// Memory is the usage of the main memory (RAM).
+// Memory is the usage of the main memory (RAM), and of the swap space when
+// the machine has one.
 type Memory struct {
 	TotalBytes  uint64  `json:"totalBytes"`
 	UsedBytes   uint64  `json:"usedBytes"`
 	UsedPercent float64 `json:"usedPercent"`
+	Swap        *Swap   `json:"swap,omitempty"`
 }
 
 // Temperature is the reading of one temperature sensor.
@@ -50,15 +58,20 @@ type Temperature struct {
 
 // Collector reads snapshots of the machine's usage.
 type Collector struct {
-	diskPaths []string
-	gpus      *gpuReader
+	diskPaths      []string
+	gpus           *gpuReader
+	clockFiles     []string
+	throttlingFile string
 
 	// mu guards the readings of the previous call, which CPU usage and
-	// network speeds are measured against.
+	// network and disk speeds are measured against.
 	mu              sync.Mutex
 	cpuTimes        cpu.TimesStat
+	coreTimes       []cpu.TimesStat
 	networkCounters map[string]counters
 	networkTime     time.Time
+	diskCounters    map[string]ioCounters
+	diskTime        time.Time
 }
 
 // NewCollector returns a Collector for the machine the program runs on that
@@ -68,16 +81,21 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 	if err := checkDiskPaths(ctx, diskPaths); err != nil {
 		return nil, err
 	}
-	return &Collector{diskPaths: diskPaths, gpus: newGPUReader()}, nil
+	return &Collector{
+		diskPaths:      diskPaths,
+		gpus:           newGPUReader(),
+		clockFiles:     clockFiles(),
+		throttlingFile: throttlingFile(),
+	}, nil
 }
 
 // Collect reads the current usage of the machine.
 //
-// CPU usage and network speed are measured since the previous call, so the
-// first call after start reports the average CPU usage since the machine
-// booted and a network speed of 0.
+// CPU usage and network and disk speeds are measured since the previous call,
+// so the first call after start reports the average CPU usage since the
+// machine booted and speeds of 0.
 func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
-	cpuUsage, err := c.readCPUUsage(ctx)
+	cpuUsage, coreUsage, err := c.readCPUUsage(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read CPU usage: %w", err)
 	}
@@ -102,19 +120,38 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Time:          time.Now().UTC(),
 		UptimeSeconds: uptime,
 		CPU: CPU{
-			UsagePercent: cpuUsage,
-			Cores:        cores,
+			UsagePercent:     cpuUsage,
+			Cores:            cores,
+			CoreUsagePercent: coreUsage,
+			ClockMHz:         readClockMHz(c.clockFiles),
+			LoadAverage:      readLoadAverage(ctx),
 		},
 		Memory: Memory{
 			TotalBytes:  memory.Total,
 			UsedBytes:   memory.Used,
 			UsedPercent: memory.UsedPercent,
+			Swap:        readSwap(ctx, memory),
 		},
 		Temperatures: readTemperatures(ctx),
-		Disks:        readDisks(ctx, c.diskPaths),
+		Disks:        c.readDisks(ctx),
 		Network:      network,
 		GPUs:         c.gpus.read(ctx),
+		Throttling:   readThrottling(c.throttlingFile),
 	}, nil
+}
+
+// readDisks returns the usage of each disk, with the speeds measured since
+// the previous call.
+func (c *Collector) readDisks(ctx context.Context) []Disk {
+	disks := readDisks(ctx, c.diskPaths)
+	current := readDiskCounters(ctx, c.diskPaths)
+	now := time.Now()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	diskSpeeds(c.diskCounters, current, now.Sub(c.diskTime), disks)
+	c.diskCounters, c.diskTime = current, now
+	return disks
 }
 
 // readNetwork returns the traffic of each network interface, with the speed

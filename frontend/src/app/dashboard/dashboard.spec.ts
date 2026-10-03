@@ -75,6 +75,67 @@ describe('Dashboard', () => {
     expect(text()).toContain('↑ 512 B/s');
   });
 
+  it('shows per-core usage, clock, load average, swap and disk speed when reported', () => {
+    respond({
+      ...snapshot,
+      cpu: {
+        usagePercent: 30,
+        cores: 2,
+        coreUsagePercent: [20, 40],
+        clockMHz: 1800,
+        loadAverage: { one: 0.52, five: 0.4, fifteen: 0.31 },
+      },
+      memory: {
+        ...snapshot.memory,
+        swap: { totalBytes: 1024 ** 3, usedBytes: 256 * 1024 ** 2, usedPercent: 25 },
+      },
+      disks: [{ ...snapshot.disks[0], readBytesPerSecond: 2048, writeBytesPerSecond: 0 }],
+    });
+
+    const element = fixture.nativeElement as HTMLElement;
+    const cores = element.querySelectorAll<HTMLElement>('.core');
+    expect(cores.length).toBe(2);
+    expect(cores[1].title).toBe('Core 2: 40 %');
+    expect(element.querySelector('.cores')?.getAttribute('aria-label')).toBe(
+      'Usage of each core: Core 1: 20 %, Core 2: 40 %',
+    );
+    expect(text().replace(/\s+/g, ' ')).toContain('2 cores · 1.8 GHz');
+    expect(text()).toContain('Load 0.52 · 0.40 · 0.31');
+    expect(text()).toContain('Swap: 256.0 MiB of 1.0 GiB');
+    expect(text()).toContain('Read 2.0 KiB/s · Write 0 B/s');
+  });
+
+  it('leaves out what the device does not report', () => {
+    respond(snapshot);
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.cores')).toBeNull();
+    expect(text()).not.toContain('GHz');
+    expect(text()).not.toContain('Load');
+    expect(text()).not.toContain('Swap');
+    expect(text()).not.toContain('Read');
+    expect(text()).not.toContain('Power and clock');
+  });
+
+  it("shows a Raspberry Pi's power and throttling state", () => {
+    respond({ ...snapshot, throttling: { now: [], sinceBoot: [] } });
+    expect(text()).toContain('Power and clock');
+    expect(text()).toContain('No undervoltage or throttling since start');
+
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http.expectOne('/api/metrics').flush({
+      ...snapshot,
+      throttling: {
+        now: ['undervoltage'],
+        sinceBoot: ['undervoltage', 'throttled'],
+      },
+    });
+    fixture.detectChanges();
+    expect(text()).toContain('Warning');
+    expect(text()).toContain('Now: Undervoltage');
+    expect(text()).toContain('Earlier since start: Throttled');
+  });
+
   it('says "core" for a single core', () => {
     respond({ ...snapshot, cpu: { usagePercent: 3, cores: 1 } });
 
