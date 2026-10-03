@@ -76,15 +76,15 @@ describe('DevicePicker', () => {
       { id: 'office-pc', name: 'Office PC', unreachable: true },
     ]);
 
-    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll('mat-chip-option');
-    expect(Array.from(chips, (c) => c.classList.contains('mat-mdc-chip-selected'))).toEqual([
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('.choices button');
+    expect(Array.from(buttons, (c) => c.getAttribute('aria-pressed') === 'true')).toEqual([
       true,
       false,
       false,
     ]);
-    expect(chips[1].getAttribute('title')).toBe('Reachable');
-    expect(chips[2].getAttribute('title')).toBe('Not reachable');
-    expect(chips[2].querySelector('.status')?.classList).toContain('unreachable');
+    expect(buttons[1].getAttribute('title')).toBe('Reachable');
+    expect(buttons[2].getAttribute('title')).toBe('Not reachable');
+    expect(buttons[2].querySelector('.status')?.classList).toContain('unreachable');
     expect(labels()[2]).toBe('Office PC (Not reachable)');
   });
 

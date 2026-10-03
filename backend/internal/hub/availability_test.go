@@ -117,24 +117,27 @@ func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 	}
 }
 
-func TestAgentTellsSinceWhenItIsUnreachable(t *testing.T) {
+func TestRemoteTellsSinceWhenItIsUnreachable(t *testing.T) {
 	ctx := context.Background()
+	store := openTestStore(t)
+	openTestHub(t, store, nil) // creates the tables
 	var up atomic.Bool
 	agent := NewAgent(startSwitchableDevice(t, &up))
-	if since, unreachable := agent.Unreachable(); !unreachable || !since.IsZero() {
+	remote := &Remote{Agent: agent, watched: &watchedAgent{agent: agent, db: store.DB(), device: "pi"}}
+	if since, unreachable := remote.Unreachable(); !unreachable || !since.IsZero() {
 		t.Errorf("before asking: Unreachable() = %v, %v; want unreachable since an unknown time", since, unreachable)
 	}
 
 	before := time.Now()
-	_, _ = agent.Collect(ctx)
-	_, _ = agent.Collect(ctx)
-	if since, unreachable := agent.Unreachable(); !unreachable || since.Before(before) || since.After(time.Now()) {
+	_, _ = remote.watched.Collect(ctx)
+	_, _ = remote.watched.Collect(ctx)
+	if since, unreachable := remote.Unreachable(); !unreachable || since.Before(before) || since.After(time.Now()) {
 		t.Errorf("after failing: Unreachable() = %v, %v; want unreachable since the first failure", since, unreachable)
 	}
 
 	up.Store(true)
-	_, _ = agent.Collect(ctx)
-	if _, unreachable := agent.Unreachable(); unreachable {
+	_, _ = remote.watched.Collect(ctx)
+	if _, unreachable := remote.Unreachable(); unreachable {
 		t.Error("after answering: Unreachable() = true, want false")
 	}
 }

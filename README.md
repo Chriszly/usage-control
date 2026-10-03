@@ -2,7 +2,7 @@
 
 A small website that shows the usage of the hardware it runs on: CPU, memory, disks, network, temperatures, GPU, battery and more, live and as charts over time. It runs on a Raspberry Pi or any Linux machine with Docker or as a service, and on Windows PCs with an installer. One device, the hub, can collect from the others on the network and show them all on one page.
 
-- **Lightweight:** one Go binary serves the page and the API, reads the machine once every 2 seconds while someone looks, and keeps its history in a single SQLite file
+- **Lightweight:** one Go binary serves the page and the API, reads the machine only when asked (every 5 seconds, every 2 while a page is open), and keeps its history in a single SQLite file
 - **Local only:** answers only the local network, needs no account and no cloud; the only call outside is an optional daily check for a newer release
 - **Read-only:** it only reads hardware data and runs without privileges, in a read-only container or as an unprivileged service
 - **Several devices:** a hub polls each device every 5 seconds and keeps all history; Windows PCs only report to it

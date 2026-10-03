@@ -15,12 +15,10 @@ type Battery struct {
 // percent, its status, such as "Charging" or "Discharging", and where the
 // battery reports them, its power and health.
 type supplyReading struct {
-	percent   float64
-	status    string
-	watts     float64
-	hasWatts  bool
-	health    float64
-	hasHealth bool
+	percent float64
+	status  string
+	watts   *float64
+	health  *float64
 }
 
 // combineBatteries turns the readings of every battery into one, as Windows
@@ -32,26 +30,24 @@ func combineBatteries(readings []supplyReading) *Battery {
 	if len(readings) == 0 {
 		return nil
 	}
-	b := &Battery{PluggedIn: true}
-	var watts, health float64
-	allWatts, allHealth := true, true
+	b := &Battery{PluggedIn: true, Watts: new(float64), HealthPercent: new(float64)}
 	for _, r := range readings {
 		b.Percent += r.percent
 		if r.status == "Discharging" {
 			b.PluggedIn = false
 		}
-		watts += r.watts
-		health += r.health
-		allWatts = allWatts && r.hasWatts
-		allHealth = allHealth && r.hasHealth
+		b.Watts = addKnown(b.Watts, r.watts, 1)
+		b.HealthPercent = addKnown(b.HealthPercent, r.health, float64(len(readings)))
 	}
 	b.Percent /= float64(len(readings))
-	if allWatts {
-		b.Watts = &watts
-	}
-	if allHealth {
-		health /= float64(len(readings))
-		b.HealthPercent = &health
-	}
 	return b
+}
+
+// addKnown adds value divided by n to total, or returns nil when either is unknown.
+func addKnown(total, value *float64, n float64) *float64 {
+	if total == nil || value == nil {
+		return nil
+	}
+	sum := *total + *value/n
+	return &sum
 }

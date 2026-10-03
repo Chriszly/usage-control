@@ -25,19 +25,19 @@ func TestReadWattsAndHealth(t *testing.T) {
 	write(charge, "charge_full", "4000000\n")
 	write(charge, "charge_full_design", "5000000\n")
 
-	if w, ok := readWatts(energy); !ok || w != 12.5 {
-		t.Errorf("readWatts(power_now) = %v, %v, want 12.5, true", w, ok)
+	if w := readWatts(energy); w == nil || *w != 12.5 {
+		t.Errorf("readWatts(power_now) = %v, want 12.5", w)
 	}
-	if w, ok := readWatts(charge); !ok || w != 12 {
-		t.Errorf("readWatts(current_now * voltage_now) = %v, %v, want 12, true", w, ok)
+	if w := readWatts(charge); w == nil || *w != 12 {
+		t.Errorf("readWatts(current_now * voltage_now) = %v, want 12", w)
 	}
-	if h, ok := readHealth(energy); !ok || h != 90 {
-		t.Errorf("readHealth(energy) = %v, %v, want 90, true", h, ok)
+	if h := readHealth(energy); h == nil || *h != 90 {
+		t.Errorf("readHealth(energy) = %v, want 90", h)
 	}
-	if h, ok := readHealth(charge); !ok || h != 80 {
-		t.Errorf("readHealth(charge) = %v, %v, want 80, true", h, ok)
+	if h := readHealth(charge); h == nil || *h != 80 {
+		t.Errorf("readHealth(charge) = %v, want 80", h)
 	}
-	if _, ok := readHealth(t.TempDir()); ok {
-		t.Error("readHealth() without files = true, want false")
+	if h := readHealth(t.TempDir()); h != nil {
+		t.Errorf("readHealth() without files = %v, want nil", *h)
 	}
 }

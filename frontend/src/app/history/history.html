@@ -2,42 +2,28 @@
   <div class="toolbar">
     <h2 id="history-title">{{ i18n.t('history.title') }}</h2>
 
-    <mat-chip-listbox
-      class="units"
-      hideSingleSelectionIndicator
-      (change)="selectUnit($event.value)"
-      [attr.aria-label]="i18n.t('history.unit')"
-    >
+    <div class="choices units" role="group" [attr.aria-label]="i18n.t('history.unit')">
       @for (u of units(); track u.id) {
-        <mat-chip-option
-          [value]="u.id"
-          [selected]="u.id === unit()?.id"
-          [selectable]="u.id !== unit()?.id"
-        >
+        <button type="button" [attr.aria-pressed]="u.id === unit()?.id" (click)="selectUnit(u.id)">
           <span class="label">{{ i18n.t(u.label) }}</span>
-        </mat-chip-option>
+        </button>
       }
-    </mat-chip-listbox>
+    </div>
   </div>
 
   @if (unit(); as u) {
     @if (u.id !== 'all') {
-      <mat-chip-listbox
-        class="ranges"
-        hideSingleSelectionIndicator
-        (change)="selectRange($event.value)"
-        [attr.aria-label]="i18n.t('history.range')"
-      >
+      <div class="choices ranges" role="group" [attr.aria-label]="i18n.t('history.range')">
         @for (range of u.ranges; track range.seconds) {
-          <mat-chip-option
-            [value]="range.seconds"
-            [selected]="range.seconds === span()"
-            [selectable]="range.seconds !== span()"
+          <button
+            type="button"
+            [attr.aria-pressed]="range.seconds === span()"
+            (click)="span.set(range.seconds)"
           >
             <span class="label">{{ i18n.t(range.label) }}</span>
-          </mat-chip-option>
+          </button>
         }
-      </mat-chip-listbox>
+      </div>
     }
   }
 
@@ -53,19 +39,17 @@
 
     <div class="charts">
       @for (chart of charts(); track chart.title) {
-        <mat-card appearance="outlined">
-          <mat-card-content>
-            <h3>{{ chart.title }}</h3>
-            <app-line-chart
-              [lines]="chart.lines"
-              [from]="h.from"
-              [to]="h.to"
-              [step]="h.stepSeconds"
-              [unit]="chart.unit"
-              [max]="chart.max"
-            />
-          </mat-card-content>
-        </mat-card>
+        <div class="card">
+          <h3>{{ chart.title }}</h3>
+          <app-line-chart
+            [lines]="chart.lines"
+            [from]="h.from"
+            [to]="h.to"
+            [step]="h.stepSeconds"
+            [unit]="chart.unit"
+            [max]="chart.max"
+          />
+        </div>
       } @empty {
         <p class="detail">{{ i18n.t('history.empty') }}</p>
       }

@@ -65,10 +65,6 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 			return nil, err
 		}
 	}
-	// Devices added before availability was tracked count from when they were added.
-	if _, err := store.DB().ExecContext(ctx, `INSERT OR IGNORE INTO hub_watched (device, since) SELECT id, added FROM hub_devices`); err != nil {
-		return nil, err
-	}
 	saved, err := h.saved(ctx)
 	if err != nil {
 		return nil, err
@@ -162,6 +158,18 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		return err
 	}
 	return h.store.DeleteDevice(ctx, id)
+}
+
+// Unreachable reports whether the device has not answered recently, and since
+// when it does not; since is zero when that is not known yet.
+func (r *Remote) Unreachable() (since time.Time, unreachable bool) {
+	if r.Agent.answers() {
+		return time.Time{}, false
+	}
+	if outage, _, ok := r.watched.ongoing(); ok {
+		return outage.Start, true
+	}
+	return time.Time{}, true
 }
 
 // Availability tells how long the device did not answer since it was added.

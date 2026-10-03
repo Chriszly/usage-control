@@ -30,43 +30,44 @@ func (r *batteryReader) read() *Battery {
 		if err != nil {
 			continue
 		}
-		watts, hasWatts := readWatts(dir)
-		health, hasHealth := readHealth(dir)
 		readings = append(readings, supplyReading{
-			percent:   float64(min(capacity, 100)),
-			status:    readText(filepath.Join(dir, "status")),
-			watts:     watts,
-			hasWatts:  hasWatts,
-			health:    health,
-			hasHealth: hasHealth,
+			percent: float64(min(capacity, 100)),
+			status:  readText(filepath.Join(dir, "status")),
+			watts:   readWatts(dir),
+			health:  readHealth(dir),
 		})
 	}
 	return combineBatteries(readings)
 }
 
 // readWatts returns how much power flows into or out of a battery. Batteries
-// report it as power_now in µW, or as current_now in µA and voltage_now in µV.
-func readWatts(dir string) (float64, bool) {
+// report it as power_now in µW, or as current_now in µA and voltage_now in µV;
+// nil when it reports neither.
+func readWatts(dir string) *float64 {
 	if microwatts, err := readUint(filepath.Join(dir, "power_now")); err == nil {
-		return float64(microwatts) / 1e6, true
+		watts := float64(microwatts) / 1e6
+		return &watts
 	}
 	microamps, currentErr := readUint(filepath.Join(dir, "current_now"))
 	microvolts, voltageErr := readUint(filepath.Join(dir, "voltage_now"))
 	if currentErr != nil || voltageErr != nil {
-		return 0, false
+		return nil
 	}
-	return float64(microamps) * float64(microvolts) / 1e12, true
+	watts := float64(microamps) * float64(microvolts) / 1e12
+	return &watts
 }
 
 // readHealth returns how much a battery holds when full compared to when it
-// was new, in percent, from its energy (µWh) or its charge (µAh).
-func readHealth(dir string) (float64, bool) {
+// was new, in percent, from its energy (µWh) or its charge (µAh); nil when it
+// reports neither.
+func readHealth(dir string) *float64 {
 	for _, kind := range []string{"energy", "charge"} {
 		full, fullErr := readUint(filepath.Join(dir, kind+"_full"))
 		design, designErr := readUint(filepath.Join(dir, kind+"_full_design"))
 		if fullErr == nil && designErr == nil && design > 0 {
-			return min(100, float64(full)/float64(design)*100), true
+			health := min(100, float64(full)/float64(design)*100)
+			return &health
 		}
 	}
-	return 0, false
+	return nil
 }

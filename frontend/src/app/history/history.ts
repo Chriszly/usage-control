@@ -1,8 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
 import { catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
 import { DeviceService } from '../devices/devices';
@@ -92,7 +90,7 @@ interface Chart {
  */
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, LineChart, MatCardModule, MatChipsModule],
+  imports: [DatePipe, LineChart],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })
@@ -176,10 +174,6 @@ export class HistoryCharts {
     if (unit) {
       this.span.set(unit.ranges[unit.ranges.length - 1].seconds);
     }
-  }
-
-  protected selectRange(seconds: number): void {
-    this.span.set(seconds);
   }
 }
 

@@ -212,7 +212,7 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 		"gpu.memory:AMD GPU":      25,
 		"gpu:VideoCore GPU":       9,
 	}
-	if got, dropped := values(snapshot, 0); !reflect.DeepEqual(got, want) || dropped {
+	if got, dropped := values(snapshot, DefaultMaxEntries); !reflect.DeepEqual(got, want) || dropped {
 		t.Errorf("values() = %v, %v; want %v and nothing dropped", got, dropped, want)
 	}
 }

@@ -76,7 +76,7 @@ Devices never talk to each other or to the browser on their own. Every connectio
 ```mermaid
 flowchart TB
     collector["Collector<br/>reads /proc, /sys, Windows APIs"]
-    sampler["Sampler<br/>one reading every 2 s,<br/>only while someone asks"]
+    sampler["Sampler<br/>at most one reading per 2 s,<br/>only when asked"]
     recorder["Recorder (this device)<br/>every 5 s"]
     agents["Agents (one per other device)<br/>GET /api/metrics every 5 s"]
     recent["Recent readings in memory<br/>last 30 min"]
@@ -98,7 +98,7 @@ flowchart TB
 ```
 
 - **Collector** reads the machine's usage: one call reads CPU, memory, disks, network, temperatures, GPUs, battery and so on. CPU usage and disk and network speeds are measured against the previous call. See [What is collected](data.md).
-- **Sampler** calls the collector every 2 seconds and hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. However many pages are open, the machine is read once per 2 seconds. When nobody has asked for 30 seconds, it stops reading; the next request reads at once.
+- **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds.
 - **Recorder** takes a reading every 5 seconds into memory, and every minute stores the average of the last minute in the database. A hub runs one recorder for itself and one per other device.
 - **Pruner** deletes everything older than the retention, once at start and then once a day, for every device at once.
 

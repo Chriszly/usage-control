@@ -17,7 +17,7 @@
   height: 0.5rem;
   margin-right: 0.375rem;
   border-radius: 50%;
-  /* A ring in the page's color keeps the dot apart from the filled, picked chip. */
+  /* A ring in the page's color keeps the dot apart from the filled, picked button. */
   box-shadow: 0 0 0 2px var(--mat-sys-surface);
   background: light-dark(#1b873f, #3fb950);
   vertical-align: middle;
