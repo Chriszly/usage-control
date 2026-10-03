@@ -134,7 +134,7 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 
 An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones.
 
-Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*).
+Windows often does not tell programs the temperature, so the page shows it as unavailable. The service writes errors to the Windows event log (*Application*, source *UsageControl*); when it cannot serve, for example because another program holds the port, it tries again every 10 seconds.
 
 ### GPUs
 
