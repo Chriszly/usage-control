@@ -45,9 +45,10 @@ export const en = {
   'dashboard.loadAverage': 'Load {one} · {five} · {fifteen}',
   'dashboard.loadAverageHint':
     'Average number of processes running or waiting, over 1, 5 and 15 minutes',
-  'dashboard.swap': 'Swap: {used} of {total}',
+  'dashboard.swap': 'Swap',
   'dashboard.swapUsage': 'Swap usage',
-  'dashboard.diskSpeed': 'Read {read}/s · Write {write}/s',
+  'dashboard.diskRead': 'Read {speed}/s',
+  'dashboard.diskWrite': 'Write {speed}/s',
   'dashboard.power': 'Power and clock',
   'dashboard.powerOk': 'OK',
   'dashboard.powerWarning': 'Warning',

@@ -118,8 +118,21 @@ mat-progress-bar {
   background: var(--mat-sys-primary);
 }
 
-mat-progress-bar.swap {
+.sensor.swap {
   margin-top: 1rem;
+}
+
+/* Read and write speed side by side, each kept on one line. */
+.speeds {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.speeds > span {
+  white-space: nowrap;
 }
 
 .problem {

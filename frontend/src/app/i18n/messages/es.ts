@@ -44,9 +44,10 @@ export const es: Messages = {
   'dashboard.loadAverage': 'Carga {one} · {five} · {fifteen}',
   'dashboard.loadAverageHint':
     'Número medio de procesos en ejecución o en espera, en 1, 5 y 15 minutos',
-  'dashboard.swap': 'Swap: {used} de {total}',
+  'dashboard.swap': 'Swap',
   'dashboard.swapUsage': 'Uso del swap',
-  'dashboard.diskSpeed': 'Lectura {read}/s · Escritura {write}/s',
+  'dashboard.diskRead': 'Lectura {speed}/s',
+  'dashboard.diskWrite': 'Escritura {speed}/s',
   'dashboard.power': 'Alimentación y frecuencia',
   'dashboard.powerOk': 'OK',
   'dashboard.powerWarning': 'Aviso',

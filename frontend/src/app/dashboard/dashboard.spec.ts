@@ -101,8 +101,9 @@ describe('Dashboard', () => {
     );
     expect(text().replace(/\s+/g, ' ')).toContain('2 cores · 1.8 GHz');
     expect(text()).toContain('Load 0.52 · 0.40 · 0.31');
-    expect(text()).toContain('Swap: 256.0 MiB of 1.0 GiB');
-    expect(text()).toContain('Read 2.0 KiB/s · Write 0 B/s');
+    expect(text()).toContain('256.0 MiB of 1.0 GiB');
+    expect(text()).toContain('Read 2.0 KiB/s');
+    expect(text()).toContain('Write 0 B/s');
   });
 
   it('leaves out what the device does not report', () => {

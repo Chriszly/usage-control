@@ -107,15 +107,18 @@
           }}
         </p>
         @if (s.memory.swap; as swap) {
+          <p class="sensor swap">
+            <span>{{ i18n.t('dashboard.swap') }}</span
+            ><span>{{ swap.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
+          </p>
           <mat-progress-bar
-            class="swap"
             mode="determinate"
             [value]="swap.usedPercent"
             [attr.aria-label]="i18n.t('dashboard.swapUsage')"
           />
           <p class="detail">
             {{
-              i18n.t('dashboard.swap', {
+              i18n.t('dashboard.usedOfTotal', {
                 used: (swap.usedBytes | bytes: i18n.language()),
                 total: (swap.totalBytes | bytes: i18n.language()),
               })
@@ -148,13 +151,17 @@
               }}
             </p>
             @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
-              <p class="detail">
-                {{
-                  i18n.t('dashboard.diskSpeed', {
-                    read: (d.readBytesPerSecond | bytes: i18n.language()),
-                    write: (d.writeBytesPerSecond | bytes: i18n.language()),
+              <p class="detail speeds">
+                <span>{{
+                  i18n.t('dashboard.diskRead', {
+                    speed: (d.readBytesPerSecond | bytes: i18n.language()),
                   })
-                }}
+                }}</span>
+                <span>{{
+                  i18n.t('dashboard.diskWrite', {
+                    speed: (d.writeBytesPerSecond | bytes: i18n.language()),
+                  })
+                }}</span>
               </p>
             }
           </div>

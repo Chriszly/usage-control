@@ -44,9 +44,10 @@ export const de: Messages = {
   'dashboard.loadAverage': 'Systemlast {one} · {five} · {fifteen}',
   'dashboard.loadAverageHint':
     'Durchschnittliche Zahl laufender oder wartender Prozesse über 1, 5 und 15 Minuten',
-  'dashboard.swap': 'Swap: {used} von {total}',
+  'dashboard.swap': 'Swap',
   'dashboard.swapUsage': 'Swap-Auslastung',
-  'dashboard.diskSpeed': 'Lesen {read}/s · Schreiben {write}/s',
+  'dashboard.diskRead': 'Lesen {speed}/s',
+  'dashboard.diskWrite': 'Schreiben {speed}/s',
   'dashboard.power': 'Strom und Takt',
   'dashboard.powerOk': 'OK',
   'dashboard.powerWarning': 'Warnung',
