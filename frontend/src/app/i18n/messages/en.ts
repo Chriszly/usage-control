@@ -65,7 +65,7 @@ export const en = {
   'dashboard.throttling.throttled': 'Throttled',
   'dashboard.throttling.softTemperatureLimit': 'Soft temperature limit',
   'devices.label': 'Device',
-  'devices.thisDevice': 'This device',
+  'devices.hostHub': 'Host Hub',
   'devices.reachable': 'Reachable',
   'devices.unreachable': 'Not reachable',
   'devices.unreachableSince': 'Not reachable since {since}',

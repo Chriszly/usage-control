@@ -43,7 +43,7 @@ export const LOCAL_DEVICE: Device = { id: 'local', name: '' };
 
 /** How the page names a device, in the page's language. */
 export function deviceName(device: Device, i18n: I18n): string {
-  return device.name || i18n.t('devices.thisDevice');
+  return device.name || i18n.t('devices.hostHub');
 }
 
 /** The shortest password that can be chosen; the backend checks it too. */
