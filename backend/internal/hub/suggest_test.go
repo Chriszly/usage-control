@@ -59,6 +59,7 @@ func TestSuggest(t *testing.T) {
 		{"already added by address", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "192.168.1.20:9393"}}, nil},
 		{"already added by name", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "office-pc.fritz.box:9393"}}, nil},
 		{"already added under its own name", "192.168.1.20", "Office PC", []Device{{ID: "office-pc", Name: "Office PC", Address: "pc.lan:9393"}}, nil},
+		{"added on another port", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "192.168.1.20:8080"}}, &Suggestion{"192.168.1.20:9393", "office-pc"}},
 		{"another device is added", "192.168.1.30", "", []Device{{ID: "pc", Name: "PC", Address: "office-pc.fritz.box:9393"}}, &Suggestion{"192.168.1.30:9393", ""}},
 		{"the hub itself", "192.168.1.9", "", nil, nil},
 		{"loopback", "127.0.0.1", "", nil, nil},

@@ -210,7 +210,7 @@ func inputStatus(problem hub.Problem) int {
 	switch problem {
 	case hub.ProblemNotFound:
 		return http.StatusNotFound
-	case hub.ProblemNameTaken, hub.ProblemFixed:
+	case hub.ProblemNameTaken, hub.ProblemAddressTaken, hub.ProblemFixed:
 		return http.StatusConflict
 	case hub.ProblemUnreachable:
 		return http.StatusUnprocessableEntity

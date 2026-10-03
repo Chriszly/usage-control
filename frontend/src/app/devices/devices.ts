@@ -121,6 +121,7 @@ const KNOWN_PROBLEMS = [
   'wrongPassword',
   'name',
   'nameTaken',
+  'addressTaken',
   'address',
   'unreachable',
   'fixed',

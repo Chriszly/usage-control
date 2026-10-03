@@ -89,11 +89,10 @@ func TestWatchedAgentIgnoresTheHubStopping(t *testing.T) {
 func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
-	address := startDevice(t)
 	h := openTestHub(t, store, nil)
 	before := time.Now().Add(-time.Second)
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, address); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t)); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}

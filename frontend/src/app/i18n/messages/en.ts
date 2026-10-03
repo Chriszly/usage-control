@@ -111,6 +111,8 @@ export const en = {
   'devices.problem.name':
     'Give the device a name of up to 64 characters, with at least one letter or digit.',
   'devices.problem.nameTaken': 'Another device already has this name. Pick another one.',
+  'devices.problem.addressTaken':
+    'A device at this address and port is in the list already. A device on another port can be added.',
   'devices.problem.address': 'Write the address as IP address and port, such as 192.168.1.20:9393.',
   'devices.problem.unreachable':
     'No usage-control answers at this address. Is it running, and is the address on the local network?',

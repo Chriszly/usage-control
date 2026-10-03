@@ -164,14 +164,14 @@ The *Devices* button on the hub's page opens a dialog that lists every device. D
 When the dialog opens, it fills in the form with the device the page is open on, unless the hub already collects from it:
 
 1. The page sends `GET /api/devices/suggestion`. The hub takes the address the request came from, not a header.
-2. It offers nothing for its own addresses (in Docker also the host's network cards, which its usage lists), loopback, link-local IPv6 and its default gateway. Behind Docker's port publishing, a request can arrive from the Docker network's gateway instead of the visitor; that is the container's default gateway, so it is never offered. It offers nothing either when a device's address is that IP, or is a name that resolves to it.
+2. It offers nothing for its own addresses (in Docker also the host's network cards, which its usage lists), loopback, link-local IPv6 and its default gateway. Behind Docker's port publishing, a request can arrive from the Docker network's gateway instead of the visitor; that is the container's default gateway, so it is never offered. It offers nothing either when a device's address is that IP with port 9393, or a name that resolves to it with port 9393.
 3. For the name, it asks a usage-control on that address at port 9393 for `/api/metrics`, whose `name` is the device's `DEVICE_NAME` or hostname, and at the same time looks the address up in the DNS (the router usually knows the names of its DHCP clients), using the first part of the name, such as `office-pc` for `office-pc.fritz.box`. Both are given 2 seconds. A device that calls itself by the name of a device already added is not offered.
 4. It answers `{ address, name }` with the address as `<ip>:9393` and the name empty when neither lookup found one, or `204` when there is nothing to offer. Nothing is typed over: a suggestion arriving after the visitor started typing is dropped.
 
 Adding a device:
 
 1. The page sends `POST /api/devices` with the name, the address (`host:port`) and the password.
-2. The hub checks the name (1 to 64 characters, at least one letter or digit, not taken) and the address (a host name, IPv4 address or bracketed IPv6 address, and a port; nothing else, since it becomes part of a URL).
+2. The hub checks the name (1 to 64 characters, at least one letter or digit, not taken) and the address (a host name, IPv4 address or bracketed IPv6 address, and a port; nothing else, since it becomes part of a URL). An address and port that another device already has is refused, also when written differently, such as an IPv4-mapped IPv6 address or a name in other case; host names are not looked up. The same IP address with another port is another device, since each port can run its own usage-control. `HUB_DEVICES` refuses to start with the same address and port twice.
 3. It asks the address once for `/api/metrics`. Only when a usage-control answers is the device stored and the recording started.
 
 Every change asks for a password:
@@ -216,7 +216,7 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/metrics[?device=<id>]` | the device's current usage: version, time, time zone, uptime, CPU, memory, temperatures, disks, network, GPUs, throttling, battery, fans ([fields](data.md#the-snapshot)) | `404` unknown device, `503` another device that has not answered recently |
 | `GET /api/devices` | `{ devices: [{ id, name, address, removable, unreachable, unreachableSince }], passwordSet }` | |
 | `GET /api/devices/suggestion` | `{ address, name }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
-| `POST /api/devices` | body `{ name, address, password }`; `201` with the new device | `400` name, address or password length, `403` wrong password, `409` name taken, `415` not JSON, `422` nothing answers at the address |
+| `POST /api/devices` | body `{ name, address, password }`; `201` with the new device | `400` name, address or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
 | `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES` |
 | `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }] }`, at most 360 points per metric | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
 | `GET /api/availability?device=<id>` | `{ since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |

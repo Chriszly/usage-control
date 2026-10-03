@@ -60,7 +60,8 @@ func defaultSuggester() suggester {
 
 // Suggest returns the device at from, the address of a visitor of the page,
 // for the page to offer adding it. There is none when from is this machine,
-// one of its gateways or a device the hub already collects from. Behind
+// one of its gateways or a device the hub already collects from at that
+// address and the default port. Behind
 // Docker's port publishing, a visitor can show up with the address of the
 // Docker network's gateway instead of its own, which is not suggested either.
 func (h *Hub) Suggest(ctx context.Context, from netip.Addr) (Suggestion, bool) {
@@ -148,11 +149,15 @@ func (s suggester) isOwn(addr netip.Addr) bool {
 	return false
 }
 
-// reaches reports whether a device's address (host:port) points at addr,
-// looking a host name up in the DNS.
+// reaches reports whether a device's address (host:port) points at addr
+// with the suggested port, looking a host name up in the DNS. The same address with
+// another port is another device.
 func (s suggester) reaches(ctx context.Context, address string, addr netip.Addr) bool {
-	host, _, err := net.SplitHostPort(address)
+	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
+		return false
+	}
+	if p, err := strconv.Atoi(portText); err != nil || p != s.port {
 		return false
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {

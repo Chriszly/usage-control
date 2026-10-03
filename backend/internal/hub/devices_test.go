@@ -14,10 +14,11 @@ func TestParseDevices(t *testing.T) {
 		{"", nil},
 		{" , ", nil},
 		{
-			"Living room Pi=192.168.1.20:9393, office.lan:9000",
+			"Living room Pi=192.168.1.20:9393, office.lan:9000, Pi on another port=192.168.1.20:9394",
 			[]Device{
 				{ID: "living-room-pi", Name: "Living room Pi", Address: "192.168.1.20:9393"},
 				{ID: "office-lan-9000", Name: "office.lan:9000", Address: "office.lan:9000"},
+				{ID: "pi-on-another-port", Name: "Pi on another port", Address: "192.168.1.20:9394"},
 			},
 		},
 		{"Küche=[fd00::5]:9393", []Device{{ID: "küche", Name: "Küche", Address: "[fd00::5]:9393"}}},
@@ -44,6 +45,7 @@ func TestParseDevicesRefusesInvalidEntries(t *testing.T) {
 		"--=192.168.1.20:9393",  // no letter or digit
 		"Local=192.168.1.20:80", // the name of this device
 		"Pi=10.0.0.1:80,pi=10.0.0.2:80",
+		"Pi=10.0.0.1:80,NAS=10.0.0.1:80", // the same address and port twice
 	} {
 		if _, err := ParseDevices(value); err == nil {
 			t.Errorf("ParseDevices(%q) error = nil, want an error", value)
@@ -71,6 +73,27 @@ func TestNewDeviceRefusesURLParts(t *testing.T) {
 	} {
 		if _, err := NewDevice("Pi", address); err == nil {
 			t.Errorf("NewDevice(%q) error = nil, want it refused", address)
+		}
+	}
+}
+
+func TestSameAddress(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"192.168.1.20:9393", "192.168.1.20:9393", true},
+		{"192.168.1.20:9393", "192.168.1.20:09393", true},
+		{"192.168.1.20:9393", "[::ffff:192.168.1.20]:9393", true},
+		{"Office-PC.fritz.box:9393", "office-pc.fritz.box.:9393", true},
+		{"[FD00::1]:9393", "[fd00::1]:9393", true},
+		{"192.168.1.20:9393", "192.168.1.20:9394", false}, // another port is another device
+		{"192.168.1.20:9393", "192.168.1.21:9393", false},
+		{"office-pc:9393", "192.168.1.20:9393", false}, // names are not looked up
+	}
+	for _, tt := range tests {
+		if got := SameAddress(tt.a, tt.b); got != tt.want {
+			t.Errorf("SameAddress(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
 		}
 	}
 }

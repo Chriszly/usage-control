@@ -4,6 +4,8 @@ package hub
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,6 +40,7 @@ type Device struct {
 func ParseDevices(value string) ([]Device, error) {
 	var devices []Device
 	ids := map[string]bool{}
+	var addresses []string
 	for _, entry := range strings.Split(value, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
@@ -51,6 +54,12 @@ func ParseDevices(value string) ([]Device, error) {
 			return nil, fmt.Errorf("%q: another device has the same name; give each device its own name", entry)
 		}
 		ids[device.ID] = true
+		for _, address := range addresses {
+			if SameAddress(address, device.Address) {
+				return nil, fmt.Errorf("%q: another device has the same address and port; list each device once", entry)
+			}
+		}
+		addresses = append(addresses, device.Address)
 		devices = append(devices, device)
 	}
 	return devices, nil
@@ -96,18 +105,44 @@ func NewDevice(name, address string) (Device, error) {
 	return Device{ID: id, Name: name, Address: address}, nil
 }
 
+// SameAddress reports whether two addresses (host:port) name the same host
+// and port: an IP address written differently, such as an IPv4-mapped IPv6
+// address, or a name in another case, is the same. Host names are not
+// looked up.
+func SameAddress(a, b string) bool {
+	hostA, portA, errA := net.SplitHostPort(a)
+	hostB, portB, errB := net.SplitHostPort(b)
+	if errA != nil || errB != nil {
+		return strings.EqualFold(a, b)
+	}
+	numberA, errA := strconv.Atoi(portA)
+	numberB, errB := strconv.Atoi(portB)
+	if errA != nil || errB != nil || numberA != numberB {
+		return false
+	}
+	ipA, errA := netip.ParseAddr(hostA)
+	ipB, errB := netip.ParseAddr(hostB)
+	if errA == nil && errB == nil {
+		return ipA.Unmap() == ipB.Unmap()
+	}
+	return strings.EqualFold(strings.TrimSuffix(hostA, "."), strings.TrimSuffix(hostB, "."))
+}
+
 // Problem names what is wrong with a device that cannot be added or
 // removed, so the page can explain it in the visitor's language.
 type Problem string
 
 // The problems an InputError can have.
 const (
-	ProblemName        Problem = "name"
-	ProblemNameTaken   Problem = "nameTaken"
-	ProblemAddress     Problem = "address"
-	ProblemUnreachable Problem = "unreachable"
-	ProblemNotFound    Problem = "notFound"
-	ProblemFixed       Problem = "fixed"
+	ProblemName      Problem = "name"
+	ProblemNameTaken Problem = "nameTaken"
+	// ProblemAddressTaken is an address and port the hub collects from
+	// already; the same address with another port is another device.
+	ProblemAddressTaken Problem = "addressTaken"
+	ProblemAddress      Problem = "address"
+	ProblemUnreachable  Problem = "unreachable"
+	ProblemNotFound     Problem = "notFound"
+	ProblemFixed        Problem = "fixed"
 )
 
 // InputError is a device that cannot be added or removed as asked.

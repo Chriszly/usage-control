@@ -109,6 +109,8 @@ export const de: Messages = {
   'devices.problem.name':
     'Gib dem Gerät einen Namen mit bis zu 64 Zeichen und mindestens einem Buchstaben oder einer Ziffer.',
   'devices.problem.nameTaken': 'Ein anderes Gerät hat bereits diesen Namen. Wähle einen anderen.',
+  'devices.problem.addressTaken':
+    'Ein Gerät mit dieser Adresse und diesem Port ist bereits in der Liste. Ein Gerät auf einem anderen Port kann hinzugefügt werden.',
   'devices.problem.address':
     'Schreibe die Adresse als IP-Adresse und Port, zum Beispiel 192.168.1.20:9393.',
   'devices.problem.unreachable':
