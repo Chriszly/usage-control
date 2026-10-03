@@ -8,8 +8,12 @@ services:
     build: .
     image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Published over IPv4 only. The program refuses requests from outside the
+    # local network by the client's address, and Docker's proxy would hand
+    # IPv6 connections over from its own internal address instead; browsers
+    # that try IPv6 first fall back to IPv4 on their own.
     ports:
-      - "${PORT:-8080}:8080"
+      - "0.0.0.0:${PORT:-8080}:8080"
     environment:
       # Read the host's usage instead of the container's.
       HOST_PROC: /host/proc
@@ -25,6 +29,9 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-}
       HUB_DEVICES: ${HUB_DEVICES:-}
       RESET_PASSWORD: ${RESET_PASSWORD:-}
+      # true serves only the usage data for a hub, without the website and
+      # history; see .env.example.
+      DATA_ONLY: ${DATA_ONLY:-}
       # false stops the daily check for a newer release; see .env.example.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
     volumes:
