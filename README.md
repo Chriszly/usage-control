@@ -45,6 +45,8 @@ RETENTION_DAYS=90
 
 With more than 30 days, the page also offers an *All* range covering everything kept. Outside Docker, the file is `usage-control.db` in the working folder; `DATABASE_PATH` moves it.
 
+When a new version changes the layout of the database, it first copies the file to `usage-control.db.backup` next to it, then updates it. An older version refuses to start on a database a newer one has changed, instead of damaging it; to go back, put the old version and the `.backup` copy back in place.
+
 ### Several devices (hub mode)
 
 Every device runs the same image. On its own it only shows itself. To see several devices on one page, open the page of the device that should be the hub, click *Add other devices* (later *Devices*) and add each other device with a name and its address, such as `192.168.1.30:8080`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
