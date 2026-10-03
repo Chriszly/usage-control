@@ -8,6 +8,7 @@ const (
 	MetricCPU            = "cpu"
 	MetricMemory         = "memory"
 	MetricSwap           = "swap"
+	MetricBattery        = "battery"
 	MetricTemperature    = "temperature"
 	MetricDisk           = "disk"
 	MetricDiskRead       = "disk.read"
@@ -19,8 +20,8 @@ const (
 )
 
 // values returns the values of a snapshot that are kept in the history:
-// usage in percent (also of swap and GPU memory), temperatures in °C and disk
-// and network speeds in bytes per second. The load average, clock, each
+// usage in percent (also of swap and GPU memory), battery charge in percent,
+// temperatures in °C and disk and network speeds in bytes per second. The load average, clock, each
 // core's usage and throttling are only shown live.
 func values(s metrics.Snapshot) map[string]float64 {
 	v := map[string]float64{
@@ -29,6 +30,9 @@ func values(s metrics.Snapshot) map[string]float64 {
 	}
 	if s.Memory.Swap != nil {
 		v[MetricSwap] = s.Memory.Swap.UsedPercent
+	}
+	if s.Battery != nil {
+		v[MetricBattery] = s.Battery.Percent
 	}
 	for _, t := range s.Temperatures {
 		v[MetricTemperature+":"+t.Sensor] = t.Celsius

@@ -87,6 +87,7 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 	snapshot := metrics.Snapshot{
 		CPU:          metrics.CPU{UsagePercent: 12, CoreUsagePercent: []float64{10, 14}, ClockMHz: 1500},
 		Memory:       metrics.Memory{UsedPercent: 34, Swap: &metrics.Swap{UsedPercent: 5}},
+		Battery:      &metrics.Battery{Percent: 87, PluggedIn: true},
 		Temperatures: []metrics.Temperature{{Sensor: "cpu_thermal", Celsius: 48}},
 		Disks: []metrics.Disk{
 			{Path: "/", UsedPercent: 20, ReadBytesPerSecond: &read, WriteBytesPerSecond: &write},
@@ -103,6 +104,7 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 		"cpu":                     12,
 		"memory":                  34,
 		"swap":                    5,
+		"battery":                 87,
 		"temperature:cpu_thermal": 48,
 		"disk:/":                  20,
 		"disk.read:/":             4096,

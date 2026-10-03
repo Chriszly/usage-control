@@ -4,7 +4,7 @@ A website that shows the usage of the hardware it runs on (CPU, memory, disk, te
 
 It is built with a Go backend, an Angular frontend and a SQLite file for the history, and runs on Linux (starting with a Raspberry Pi) with Docker, and on Windows with an installer. See [AGENTS.md](AGENTS.md#tech-stack) for the details.
 
-It shows CPU usage (also per core, with clock and load average), memory and swap, disk usage and read/write speed, GPU usage, network speed per network card, temperature sensors, a Raspberry Pi's undervoltage and throttling warnings and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
+It shows CPU usage (also per core, with clock and load average), memory and swap, disk usage and read/write speed, GPU usage, network speed per network card, temperature sensors, a Raspberry Pi's undervoltage and throttling warnings, battery charge and uptime so far, refreshed every two seconds, and is only reachable from the local network. Below that, charts show the usage over the last 1 minute up to 30 days, or all of the kept history. One device can also collect from the others on the network and show them all ([hub mode](#several-devices-hub-mode)).
 
 The page is in English, German, French and Spanish. It opens in the browser's language, and the flag buttons at the top switch to another one in place, without reloading the page.
 
@@ -111,6 +111,7 @@ Every value is a small read the system offers to programs without extra rights, 
 | Swap | when a swap file or partition exists | page files | yes |
 | Disk read/write speed | disks and partitions; for `/` inside Docker, the host's root disk | per drive letter | yes |
 | Undervoltage and throttling | Raspberry Pi only | no | no |
+| Battery charge and plugged in | laptops and tablets | laptops and tablets | yes, the charge |
 
 ## Deploy to a Raspberry Pi
 

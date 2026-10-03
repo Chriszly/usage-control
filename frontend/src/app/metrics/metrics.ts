@@ -37,6 +37,14 @@ export interface Snapshot {
   gpus?: Gpu[];
   /** Only reported by Raspberry Pis. */
   throttling?: Throttling;
+  /** Only reported by machines with a battery. */
+  battery?: Battery;
+}
+
+/** The charge of the machine's batteries, and whether it runs on mains power. */
+export interface Battery {
+  percent: number;
+  pluggedIn: boolean;
 }
 
 /** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
@@ -110,7 +118,7 @@ export interface History {
 }
 
 /**
- * The values of one metric over time. The metric is "cpu", "memory" or "swap" (percent),
+ * The values of one metric over time. The metric is "cpu", "memory", "swap" or "battery" (percent),
  * or a kind followed by the disk, sensor or interface it belongs to: "disk:/"
  * (percent), "disk.read:/" or "disk.write:/" (bytes per second), "temperature:cpu_thermal" (°C),
  * "network.receive:eth0" or "network.send:eth0" (bytes per second), "gpu:AMD GPU" or

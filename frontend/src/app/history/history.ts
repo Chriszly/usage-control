@@ -178,7 +178,7 @@ function nowSeconds(): number {
 }
 
 /**
- * Groups the stored metrics into charts: CPU, memory and swap, GPUs,
+ * Groups the stored metrics into charts: CPU, memory and swap, battery, GPUs,
  * temperatures, network speed, disk usage and disk activity, with titles and
  * labels in the language of t. Charts without values are left out.
  */
@@ -205,6 +205,12 @@ export function chartsOf(
           ? [{ label: t('history.swap'), points: metric('swap') }]
           : []),
       ],
+    },
+    {
+      title: t('history.battery'),
+      unit: 'percent',
+      max: 100,
+      lines: [{ label: t('history.charge'), points: metric('battery') }],
     },
     {
       title: t('history.gpu'),

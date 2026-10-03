@@ -242,6 +242,23 @@
       </mat-card-content>
     </mat-card>
 
+    @if (s.battery; as b) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>{{ i18n.t('dashboard.battery') }}</h2>
+          <p class="value">{{ b.percent | number: '1.0-0' : i18n.language() }} %</p>
+          <mat-progress-bar
+            mode="determinate"
+            [value]="b.percent"
+            [attr.aria-label]="i18n.t('dashboard.batteryCharge')"
+          />
+          <p class="detail">
+            {{ i18n.t(b.pluggedIn ? 'dashboard.pluggedIn' : 'dashboard.onBattery') }}
+          </p>
+        </mat-card-content>
+      </mat-card>
+    }
+
     @if (s.throttling; as t) {
       <mat-card appearance="outlined">
         <mat-card-content>

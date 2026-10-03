@@ -122,6 +122,21 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('Read');
     expect(text()).not.toContain('Power and clock');
     expect(text()).not.toContain('Version');
+    expect(text()).not.toContain('Battery');
+  });
+
+  it('shows the battery charge and whether the machine is plugged in', () => {
+    respond({ ...snapshot, battery: { percent: 64, pluggedIn: false } });
+    expect(text()).toContain('Battery');
+    expect(text()).toContain('64 %');
+    expect(text()).toContain('On battery');
+
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    http
+      .expectOne('/api/metrics')
+      .flush({ ...snapshot, battery: { percent: 65, pluggedIn: true } });
+    fixture.detectChanges();
+    expect(text()).toContain('Plugged in');
   });
 
   it("shows a Raspberry Pi's power and throttling state", () => {
