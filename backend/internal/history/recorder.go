@@ -26,10 +26,16 @@ type Recorder struct {
 	Collector Collector
 	// Device is the name the readings are stored under; LocalDevice when empty.
 	Device string
+	// MaxEntries is how many disks, sensors, network cards and GPUs each are
+	// kept; DefaultMaxEntries when it is not positive.
+	MaxEntries int
 
 	// failing is set while readings fail, so an unreachable device is logged
 	// once and not every few seconds.
 	failing bool
+	// dropped is set once a reading had more entries than are kept, so that
+	// is logged once too.
+	dropped bool
 }
 
 // Run records until ctx is cancelled. Failures are logged and the next
@@ -69,7 +75,13 @@ func (r *Recorder) read(ctx context.Context) {
 		r.failing = false
 		slog.Info("reading usage for the history works again", "device", deviceOrLocal(r.Device))
 	}
-	r.Recent.Add(snapshot.Time, values(snapshot))
+	v, dropped := values(snapshot, r.MaxEntries)
+	if dropped && !r.dropped {
+		r.dropped = true
+		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
+			"device", deviceOrLocal(r.Device), "kept", max(r.MaxEntries, DefaultMaxEntries))
+	}
+	r.Recent.Add(snapshot.Time, v)
 }
 
 // failed logs a failed reading, unless the previous one failed too.

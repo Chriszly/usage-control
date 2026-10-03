@@ -212,7 +212,32 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 		"gpu.memory:AMD GPU":      25,
 		"gpu:VideoCore GPU":       9,
 	}
-	if got := values(snapshot); !reflect.DeepEqual(got, want) {
-		t.Errorf("values() = %v, want %v", got, want)
+	if got, dropped := values(snapshot, 0); !reflect.DeepEqual(got, want) || dropped {
+		t.Errorf("values() = %v, %v; want %v and nothing dropped", got, dropped, want)
+	}
+}
+
+func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
+	snapshot := metrics.Snapshot{
+		Temperatures: []metrics.Temperature{{Sensor: "a", Celsius: 1}, {Sensor: "b", Celsius: 2}, {Sensor: "c", Celsius: 3}},
+		Disks:        []metrics.Disk{{Path: "/", UsedPercent: 20}, {Path: "/mnt/a", UsedPercent: 30}, {Path: "/mnt/b", UsedPercent: 40}},
+		Network:      []metrics.NetworkInterface{{Name: "eth0"}, {Name: "eth1"}, {Name: "eth2"}},
+		GPUs:         []metrics.GPU{{Name: "g0", UsagePercent: 1}, {Name: "g1", UsagePercent: 2}, {Name: "g2", UsagePercent: 3}},
+	}
+
+	got, dropped := values(snapshot, 2)
+
+	want := map[string]float64{
+		"cpu": 0, "memory": 0,
+		"temperature:a": 1, "temperature:b": 2,
+		"disk:/": 20, "disk:/mnt/a": 30,
+		"network.receive:eth0": 0, "network.send:eth0": 0, "network.receive:eth1": 0, "network.send:eth1": 0,
+		"gpu:g0": 1, "gpu:g1": 2,
+	}
+	if !reflect.DeepEqual(got, want) || !dropped {
+		t.Errorf("values(2 entries) = %v, %v; want %v with entries dropped", got, dropped, want)
+	}
+	if _, dropped := values(snapshot, 3); dropped {
+		t.Error("values(3 entries) dropped entries, want none with three of each")
 	}
 }
