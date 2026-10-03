@@ -38,22 +38,30 @@ type Snapshot struct {
 }
 
 // CPU is the processor usage across all cores. The usage of each core, the
-// clock and the load average are left out where the OS does not report them.
+// clock, the load average, I/O wait, steal and the processes are left out
+// where the OS does not report them.
 type CPU struct {
 	UsagePercent     float64      `json:"usagePercent"`
 	Cores            int          `json:"cores"`
 	CoreUsagePercent []float64    `json:"coreUsagePercent,omitempty"`
 	ClockMHz         float64      `json:"clockMHz,omitempty"`
 	LoadAverage      *LoadAverage `json:"loadAverage,omitempty"`
+	IOWaitPercent    *float64     `json:"ioWaitPercent,omitempty"`
+	StealPercent     *float64     `json:"stealPercent,omitempty"`
+	Processes        *Processes   `json:"processes,omitempty"`
 }
 
 // Memory is the usage of the main memory (RAM), and of the swap space when
-// the machine has one.
+// the machine has one. Available is what programs can still get, including
+// the cache the system frees when needed; the cache is only reported by
+// Linux.
 type Memory struct {
-	TotalBytes  uint64  `json:"totalBytes"`
-	UsedBytes   uint64  `json:"usedBytes"`
-	UsedPercent float64 `json:"usedPercent"`
-	Swap        *Swap   `json:"swap,omitempty"`
+	TotalBytes     uint64  `json:"totalBytes"`
+	UsedBytes      uint64  `json:"usedBytes"`
+	UsedPercent    float64 `json:"usedPercent"`
+	AvailableBytes uint64  `json:"availableBytes,omitempty"`
+	CachedBytes    uint64  `json:"cachedBytes,omitempty"`
+	Swap           *Swap   `json:"swap,omitempty"`
 }
 
 // Temperature is the reading of one temperature sensor.
@@ -103,7 +111,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 // so the first call after start reports the average CPU usage since the
 // machine booted and speeds of 0.
 func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
-	cpuUsage, coreUsage, err := c.readCPUUsage(ctx)
+	cpuUsage, err := c.readCPUUsage(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read CPU usage: %w", err)
 	}
@@ -124,22 +132,22 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("read network traffic: %w", err)
 	}
 
+	cpuUsage.Cores = cores
+	cpuUsage.ClockMHz = readClockMHz(c.clockFiles)
+	cpuUsage.LoadAverage, cpuUsage.Processes = readLoadAverage(ctx)
+
 	return Snapshot{
 		Version:       version.Version,
 		Time:          time.Now().UTC(),
 		UptimeSeconds: uptime,
-		CPU: CPU{
-			UsagePercent:     cpuUsage,
-			Cores:            cores,
-			CoreUsagePercent: coreUsage,
-			ClockMHz:         readClockMHz(c.clockFiles),
-			LoadAverage:      readLoadAverage(ctx),
-		},
+		CPU:           cpuUsage,
 		Memory: Memory{
-			TotalBytes:  memory.Total,
-			UsedBytes:   memory.Used,
-			UsedPercent: memory.UsedPercent,
-			Swap:        readSwap(ctx, memory),
+			TotalBytes:     memory.Total,
+			UsedBytes:      memory.Used,
+			UsedPercent:    memory.UsedPercent,
+			AvailableBytes: memory.Available,
+			CachedBytes:    memory.Cached + memory.Buffers,
+			Swap:           readSwap(ctx, memory),
 		},
 		Temperatures: readTemperatures(ctx),
 		Disks:        c.readDisks(ctx),
@@ -150,7 +158,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	}, nil
 }
 
-// readDisks returns the usage of each disk, with the speeds measured since
+// readDisks returns the usage of each disk, with its activity measured since
 // the previous call.
 func (c *Collector) readDisks(ctx context.Context) []Disk {
 	disks := readDisks(ctx, c.diskPaths)
@@ -159,7 +167,7 @@ func (c *Collector) readDisks(ctx context.Context) []Disk {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	diskSpeeds(c.diskCounters, current, now.Sub(c.diskTime), disks)
+	diskActivity(c.diskCounters, current, now.Sub(c.diskTime), disks)
 	c.diskCounters, c.diskTime = current, now
 	return disks
 }

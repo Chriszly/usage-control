@@ -17,7 +17,7 @@ func readDiskCounters(ctx context.Context, paths []string) map[string]ioCounters
 	result := make(map[string]ioCounters, len(paths))
 	for _, path := range paths {
 		if s, ok := stats[strings.ToUpper(filepath.VolumeName(path))]; ok {
-			result[path] = ioCounters{read: s.ReadBytes, written: s.WriteBytes}
+			result[path] = ioCounters{read: s.ReadBytes, written: s.WriteBytes, operations: s.ReadCount + s.WriteCount}
 		}
 	}
 	return result

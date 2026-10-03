@@ -9,11 +9,17 @@ import (
 // This file turns the disk counters of Linux into numbers. It has no build
 // constraint so its tests run on every OS.
 
-// ioCounters is the number of bytes read from and written to a disk since the
-// machine booted.
+// ioCounters is what a disk did since the machine booted: the bytes read and
+// written, the number of reads and writes, and in milliseconds how long they
+// took and how long the disk was busy. Windows reports no times, so
+// hasTimes is false there.
 type ioCounters struct {
-	read    uint64
-	written uint64
+	read       uint64
+	written    uint64
+	operations uint64
+	waitMs     uint64
+	busyMs     uint64
+	hasTimes   bool
 }
 
 // deviceNumber is the major and minor number Linux gives a block device, such
@@ -32,18 +38,37 @@ const sectorBytes = 512
 func parseDiskstats(text string) map[deviceNumber]ioCounters {
 	stats := map[deviceNumber]ioCounters{}
 	for line := range strings.Lines(text) {
-		// major minor name reads merged sectors-read ms writes merged sectors-written ...
+		// major minor name reads merged sectors-read ms-reading
+		// writes merged sectors-written ms-writing in-flight ms-busy ...
 		fields := strings.Fields(line)
-		if len(fields) < 10 {
+		if len(fields) < 13 {
 			continue
 		}
 		device, ok := parseDeviceNumber(fields[0] + ":" + fields[1])
-		read, readErr := strconv.ParseUint(fields[5], 10, 64)
-		written, writeErr := strconv.ParseUint(fields[9], 10, 64)
-		if !ok || readErr != nil || writeErr != nil {
+		if !ok {
 			continue
 		}
-		stats[device] = ioCounters{read: read * sectorBytes, written: written * sectorBytes}
+		var n [13]uint64
+		valid := true
+		for _, i := range []int{3, 5, 6, 7, 9, 10, 12} {
+			value, err := strconv.ParseUint(fields[i], 10, 64)
+			if err != nil {
+				valid = false
+				break
+			}
+			n[i] = value
+		}
+		if !valid {
+			continue
+		}
+		stats[device] = ioCounters{
+			read:       n[5] * sectorBytes,
+			written:    n[9] * sectorBytes,
+			operations: n[3] + n[7],
+			waitMs:     n[6] + n[10],
+			busyMs:     n[12],
+			hasTimes:   true,
+		}
 	}
 	return stats
 }
@@ -71,20 +96,33 @@ func parseDeviceNumber(text string) (deviceNumber, bool) {
 	return deviceNumber{major: uint32(major), minor: uint32(minor)}, true
 }
 
-// diskSpeeds turns two readings of the disk counters into bytes per second.
-// A disk without counters has no speed (nil); the first reading, and counters
-// that went down, have a speed of 0.
-func diskSpeeds(previous, current map[string]ioCounters, elapsed time.Duration, disks []Disk) {
+// diskActivity turns two readings of the disk counters into speeds,
+// operations per second, how busy the disk was and how long an operation
+// took on average. A disk without counters has none of them (nil), and busy
+// and latency are left out where the system reports no times. The first
+// reading, and counters that went down, count as no activity.
+func diskActivity(previous, current map[string]ioCounters, elapsed time.Duration, disks []Disk) {
 	for i, d := range disks {
 		now, ok := current[d.Path]
 		if !ok {
 			continue
 		}
-		var read, write float64
+		var read, write, operations, busy, latency float64
 		if before, ok := previous[d.Path]; ok && elapsed > 0 {
 			read = perSecond(before.read, now.read, elapsed)
 			write = perSecond(before.written, now.written, elapsed)
+			operations = perSecond(before.operations, now.operations, elapsed)
+			if now.busyMs >= before.busyMs {
+				busy = min(100, float64(now.busyMs-before.busyMs)/float64(elapsed.Milliseconds())*100)
+			}
+			if now.operations > before.operations && now.waitMs >= before.waitMs {
+				latency = float64(now.waitMs-before.waitMs) / float64(now.operations-before.operations)
+			}
 		}
 		disks[i].ReadBytesPerSecond, disks[i].WriteBytesPerSecond = &read, &write
+		disks[i].OperationsPerSecond = &operations
+		if now.hasTimes {
+			disks[i].BusyPercent, disks[i].LatencyMs = &busy, &latency
+		}
 	}
 }

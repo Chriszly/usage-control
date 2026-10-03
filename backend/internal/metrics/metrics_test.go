@@ -104,3 +104,35 @@ func TestReadClockMHzTakesTheFastestGroupOfCores(t *testing.T) {
 		t.Errorf("readClockMHz(nil) = %v, want 0", got)
 	}
 }
+
+func TestWaitPercents(t *testing.T) {
+	previous := cpu.TimesStat{User: 100, Idle: 800, Iowait: 50, Steal: 50}
+	current := cpu.TimesStat{User: 130, Idle: 820, Iowait: 70, Steal: 80}
+	ioWait, steal := waitPercents(previous, current)
+	if ioWait != 20 || steal != 30 {
+		t.Errorf("waitPercents() = %v, %v, want 20, 30", ioWait, steal)
+	}
+}
+
+func TestParseLoadavg(t *testing.T) {
+	avg, running, ok := parseLoadavg("0.52 0.40 0.31 2/213 12345\n")
+	want := &LoadAverage{One: 0.52, Five: 0.4, Fifteen: 0.31}
+	if !ok || running != 2 || *avg != *want {
+		t.Errorf("parseLoadavg() = %+v, %d, %v, want %+v, 2, true", avg, running, ok, want)
+	}
+	if _, _, ok := parseLoadavg("0.52 0.40"); ok {
+		t.Error("parseLoadavg() of a short line = true, want false")
+	}
+}
+
+func TestCountProcessesCountsNumberedDirectories(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"1", "42", "1337", "self", "net", "sys"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := countProcesses(dir); err != nil || got != 3 {
+		t.Errorf("countProcesses() = %d, %v, want 3", got, err)
+	}
+}

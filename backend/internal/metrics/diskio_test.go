@@ -13,8 +13,8 @@ func TestParseDiskstats(t *testing.T) {
 not a line of numbers
 `
 	want := map[deviceNumber]ioCounters{
-		{179, 0}: {read: 726334 * 512, written: 271096 * 512},
-		{179, 2}: {read: 709098 * 512, written: 271096 * 512},
+		{179, 0}: {read: 726334 * 512, written: 271096 * 512, operations: 13693, waitMs: 42000, busyMs: 15000, hasTimes: true},
+		{179, 2}: {read: 709098 * 512, written: 271096 * 512, operations: 13394, waitMs: 41000, busyMs: 14000, hasTimes: true},
 	}
 	if got := parseDiskstats(text); !reflect.DeepEqual(got, want) {
 		t.Errorf("parseDiskstats() = %v, want %v", got, want)
@@ -34,29 +34,41 @@ func TestParseMountinfoRoot(t *testing.T) {
 	}
 }
 
-func TestDiskSpeedsMeasureSincePreviousReading(t *testing.T) {
-	disks := []Disk{{Path: "/"}, {Path: "/mnt/usb"}, {Path: "/mnt/share"}}
-	previous := map[string]ioCounters{"/": {read: 1000, written: 500}}
+func TestDiskActivityMeasuresSincePreviousReading(t *testing.T) {
+	disks := []Disk{{Path: "/"}, {Path: "/mnt/usb"}, {Path: "/mnt/share"}, {Path: `C:\`}}
+	previous := map[string]ioCounters{
+		"/":   {read: 1000, written: 500, operations: 100, waitMs: 1000, busyMs: 3000, hasTimes: true},
+		`C:\`: {read: 0, written: 0, operations: 10},
+	}
 	current := map[string]ioCounters{
-		"/":        {read: 5000, written: 1500},
-		"/mnt/usb": {read: 300, written: 400}, // plugged in since the previous reading
+		"/":        {read: 5000, written: 1500, operations: 140, waitMs: 1200, busyMs: 3500, hasTimes: true},
+		"/mnt/usb": {read: 300, written: 400, operations: 5, hasTimes: true}, // plugged in since the previous reading
+		`C:\`:      {read: 2000, written: 0, operations: 30},                 // Windows reports no times
 	}
 
-	diskSpeeds(previous, current, 2*time.Second, disks)
+	diskActivity(previous, current, 2*time.Second, disks)
 
-	speeds := func(d Disk) []float64 {
-		if d.ReadBytesPerSecond == nil || d.WriteBytesPerSecond == nil {
-			return nil
+	values := func(d Disk) []float64 {
+		var v []float64
+		for _, p := range []*float64{d.ReadBytesPerSecond, d.WriteBytesPerSecond, d.OperationsPerSecond, d.BusyPercent, d.LatencyMs} {
+			if p != nil {
+				v = append(v, *p)
+			}
 		}
-		return []float64{*d.ReadBytesPerSecond, *d.WriteBytesPerSecond}
+		return v
 	}
-	if got := speeds(disks[0]); !reflect.DeepEqual(got, []float64{2000, 500}) {
-		t.Errorf("speeds of / = %v, want [2000 500]", got)
+	tests := []struct {
+		disk Disk
+		want []float64
+	}{
+		{disks[0], []float64{2000, 500, 20, 25, 5}},
+		{disks[1], []float64{0, 0, 0, 0, 0}},
+		{disks[2], nil},
+		{disks[3], []float64{1000, 0, 10}},
 	}
-	if got := speeds(disks[1]); !reflect.DeepEqual(got, []float64{0, 0}) {
-		t.Errorf("speeds of a new disk = %v, want [0 0]", got)
-	}
-	if got := speeds(disks[2]); got != nil {
-		t.Errorf("speeds of a disk without counters = %v, want none", got)
+	for _, tt := range tests {
+		if got := values(tt.disk); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("activity of %s = %v, want %v", tt.disk.Path, got, tt.want)
+		}
 	}
 }

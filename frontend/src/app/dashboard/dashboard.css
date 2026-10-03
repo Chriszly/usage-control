@@ -92,6 +92,11 @@ mat-progress-bar {
   white-space: nowrap;
 }
 
+.interface .problems {
+  grid-column: 1 / -1;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .rate:last-child {
   text-align: end;
 }
