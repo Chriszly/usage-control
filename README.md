@@ -137,8 +137,11 @@ Every value is a small read the system offers to programs without extra rights, 
 | Disk operations per second | yes | yes | no |
 | Disk busy % and time per operation | yes | no | no |
 | Network errors and dropped packets | since start | since start | no |
+| Network link speed and IPv4 address | yes, read once a minute; most Wi-Fi cards report no speed | yes, read once a minute | no |
+| Fan speed | where the kernel knows the fan, such as the Raspberry Pi 5 | no | no |
 | Undervoltage and throttling | Raspberry Pi only | no | no |
 | Battery charge and plugged in | laptops and tablets | laptops and tablets | yes, the charge |
+| Battery power (W) and health | where the battery reports them | no | no |
 
 ## Deploy to a Raspberry Pi
 

@@ -145,6 +145,21 @@ describe('Dashboard', () => {
     expect(text()).toContain('Errors 3 · Dropped 120');
   });
 
+  it('shows fans, link speed and addresses, and battery power and health', () => {
+    respond({
+      ...snapshot,
+      network: [{ ...snapshot.network[0], linkMbps: 1000, addresses: ['192.168.60.9'] }],
+      fans: [{ name: 'pwmfan fan1', rpm: 3120 }],
+      battery: { percent: 64, pluggedIn: false, watts: 8.25, healthPercent: 87.4 },
+    });
+
+    expect(text()).toContain('192.168.60.9 · 1 Gbit/s');
+    expect(text()).toContain('Fans');
+    expect(text()).toContain('3,120 rpm');
+    expect(text()).toContain('Drawing 8.3 W');
+    expect(text()).toContain('Health 87 %');
+  });
+
   it('leaves out what the device does not report', () => {
     respond(snapshot);
 
@@ -161,6 +176,8 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('I/O wait');
     expect(text()).not.toContain('available');
     expect(text()).not.toContain('Errors');
+    expect(text()).not.toContain('Fans');
+    expect(text()).not.toContain('Mbit/s');
   });
 
   it('shows the battery charge and whether the machine is plugged in', () => {

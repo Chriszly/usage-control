@@ -19,6 +19,14 @@ func TestCombineBatteries(t *testing.T) {
 			[]supplyReading{{percent: 80, status: "Not charging"}, {percent: 40, status: "Discharging"}},
 			&Battery{Percent: 60, PluggedIn: false},
 		},
+		{
+			"two batteries with power and health",
+			[]supplyReading{
+				{percent: 80, status: "Discharging", watts: 5, hasWatts: true, health: 90, hasHealth: true},
+				{percent: 40, status: "Discharging", watts: 3, hasWatts: true, health: 70, hasHealth: true},
+			},
+			&Battery{Percent: 60, Watts: ptr(8.0), HealthPercent: ptr(80.0)},
+		},
 	}
 	for _, tt := range tests {
 		if got := combineBatteries(tt.readings); !reflect.DeepEqual(got, tt.want) {
@@ -26,3 +34,5 @@ func TestCombineBatteries(t *testing.T) {
 		}
 	}
 }
+
+func ptr(v float64) *float64 { return &v }

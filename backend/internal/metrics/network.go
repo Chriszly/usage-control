@@ -24,6 +24,10 @@ type NetworkInterface struct {
 	// those the interface threw away, since the machine booted.
 	Errors  uint64 `json:"errors,omitempty"`
 	Dropped uint64 `json:"dropped,omitempty"`
+	// LinkMbps is the speed the interface is connected at, in Mbit/s, and
+	// Addresses its IPv4 addresses; both are left out where unknown.
+	LinkMbps  int      `json:"linkMbps,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
 }
 
 // counters is the number of bytes an interface has received and sent since
