@@ -41,8 +41,10 @@ func device(collector Collector, reader HistoryReader) []Device {
 }
 
 var site = fstest.MapFS{
-	"index.html": {Data: []byte("page")},
-	"main.js":    {Data: []byte("script")},
+	"index.html":       {Data: []byte("page")},
+	"main.js":          {Data: []byte("script")},
+	"main-7EIQR62F.js": {Data: []byte("hashed script")},
+	"flags/de.svg":     {Data: []byte("flag")},
 }
 
 func get(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecorder {
@@ -165,18 +167,54 @@ func TestMetricsOfTheRequestedDevice(t *testing.T) {
 func TestServesWebsite(t *testing.T) {
 	handler := newHandler(device(fakeCollector{}, nil), 0, site)
 
-	for path, want := range map[string]string{
-		"/":        "page",
-		"/main.js": "script",
-	} {
-		rec := get(handler, path, "10.0.0.5:5000")
+	tests := []struct {
+		path, wantBody, wantCache string
+	}{
+		{"/", "page", "no-cache"},
+		{"/main-7EIQR62F.js", "hashed script", "public, max-age=31536000, immutable"},
+		{"/main.js", "script", "public, max-age=3600"},
+		{"/flags/de.svg", "flag", "public, max-age=3600"},
+	}
+	for _, tt := range tests {
+		rec := get(handler, tt.path, "10.0.0.5:5000")
 
 		if rec.Code != http.StatusOK {
-			t.Fatalf("%s: status = %d, want %d", path, rec.Code, http.StatusOK)
+			t.Fatalf("%s: status = %d, want %d", tt.path, rec.Code, http.StatusOK)
 		}
-		if got := rec.Body.String(); got != want {
-			t.Errorf("%s: body = %q, want %q", path, got, want)
+		if got := rec.Body.String(); got != tt.wantBody {
+			t.Errorf("%s: body = %q, want %q", tt.path, got, tt.wantBody)
 		}
+		if got := rec.Header().Get("Cache-Control"); got != tt.wantCache {
+			t.Errorf("%s: Cache-Control = %q, want %q", tt.path, got, tt.wantCache)
+		}
+		if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q, want nosniff", tt.path, got)
+		}
+	}
+}
+
+func TestWebsiteServesNoDirectoriesOrMissingFiles(t *testing.T) {
+	handler := newHandler(device(fakeCollector{}, nil), 0, site)
+
+	for _, path := range []string{"/flags/", "/flags", "/missing-ABCDEFGH.js"} {
+		rec := get(handler, path, "10.0.0.5:5000")
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want %d", path, rec.Code, http.StatusNotFound)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("%s: Cache-Control = %q, want none on a 404", path, got)
+		}
+	}
+}
+
+func TestAPIAnswersCarryNosniff(t *testing.T) {
+	handler := newHandler(device(fakeCollector{}, nil), 0, site)
+
+	rec := get(handler, "/api/metrics", "10.0.0.5:5000")
+
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
 	}
 }
 

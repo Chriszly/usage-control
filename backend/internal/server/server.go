@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"path"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/hub"
@@ -101,7 +104,7 @@ func New(site Site) http.Handler {
 		})
 	}
 	mux.Handle("GET /", websiteHandler(site.Files))
-	return localNetworkOnly(mux)
+	return withHeaders(localNetworkOnly(mux))
 }
 
 // NewDataOnly returns the handler for a device that a hub collects from
@@ -110,7 +113,7 @@ func New(site Site) http.Handler {
 func NewDataOnly(collector Collector) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/metrics", metricsHandler(Device{ID: hub.LocalID, Metrics: collector}))
-	return localNetworkOnly(mux)
+	return withHeaders(localNetworkOnly(mux))
 }
 
 // devicesResponse is the body of GET /api/devices.
@@ -201,15 +204,52 @@ func availabilityHandler(d Device) http.HandlerFunc {
 	}
 }
 
+// hashedName matches the files the frontend build names after their content,
+// such as main-7EIQR62F.js: a change in content changes the name, so browsers
+// may keep them for good.
+var hashedName = regexp.MustCompile(`^[a-z0-9]+-[A-Z0-9]{8}\.(js|css)$`)
+
 // websiteHandler serves the website. It is in every language at once and
-// switches between them in the browser.
+// switches between them in the browser. Only files are served, no directory
+// listings, and each answer says how long a browser may keep it: the hashed
+// scripts and styles a year, index.html not at all, so a new build shows at
+// once, and the rest, such as the flags and the mascot, an hour.
 func websiteHandler(site fs.FS) http.Handler {
 	if _, err := fs.Stat(site, "index.html"); err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "The website is not built. Run `npm run build` in frontend/ and build the backend again.", http.StatusNotFound)
 		})
 	}
-	return http.FileServerFS(site)
+	files := http.FileServerFS(site)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if name == "" {
+			name = "index.html"
+		}
+		info, err := fs.Stat(site, name)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		switch {
+		case hashedName.MatchString(path.Base(name)):
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		case name == "index.html":
+			w.Header().Set("Cache-Control", "no-cache")
+		default:
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		}
+		files.ServeHTTP(w, r)
+	})
+}
+
+// withHeaders adds the headers every answer carries: browsers are told to
+// trust the Content-Type instead of guessing one from the content.
+func withHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // localNetworkOnly refuses requests whose sender is not on the local network:
