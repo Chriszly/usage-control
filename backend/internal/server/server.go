@@ -85,7 +85,9 @@ func New(site Site) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/devices", devicesHandler(site))
 	if site.Hub != nil && site.Password != nil {
-		changes := &deviceChanges{hub: site.Hub, password: site.Password}
+		local := site.Devices.List()[0].Metrics
+		changes := &deviceChanges{hub: site.Hub, password: site.Password, local: local}
+		mux.HandleFunc("GET /api/devices/suggestion", changes.suggest)
 		mux.HandleFunc("POST /api/devices", changes.add)
 		mux.HandleFunc("DELETE /api/devices/{id}", changes.remove)
 	}

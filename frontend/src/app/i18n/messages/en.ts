@@ -100,6 +100,7 @@ export const en = {
   'devicesDialog.fixed': 'Set in .env',
   'devicesDialog.empty': 'No other devices yet.',
   'devicesDialog.addTitle': 'Add a device',
+  'devicesDialog.suggested': 'Filled in with the device this page is open on.',
   'devicesDialog.name': 'Name',
   'devicesDialog.address': 'Address',
   'devicesDialog.addressHint': 'IP address or name, and port',

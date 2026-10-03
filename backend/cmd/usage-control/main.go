@@ -106,6 +106,8 @@ func run(parent context.Context) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	collector.Name = ownName()
+
 	// One sampler reads the usage for every page, hub and the recorder.
 	sampler := metrics.NewSampler(collector)
 
@@ -263,6 +265,21 @@ func (d hubDevices) List() []server.Device {
 		})
 	}
 	return devices
+}
+
+// ownName returns what this device calls itself, which a hub offers as the
+// name when it is added there: DEVICE_NAME, or else the machine's hostname.
+// In a container, where HOST_PROC is set, the hostname is the container's,
+// so there it is only DEVICE_NAME.
+func ownName() string {
+	if name := strings.TrimSpace(os.Getenv("DEVICE_NAME")); name != "" {
+		return name
+	}
+	if os.Getenv("HOST_PROC") != "" {
+		return ""
+	}
+	hostname, _ := os.Hostname()
+	return hostname
 }
 
 // boolSettingOr reads a setting that is true or false, with a default for

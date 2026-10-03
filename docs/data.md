@@ -27,6 +27,7 @@ CPU usage and disk and network speeds are measured between two readings, so they
 
 | Field | Meaning |
 | --- | --- |
+| `name` | what the device calls itself: its `DEVICE_NAME`, or else its hostname; left out in Docker without `DEVICE_NAME`, where the hostname is the container's. A hub fills it in as the name when the device is added from its own browser |
 | `version` | usage-control version that read it |
 | `time`, `timeZone` | when it was read, and the device's time zone name and offset |
 | `uptimeSeconds` | time since the machine started |

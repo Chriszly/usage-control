@@ -5,7 +5,7 @@ import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { of } from 'rxjs';
 
 import { DevicesDialog } from './devices-dialog';
-import { DeviceService } from './devices';
+import { DeviceService, Suggestion } from './devices';
 import { PasswordDialogResult } from './password-dialog';
 
 describe('DevicesDialog', () => {
@@ -32,7 +32,23 @@ describe('DevicesDialog', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => http.verify());
+  /** Answers the dialog's question which device the page is open on. */
+  async function suggest(suggestion: Suggestion | null): Promise<void> {
+    http.expectOne('/api/devices/suggestion').flush(suggestion);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function input(name: string): HTMLInputElement {
+    return element().querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+  }
+
+  afterEach(() => {
+    // Tests that do not look at the suggestion leave it unanswered.
+    http.match('/api/devices/suggestion').forEach((r) => r.flush(null));
+    http.verify();
+  });
 
   function element(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
@@ -51,6 +67,33 @@ describe('DevicesDialog', () => {
     const buttons = Array.from(element().querySelectorAll('button'));
     return buttons.find((b) => b.textContent?.trim() === label)!;
   }
+
+  it('fills in the device the page is open on', async () => {
+    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet' });
+
+    expect(input('name').value).toBe('Kitchen tablet');
+    expect(input('address').value).toBe('192.168.1.47:9393');
+    expect(element().textContent).toContain('Filled in with the device this page is open on.');
+
+    await type('address', '192.168.1.48:9393');
+    expect(element().textContent).not.toContain('Filled in with the device');
+  });
+
+  it('keeps what was typed before the suggestion arrives', async () => {
+    await type('name', 'Laptop');
+    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet' });
+
+    expect(input('name').value).toBe('Laptop');
+    expect(input('address').value).toBe('');
+  });
+
+  it('leaves the form empty without a suggestion', async () => {
+    await suggest(null);
+
+    expect(input('name').value).toBe('');
+    expect(input('address').value).toBe('');
+    expect(element().textContent).not.toContain('Filled in with the device');
+  });
 
   it('lists the other devices and which can be removed', () => {
     expect(element().textContent).toContain('Pi');

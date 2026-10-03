@@ -48,7 +48,8 @@ form {
   gap: 0 0.75rem;
 }
 
-form h3 {
+form h3,
+form .hint {
   flex-basis: 100%;
 }
 

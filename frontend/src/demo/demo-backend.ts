@@ -8,7 +8,7 @@ import {
 import { Injectable } from '@angular/core';
 import { Observable, delay, mergeMap, of, throwError, timer } from 'rxjs';
 
-import { Availability, DeviceList, LOCAL_DEVICE } from '../app/devices/devices';
+import { Availability, DeviceList, LOCAL_DEVICE, Suggestion } from '../app/devices/devices';
 import { History, Series } from '../app/metrics/metrics';
 import { DemoMachine, FLEET, offlineSince, snapshotOf } from './fleet';
 
@@ -20,6 +20,9 @@ const RECENT_SPAN = 30 * 60;
 const RECENT_INTERVAL = 5;
 const SAMPLE_INTERVAL = 60;
 const MAX_POINTS = 360;
+
+/** The visitor's device, which the Devices dialog offers to add like on a real hub. */
+const DEMO_SUGGESTION: Suggestion = { address: '192.168.1.47:9393', name: 'Kitchen tablet' };
 
 /** How long the made-up devices take to answer, so the page loads like it does on a real hub. */
 const LATENCY_MS = 60;
@@ -38,6 +41,9 @@ export class DemoBackend implements HttpBackend {
 
     if (request.method === 'GET' && url.pathname === '/api/devices') {
       return respond(request, deviceList());
+    }
+    if (request.method === 'GET' && url.pathname === '/api/devices/suggestion') {
+      return respond(request, DEMO_SUGGESTION);
     }
     if (request.method === 'POST' || request.method === 'DELETE') {
       return fail(request, 403, { problem: 'demo' });

@@ -97,6 +97,7 @@ export const fr: Messages = {
   'devicesDialog.fixed': 'Défini dans .env',
   'devicesDialog.empty': 'Aucun autre appareil pour l’instant.',
   'devicesDialog.addTitle': 'Ajouter un appareil',
+  'devicesDialog.suggested': "Rempli avec l'appareil sur lequel cette page est ouverte.",
   'devicesDialog.name': 'Nom',
   'devicesDialog.address': 'Adresse',
   'devicesDialog.addressHint': 'Adresse IP ou nom, et port',

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -146,5 +147,24 @@ func TestBoolSettingOr(t *testing.T) {
 	t.Setenv("UPDATE_CHECK", "sometimes")
 	if _, err := boolSettingOr("UPDATE_CHECK", true); err == nil {
 		t.Error("boolSettingOr() with \"sometimes\" error = nil, want one")
+	}
+}
+
+func TestOwnName(t *testing.T) {
+	hostname, _ := os.Hostname()
+	tests := []struct {
+		deviceName, hostProc, want string
+	}{
+		{"Office PC", "", "Office PC"},
+		{" Office PC ", "/host/proc", "Office PC"},
+		{"", "", hostname},
+		{"", "/host/proc", ""}, // in a container, the hostname is the container's
+	}
+	for _, tt := range tests {
+		t.Setenv("DEVICE_NAME", tt.deviceName)
+		t.Setenv("HOST_PROC", tt.hostProc)
+		if got := ownName(); got != tt.want {
+			t.Errorf("ownName() with DEVICE_NAME=%q, HOST_PROC=%q = %q, want %q", tt.deviceName, tt.hostProc, got, tt.want)
+		}
 	}
 }

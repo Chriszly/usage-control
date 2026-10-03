@@ -158,6 +158,8 @@ Leaving its website on does no harm: the hub only reads its usage, and the machi
 
 On the hub's page, click *Devices*, then add each device with a name and its address and port, such as *Office PC* at `192.168.1.30:9393`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
 
+Opened from a device that is not added yet, the dialog fills in that device's address with port 9393, and its name when the hub can find it out: the `DEVICE_NAME` or hostname that its usage-control reports, or else the name the router gives it in the local DNS. So the quickest way to add a PC is to open the hub's page on that PC. Change the port if the device listens on another one.
+
 The first device you add asks you to choose a password, at least 8 characters, typed twice. From then on, adding or removing a device asks for it; it cannot be changed on the page. If it is forgotten, set `RESET_PASSWORD=true` on the hub, restart it, and unset it again right away: while it is set, every restart deletes the password, and whoever next adds or removes a device chooses the new one.
 
 Removing a device deletes its history too, unless *Keep its history* is ticked. The history is kept under the device's name, so renaming a device (removing it and adding it under a new name) starts a new history.

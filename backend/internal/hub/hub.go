@@ -33,6 +33,8 @@ type Hub struct {
 	// pagePort is the port the hub's page is reachable on, which every
 	// device is told; see PagePortHeader.
 	pagePort string
+	// suggester works out which device the page offers to add.
+	suggester suggester
 	// ctx ends every recorder when the program stops.
 	ctx       context.Context
 	recording sync.WaitGroup
@@ -63,7 +65,7 @@ type Remote struct {
 // historyEntries disks, sensors, network cards and GPUs each of a device.
 // Every device is told pagePort, the port the hub's page is reachable on.
 func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, pagePort string) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, ctx: ctx}
+	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err

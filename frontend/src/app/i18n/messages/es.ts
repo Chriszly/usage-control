@@ -98,6 +98,7 @@ export const es: Messages = {
   'devicesDialog.fixed': 'Definido en .env',
   'devicesDialog.empty': 'Aún no hay otros dispositivos.',
   'devicesDialog.addTitle': 'Añadir un dispositivo',
+  'devicesDialog.suggested': 'Rellenado con el dispositivo en el que está abierta esta página.',
   'devicesDialog.name': 'Nombre',
   'devicesDialog.address': 'Dirección',
   'devicesDialog.addressHint': 'Dirección IP o nombre, y puerto',

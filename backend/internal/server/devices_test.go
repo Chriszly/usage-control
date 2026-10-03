@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/Chriszly/usage-control/backend/internal/hub"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/password"
 )
 
@@ -15,6 +17,9 @@ type fakeHub struct {
 	added   []string
 	removed []string
 	err     error
+	// suggestFor answers Suggest for this address; any other has no suggestion.
+	suggestFor string
+	asked      []netip.Addr
 }
 
 func (f *fakeHub) Add(_ context.Context, name, address string) (hub.Device, error) {
@@ -31,6 +36,14 @@ func (f *fakeHub) Remove(_ context.Context, id string, _ bool) error {
 	}
 	f.removed = append(f.removed, id)
 	return nil
+}
+
+func (f *fakeHub) Suggest(_ context.Context, from netip.Addr) (hub.Suggestion, bool) {
+	f.asked = append(f.asked, from)
+	if from.String() != f.suggestFor {
+		return hub.Suggestion{}, false
+	}
+	return hub.Suggestion{Address: from.String() + ":9393", Name: "Office PC"}, true
 }
 
 type fakePassword struct{ password string }
@@ -149,5 +162,43 @@ func TestChangesOnlyAcceptJSON(t *testing.T) {
 
 	if rec.Code != http.StatusUnsupportedMediaType {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnsupportedMediaType)
+	}
+}
+
+func TestSuggestsTheVisitorsDevice(t *testing.T) {
+	devices := &fakeHub{suggestFor: "192.168.1.20"}
+	handler := newChangeHandler(devices, &fakePassword{})
+
+	rec := send(handler, http.MethodGet, "/api/devices/suggestion", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if got, want := strings.TrimSpace(rec.Body.String()), `{"address":"192.168.1.20:9393","name":"Office PC"}`; got != want {
+		t.Errorf("body = %s, want %s", got, want)
+	}
+	if len(devices.asked) != 1 || devices.asked[0] != netip.MustParseAddr("192.168.1.20") {
+		t.Errorf("asked for %v, want the address the request came from", devices.asked)
+	}
+
+	devices.suggestFor = ""
+	if rec := send(handler, http.MethodGet, "/api/devices/suggestion", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("without a suggestion: status = %d, want 204", rec.Code)
+	}
+}
+
+func TestDoesNotSuggestTheHubItself(t *testing.T) {
+	devices := &fakeHub{suggestFor: "192.168.1.20"}
+	// In Docker, the hub's own addresses are not the container's; its usage
+	// lists them.
+	own := fakeCollector{snapshot: metrics.Snapshot{Network: []metrics.NetworkInterface{
+		{Name: "eth0", Addresses: []string{"192.168.1.20"}},
+	}}}
+	handler := New(Site{Devices: DeviceList(device(own, nil)), Hub: devices, Password: &fakePassword{}, Files: site})
+
+	if rec := send(handler, http.MethodGet, "/api/devices/suggestion", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", rec.Code)
+	}
+	if len(devices.asked) != 0 {
+		t.Errorf("asked the hub for %v, want no lookups for the hub's own address", devices.asked)
 	}
 }
