@@ -24,7 +24,26 @@ h2 {
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
-  gap: 1rem;
+  column-gap: 1rem;
+}
+
+/* Cards side by side share their rows for title, legend and plot, so the
+   plots line up even when only some cards have a legend or it wraps. */
+.charts .card {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0;
+  /* A margin instead of a row gap, which would also open inside each card. */
+  margin-bottom: 1rem;
+}
+
+app-line-chart {
+  grid-row: span 2;
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 h3 {

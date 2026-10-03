@@ -50,7 +50,9 @@
   background: var(--color);
 }
 
+/* The plot keeps the last row even without a legend. */
 .chart {
+  grid-row: 2;
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: 9rem auto;
