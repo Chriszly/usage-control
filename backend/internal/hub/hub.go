@@ -44,7 +44,10 @@ type Remote struct {
 	Agent  *Agent
 	Reader history.Reader
 
-	db       *sql.DB
+	db *sql.DB
+	// watched is the recorder's view of the device, which knows an outage
+	// that lasts.
+	watched  *watchedAgent
 	stop     context.CancelFunc
 	recorded chan struct{}
 }
@@ -64,6 +67,16 @@ func New(ctx context.Context, store *history.Store, fixed []Device) (*Hub, error
 	}
 	saved, err := h.saved(ctx)
 	if err != nil {
+		return nil, err
+	}
+	// A device dropped from HUB_DEVICES without being added on the page is
+	// gone for good: its availability is deleted, as when it is removed on the
+	// page, while its history ages out with the retention.
+	var kept []string
+	for _, device := range slices.Concat(fixed, saved) {
+		kept = append(kept, device.ID)
+	}
+	if err := forgetOthers(ctx, store.DB(), kept); err != nil {
 		return nil, err
 	}
 	for _, device := range fixed {
@@ -128,12 +141,15 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		return &InputError{Problem: ProblemFixed, Message: "the device is set in HUB_DEVICES; remove it there"}
 	}
 
-	remote.stop()
-	<-remote.recorded
+	// Once the device is deleted from the database, the rest follows even
+	// when the page that asked has gone away, so nothing is left half removed.
+	ctx = context.WithoutCancel(ctx)
 	if _, err := h.store.DB().ExecContext(ctx, `DELETE FROM hub_devices WHERE id = ?`, id); err != nil {
 		return err
 	}
 	h.remotes = slices.DeleteFunc(h.remotes, func(r *Remote) bool { return r == remote })
+	remote.stop()
+	<-remote.recorded
 	slog.Info("stopped collecting from another device", "name", remote.Name, "historyKept", keepHistory)
 	if keepHistory {
 		return nil
@@ -146,7 +162,17 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 
 // Availability tells how long the device did not answer since it was added.
 func (r *Remote) Availability(ctx context.Context) (Availability, error) {
-	return readAvailability(ctx, r.db, r.ID)
+	availability, err := readAvailability(ctx, r.db, r.ID)
+	if err != nil {
+		return Availability{}, err
+	}
+	// An outage that lasts is in the database only up to its last write; its
+	// current end is known in memory.
+	if outage, unwritten, ok := r.watched.ongoing(); ok {
+		availability.LastOutage = &outage
+		availability.OfflineSeconds += int64(unwritten / time.Second)
+	}
+	return availability, nil
 }
 
 // Wait waits until every recorder has stopped after the ctx given to New is done.
@@ -161,6 +187,7 @@ func (h *Hub) start(device Device, fixed bool) {
 		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)
 	}
 	recent := &history.Recent{}
+	watched := &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID}
 	ctx, stop := context.WithCancel(h.ctx)
 	remote := &Remote{
 		Device:   device,
@@ -168,13 +195,11 @@ func (h *Hub) start(device Device, fixed bool) {
 		Agent:    agent,
 		Reader:   history.Reader{Store: h.store, Recent: recent, Device: device.ID},
 		db:       h.store.DB(),
+		watched:  watched,
 		stop:     stop,
 		recorded: make(chan struct{}),
 	}
-	recorder := &history.Recorder{
-		Store: h.store, Recent: recent, Device: device.ID,
-		Collector: &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID},
-	}
+	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched}
 	h.recording.Go(func() {
 		defer close(remote.recorded)
 		recorder.Run(ctx)

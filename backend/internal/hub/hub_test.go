@@ -147,3 +147,77 @@ func TestRemoveForgetsTheDeviceAndItsHistory(t *testing.T) {
 		t.Errorf("Remove(nas) error = %v, want problem %q", err, ProblemNotFound)
 	}
 }
+
+func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Office PC", startDevice(t)); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	now := time.Now()
+	if err := store.Add(ctx, "office-pc", now, map[string]float64{history.MetricCPU: 1}); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	if err := h.Remove(cancelled, "office-pc", false); err != nil {
+		t.Fatalf("Remove() with a cancelled request error = %v", err)
+	}
+
+	if got := ids(h.Remotes()); len(got) != 0 {
+		t.Errorf("devices = %q, want none", got)
+	}
+	var count int
+	if err := store.DB().QueryRow(`SELECT COUNT(*) FROM hub_devices`).Scan(&count); err != nil || count != 0 {
+		t.Errorf("saved devices = %d, %v; want none", count, err)
+	}
+	if series, err := store.Range(ctx, "office-pc", now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 0 {
+		t.Errorf("history = %+v, %v; want it deleted", series, err)
+	}
+}
+
+func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	address := startDevice(t)
+	pi := Device{ID: "pi", Name: "Pi", Address: address}
+	nas := Device{ID: "nas", Name: "NAS", Address: address}
+	first, cancel := context.WithCancel(ctx)
+	h, err := New(first, store, []Device{pi, nas})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := h.Add(ctx, "Laptop", address); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	now := time.Now()
+	for _, id := range []string{"pi", "nas", "laptop"} {
+		if _, err := store.DB().Exec(`INSERT INTO hub_outages (device, started, ended) VALUES (?, ?, ?)`, id, now.UnixMilli(), now.UnixMilli()); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Add(ctx, id, now, map[string]float64{history.MetricCPU: 1}); err != nil {
+			t.Fatalf("store.Add() error = %v", err)
+		}
+	}
+	cancel()
+	h.Wait()
+
+	// The NAS is no longer in HUB_DEVICES; the laptop is still saved.
+	openTestHub(t, store, []Device{pi})
+
+	for id, want := range map[string]int{"pi": 1, "laptop": 1, "nas": 0} {
+		var watched, outages int
+		if err := store.DB().QueryRow(`SELECT (SELECT COUNT(*) FROM hub_watched WHERE device = ?1), (SELECT COUNT(*) FROM hub_outages WHERE device = ?1)`, id).Scan(&watched, &outages); err != nil {
+			t.Fatal(err)
+		}
+		if watched != want || outages != want {
+			t.Errorf("availability rows of %s = %d watched, %d outages; want %d each", id, watched, outages, want)
+		}
+		// The history ages out with the retention instead.
+		if series, err := store.Range(ctx, id, now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 1 {
+			t.Errorf("history of %s = %+v, %v; want it kept", id, series, err)
+		}
+	}
+}

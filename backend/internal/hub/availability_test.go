@@ -138,3 +138,68 @@ func TestAgentTellsSinceWhenItIsUnreachable(t *testing.T) {
 		t.Error("after answering: Unreachable() = true, want false")
 	}
 }
+
+func TestWatchedAgentWritesAnOngoingOutageEveryFiveMinutes(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	openTestHub(t, store, nil) // creates the tables
+	var up atomic.Bool
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	agent := &watchedAgent{agent: NewAgent(startSwitchableDevice(t, &up)), db: store.DB(), device: "pi", clock: func() time.Time { return now }}
+	remote := &Remote{Device: Device{ID: "pi"}, db: store.DB(), watched: agent}
+	if err := watch(ctx, store.DB(), "pi", now); err != nil {
+		t.Fatalf("watch() error = %v", err)
+	}
+	collect := func(answers bool) {
+		t.Helper()
+		up.Store(answers)
+		if _, err := agent.Collect(ctx); (err == nil) != answers {
+			t.Fatalf("Collect() error = %v, want answered %v", err, answers)
+		}
+	}
+	written := func() (started, ended time.Time) {
+		t.Helper()
+		var s, e int64
+		if err := store.DB().QueryRow(`SELECT started, ended FROM hub_outages WHERE device = 'pi' ORDER BY started DESC LIMIT 1`).Scan(&s, &e); err != nil {
+			t.Fatalf("read the outage: %v", err)
+		}
+		return time.UnixMilli(s).UTC(), time.UnixMilli(e).UTC()
+	}
+
+	start := now
+	collect(false)
+	if s, e := written(); !s.Equal(start) || !e.Equal(start) {
+		t.Errorf("outage after the first failed reading = %v to %v, want %v to %v", s, e, start, start)
+	}
+
+	// Within the next five minutes, the failed readings are not written, but
+	// the page gets the current end from memory.
+	now = now.Add(5 * time.Second)
+	collect(false)
+	if s, e := written(); !s.Equal(start) || !e.Equal(start) {
+		t.Errorf("outage 5 s later = %v to %v, want it unchanged in the database", s, e)
+	}
+	got, err := remote.Availability(ctx)
+	if err != nil || got.Outages != 1 || got.OfflineSeconds != 5 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
+		t.Errorf("availability 5 s later = %+v, %v; want 1 outage of 5 s ending now", got, err)
+	}
+
+	now = now.Add(5 * time.Minute)
+	collect(false)
+	if _, e := written(); !e.Equal(now) {
+		t.Errorf("outage after five minutes ends at %v in the database, want %v", e, now)
+	}
+
+	now = now.Add(5 * time.Second)
+	collect(true)
+	if _, e := written(); !e.Equal(now) {
+		t.Errorf("outage after the device answers ends at %v, want %v", e, now)
+	}
+	if _, _, ongoing := agent.ongoing(); ongoing {
+		t.Error("ongoing() = true after the device answered, want false")
+	}
+	got, err = remote.Availability(ctx)
+	if err != nil || got.Outages != 1 || got.OfflineSeconds != 5*60+10 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
+		t.Errorf("availability after the outage = %+v, %v; want 1 outage of 5 min 10 s", got, err)
+	}
+}
