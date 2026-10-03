@@ -80,3 +80,45 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Names the published images in the notes of the tag's GitHub release, so the
+  # release page says how to run it with Docker next to the Windows installers.
+  release-notes:
+    name: Name the images in the release notes
+    if: github.ref_type == 'tag'
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Add the images to the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          image="ghcr.io/${REPOSITORY,,}"
+          # The Windows workflow may create the release at the same time.
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --generate-notes || gh release view "$tag" > /dev/null
+          fi
+          notes="$(gh release view "$tag" --json body --jq .body)"
+          marker="<!-- docker-images -->"
+          if [[ "$notes" == *"$marker"* ]]; then
+            echo "The release notes already name the images."
+            exit 0
+          fi
+          cat > notes.md <<NOTES
+          $notes
+
+          $marker
+          ## Docker (Linux, Raspberry Pi)
+
+          Images for arm64 and amd64: \`$image:$version\` (also \`:latest\`).
+
+          Update with \`docker compose pull && docker compose up -d\` in the folder with \`compose.yaml\`.
+          NOTES
+          gh release edit "$tag" --notes-file notes.md
