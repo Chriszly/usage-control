@@ -18,7 +18,7 @@ docker compose up -d
 
 This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd64, so the Pi doesn't build anything. `IMAGE_TAG` picks the version: `latest` (default) is the newest release, a release such as `0.1.0` stays fixed, and `main` follows every change on the main branch, for testing. To build the image from this checkout instead, run `docker compose up -d --build`.
 
-Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges.
+Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges. The port is published over IPv4 only, so the program sees each client's real address and can keep requests from outside the local network out; a browser that tries IPv6 first falls back to IPv4 by itself.
 
 ### Disks
 
@@ -59,7 +59,7 @@ Devices can also be listed in the hub's `.env`, each as `name=address:port`, sep
 HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
 ```
 
-`DEVICE_NAME` optionally sets how the page names the hub itself (default *Host Hub*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true`, as the [Windows installer](#install-it-on-windows) does.
+`DEVICE_NAME` optionally sets how the page names the hub itself (default *Host Hub*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true` in its `.env`, as the [Windows installer](#install-it-on-windows) does.
 
 The hub asks each device for its usage every 5 seconds and keeps their history in its own database, with the same retention, so the other devices need no setting. Buttons above the dashboard switch between the devices; a dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). A device that does not answer is shown as such, and its history has a gap for that time. Its *Availability* card shows the share of time it answered since it was added, how long it was offline in total, and its last outage. Time the hub itself was not running is not counted as offline. The hub only connects to addresses on the local network. The history is kept under the device's name, so renaming a device starts a new history.
 
@@ -72,7 +72,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The history stays on the `data` volume. What changed is on the [releases page](https://github.com/Chriszly/usage-control/releases). On Windows, run the newer installer from that page; it keeps the options it was installed with. Builds of main number their installers `0.0.<run>`, which counts as older than any release, so a main installer only installs on a PC that has no release installed.
+The history stays on the `data` volume. When `compose.yaml` itself changed, update the checkout too (`git pull`) before `docker compose up -d`. What changed is on the [releases page](https://github.com/Chriszly/usage-control/releases). On Windows, run the newer installer from that page; it keeps the options it was installed with. Builds of main number their installers `0.0.<run>`, which counts as older than any release, so a main installer only installs on a PC that has no release installed.
 
 ### New versions
 
