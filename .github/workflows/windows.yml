@@ -158,6 +158,9 @@ jobs:
     needs: [programs, tests]
     if: needs.programs.outputs.installer == 'true'
     runs-on: windows-latest
+    # TEMPORARY, removed before merge: lets the screenshot step push.
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.programs.outputs.version }}
     defaults:
@@ -206,6 +209,83 @@ jobs:
             -o "check\usage-control-$newer-x64.msi"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           windows\check-installer.ps1 -Msi "msi\usage-control-$env:VERSION-x64.msi" -NewerMsi "check\usage-control-$newer-x64.msi"
+
+      # TEMPORARY, removed before merge: screenshots of the tray icon for the PR.
+      - name: Screenshot the tray icon
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace Win32 -Name Shot -MemberDefinition @'
+          [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+          [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+          [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+          [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string windowName);
+          [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+          [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+          '@
+          New-Item -ItemType Directory shots -Force | Out-Null
+          function Save-Area([string] $Name, [int] $X, [int] $Y, [int] $Width, [int] $Height) {
+            $bitmap = New-Object System.Drawing.Bitmap $Width, $Height
+            [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($X, $Y, 0, 0, $bitmap.Size)
+            $bitmap.Save("shots\$Name.png")
+          }
+          function Save-Window([string] $Name) {
+            $rect = New-Object Win32.Shot+Rect
+            $null = [Win32.Shot]::GetWindowRect([Win32.Shot]::GetForegroundWindow(), [ref]$rect)
+            Save-Area $Name $rect.Left $rect.Top ($rect.Right - $rect.Left) ($rect.Bottom - $rect.Top)
+          }
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          function Save-Menu([string] $Name) {
+            $null = [Win32.Shot]::SetCursorPos($screen.Width - 300, $screen.Height - 80)
+            $window = [Win32.Shot]::FindWindow('SystrayClass', '')
+            $null = [Win32.Shot]::PostMessage($window, 0x0401, [IntPtr]::Zero, [IntPtr]0x0205)
+            Start-Sleep -Seconds 2
+            Save-Area $Name ($screen.Width - 700) ($screen.Height - 420) 700 420
+            $shell.SendKeys('{ESC}')
+            Start-Sleep -Seconds 1
+          }
+
+          # The wizard to its last page, then Finish with the box ticked.
+          $msi = (Resolve-Path "msi\usage-control-$env:VERSION-x64.msi").Path
+          Start-Process msiexec.exe -ArgumentList "/i `"$msi`""
+          Start-Sleep -Seconds 10
+          $shell = New-Object -ComObject WScript.Shell
+          $null = $shell.AppActivate('Usage Control Setup')
+          Start-Sleep -Seconds 1
+          $shell.SendKeys('{ENTER}')
+          Start-Sleep -Seconds 2
+          $shell.SendKeys('{ENTER}')
+          Start-Sleep -Seconds 2
+          $shell.SendKeys('{ENTER}')
+          Start-Sleep -Seconds 30
+          $null = $shell.AppActivate('Usage Control Setup')
+          Start-Sleep -Seconds 1
+          Save-Window finish
+          $shell.SendKeys('{ENTER}')
+          Start-Sleep -Seconds 8
+          Get-Process usage-control-tray | Format-Table Id, ProcessName
+          Save-Area taskbar ($screen.Width - 600) ($screen.Height - 80) 600 80
+          Save-Menu menu-no-hub
+          # A hub asks this PC for its usage.
+          $null = Invoke-WebRequest http://127.0.0.1:9393/api/metrics -Headers @{ 'Usage-Control-Hub-Port' = '9393' } -UseBasicParsing
+          Start-Sleep -Seconds 7
+          Save-Menu menu-running
+          $window = [Win32.Shot]::FindWindow('SystrayClass', '')
+          $null = [Win32.Shot]::PostMessage($window, 0x0111, [IntPtr]6, [IntPtr]::Zero)
+          Start-Sleep -Seconds 8
+          Get-Service UsageControl | Format-Table Name, Status
+          Save-Menu menu-paused
+
+          # Commits them to the PR branch, for the PR comment.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --depth=1 origin $env:GITHUB_HEAD_REF
+          git checkout -B shots FETCH_HEAD
+          New-Item -ItemType Directory pr-screenshots -Force | Out-Null
+          Copy-Item shots\*.png pr-screenshots\
+          git add pr-screenshots
+          git commit -m 'Screenshots of the tray icon (removed before merge)'
+          git push origin "HEAD:$env:GITHUB_HEAD_REF"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
