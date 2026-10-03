@@ -27,7 +27,7 @@ Backend packages, in `backend/internal/`:
 | `version` | the version, set at build time |
 | `web` | the built website, embedded into the binary |
 
-`backend/cmd/usage-control/main.go` reads the settings and wires these together; on Windows `service_windows.go` runs it as a service. How the parts work together is in [How it works](architecture.md).
+`backend/cmd/usage-control/main.go` reads the settings and wires these together; on Windows `service_windows.go` runs it as a service. `backend/cmd/usage-control-tray` is the Windows tray icon, and `backend/cmd/tray-icons` draws its icons. How the parts work together is in [How it works](architecture.md).
 
 ## Run it while developing
 
@@ -44,6 +44,18 @@ cd frontend && npm ci && npm start
 ## Demo page
 
 `npm run build:demo` in `frontend/` builds the demo published at https://chriszly.github.io/usage-control/ into `frontend/dist/demo/`. It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
+
+## Tray icon and theme colors
+
+The Windows tray icon is the website's mascot (`frontend/src/app/mascot/mascot.html` and `mascot.css`) in the colors of the website's theme: the `--mascot-*` tones that `frontend/src/styles.scss` takes from its `$palette`. To recolor the website, the bear and the tray icon together, change `$palette` there; the next build follows. The icons are drawn at build time, after the website:
+
+```bash
+cd frontend && npm ci && npm run build
+cd ../backend && go run ./cmd/tray-icons
+GOOS=windows go build -ldflags=-H=windowsgui ./cmd/usage-control-tray
+```
+
+`tray-icons` writes `usage-control.ico` (the installer's icon) and `running.ico`, `stopped.ico` and `paused.ico`, the bear with a green, red or grey status dot, into `backend/cmd/usage-control-tray/icons/`. They are not committed. It understands the circles, ellipses and paths (`M`, `L`, `H`, `V`, `A`) the mascot uses and stops with an error on anything else. The menu's words are in `backend/cmd/usage-control-tray/tray.go`, in the same four languages as the website.
 
 ## Translations
 

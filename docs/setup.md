@@ -100,6 +100,27 @@ To switch later, run the installer again and pick the other one. Either way, the
 
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
 - opens port 9393 in the Windows firewall, for **private networks only**. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
+- adds the tray icon described below, which starts for everyone who logs in
+
+### The tray icon
+
+The bear in the taskbar's notification area shows whether Usage Control runs:
+
+| Dot | Meaning |
+| --- | --- |
+| green | the service runs and answers |
+| red | the service is stopped, or runs but does not answer |
+| grey | paused from the icon, or starting or stopping |
+
+Its menu, opened with a click:
+
+- **Open hub** opens the page of the hub that collects from this PC. The hub tells the PC its address each time it asks for the usage, so this needs no setup; until a hub has asked, the entry is greyed out
+- **Open the page on this PC** appears when the PC shows the website itself (`WEBSITE=1`)
+- **Pause** stops collecting until **Resume**. The service starts again with Windows
+- **Stop and exit** stops the service and closes the icon until the next login. The service starts again with Windows
+- **Start** appears when the service was stopped some other way
+
+Every logged-in user may start and stop the service from the icon, without an administrator prompt; nothing else about the service changes. The menu follows the Windows display language (English, German, French or Spanish). The setup wizard's last page shows the icon right away; after a silent install it appears at the next login.
 
 To change the other defaults, or to install without the wizard (`/qn`), install from a command prompt run as administrator and add options:
 
@@ -117,7 +138,7 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `HISTORY_MAX_ENTRIES` | with `WEBSITE=1`, how many disks, sensors, network cards and GPUs each the history keeps per device (default 64) |
 | `ALLOWED_HOSTS` | other names this PC answers to, such as a name from the router's DNS the hub uses for it |
 
-An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
+An update closes the tray icon while it replaces it; it comes back at the next login, or right away when the update ran through the wizard. An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
 
 The service writes errors to the Windows event log (*Application*, source *UsageControl*). When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
 

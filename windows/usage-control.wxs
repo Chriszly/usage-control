@@ -6,8 +6,14 @@
   the website and keeps the history itself. Double-clicking the installer
   asks which of the two this PC should do (the "Mode" page below).
 
+  It also installs usage-control-tray.exe, the icon in the taskbar that shows
+  whether the service runs and pauses, stops or opens it. It starts when
+  someone logs in, and at the end of the setup wizard. Logged-in users may
+  start and stop the service, so its menu needs no administrator.
+
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
+      -d TrayBinary=usage-control-tray.exe -d Icon=usage-control.ico
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
       -o usage-control.msi
 
@@ -37,6 +43,9 @@
     <!-- Installing a newer version replaces the old one and keeps the history. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Usage Control is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <!-- The mascot, in Apps and Features. -->
+    <Icon Id="UsageControl.ico" SourceFile="$(Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="UsageControl.ico" />
 
     <!--
       Each option is remembered in the registry. AppSearch reads the remembered
@@ -85,6 +94,11 @@
                       Start="auto"
                       ErrorControl="normal"
                       Account="NT AUTHORITY\LocalService">
+        <!--
+          Windows' default rights for services, except that logged-in users
+          (IU) may also start (RP) and stop (WP) this one, from the tray icon.
+        -->
+        <PermissionEx Sddl="D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)" />
         <util:ServiceConfig FirstFailureActionType="restart"
                             SecondFailureActionType="restart"
                             ThirdFailureActionType="restart"
@@ -119,6 +133,15 @@
       <!-- The program itself also refuses requests from outside the local network. -->
       <fw:FirewallException Name="Usage Control" Port="[PORT]" Protocol="tcp" Profile="private" />
     </Component>
+
+    <!-- The tray icon, started for everyone who logs in. -->
+    <Component Directory="INSTALLFOLDER">
+      <File Id="TrayExe" Source="$(TrayBinary)" Name="usage-control-tray.exe" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="Usage Control"
+                     Type="string" Value="&quot;[#TrayExe]&quot;" />
+    </Component>
+    <!-- Updating and uninstalling close the tray icons that run, so the file can be replaced. -->
+    <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no" />
 
     <!--
       The history database, used with WEBSITE=1. Only the service,
@@ -173,6 +196,7 @@
         </Control>
       </Dialog>
 
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartTray" Order="998" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
       <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
@@ -188,5 +212,11 @@
     </UI>
 
     <UIRef Id="WixUI_Common" />
+
+    <!-- A ticked box on the wizard's last page shows the tray icon right away. -->
+    <SetProperty Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Show the icon in the taskbar now" After="CostFinalize" Sequence="ui" Condition="NOT Installed" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#TrayExe]" />
+    <CustomAction Id="StartTray" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
   </Fragment>
 </Wix>
