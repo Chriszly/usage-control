@@ -228,6 +228,9 @@
             <span class="label" [title]="n.name">{{ n.name }}</span>
             <span class="rate">↓ {{ n.receiveBytesPerSecond | bytes: i18n.language() }}/s</span>
             <span class="rate">↑ {{ n.sendBytesPerSecond | bytes: i18n.language() }}/s</span>
+            @if (n.addresses?.length || n.linkMbps) {
+              <span class="link">{{ linkDetails(n) }}</span>
+            }
             @if (n.errors || n.dropped) {
               <span class="problems" [title]="i18n.t('dashboard.networkProblemsHint')">{{
                 i18n.t('dashboard.networkProblems', {
@@ -298,6 +301,20 @@
       </mat-card-content>
     </mat-card>
 
+    @if (s.fans?.length) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <h2>{{ i18n.t('dashboard.fans') }}</h2>
+          @for (f of s.fans; track f.name) {
+            <p class="sensor">
+              <span class="label" [title]="f.name">{{ f.name }}</span
+              ><span>{{ i18n.t('dashboard.rpm', { rpm: decimal(f.rpm, '1.0-0') }) }}</span>
+            </p>
+          }
+        </mat-card-content>
+      </mat-card>
+    }
+
     @if (s.battery; as b) {
       <mat-card appearance="outlined">
         <mat-card-content>
@@ -311,6 +328,22 @@
           <p class="detail">
             {{ i18n.t(b.pluggedIn ? 'dashboard.pluggedIn' : 'dashboard.onBattery') }}
           </p>
+          @if (b.watts) {
+            <p class="detail">
+              {{
+                i18n.t(b.pluggedIn ? 'dashboard.batteryCharging' : 'dashboard.batteryDrawing', {
+                  watts: decimal(b.watts, '1.1-1'),
+                })
+              }}
+            </p>
+          }
+          @if (b.healthPercent !== undefined) {
+            <p class="detail" [title]="i18n.t('dashboard.batteryHealthHint')">
+              {{
+                i18n.t('dashboard.batteryHealth', { percent: decimal(b.healthPercent, '1.0-0') })
+              }}
+            </p>
+          }
         </mat-card-content>
       </mat-card>
     }

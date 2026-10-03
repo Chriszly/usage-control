@@ -131,6 +131,19 @@ export class Dashboard {
     return formatNumber(value, this.i18n.language(), digits);
   }
 
+  /** The addresses of an interface and the speed it is connected at, as one line. */
+  protected linkDetails(n: NetworkInterface): string {
+    const parts = [...(n.addresses ?? [])];
+    if (n.linkMbps) {
+      parts.push(
+        n.linkMbps >= 1000
+          ? this.i18n.t('dashboard.linkGbps', { speed: this.decimal(n.linkMbps / 1000, '1.0-1') })
+          : this.i18n.t('dashboard.linkMbps', { speed: n.linkMbps }),
+      );
+    }
+    return parts.join(' · ');
+  }
+
   /** Describes each core's usage for screen readers, which cannot see the bars. */
   protected coresLabel(usage: number[]): string {
     const cores = usage.map((u, i) =>

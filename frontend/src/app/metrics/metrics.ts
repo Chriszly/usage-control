@@ -49,12 +49,23 @@ export interface Snapshot {
   throttling?: Throttling;
   /** Only reported by machines with a battery. */
   battery?: Battery;
+  /** Only reported where Linux knows the fans, such as a Raspberry Pi 5. */
+  fans?: Fan[];
+}
+
+export interface Fan {
+  name: string;
+  rpm: number;
 }
 
 /** The charge of the machine's batteries, and whether it runs on mains power. */
 export interface Battery {
   percent: number;
   pluggedIn: boolean;
+  /** Power flowing in or out; only reported by Linux. */
+  watts?: number;
+  /** How much the battery holds compared to when it was new; only reported by Linux. */
+  healthPercent?: number;
 }
 
 /** The average number of processes running or waiting over the last 1, 5 and 15 minutes. */
@@ -113,6 +124,10 @@ export interface NetworkInterface {
   errors?: number;
   /** Packets thrown away since the machine started; missing when there were none. */
   dropped?: number;
+  /** The speed the interface is connected at; missing where unknown, such as most Wi-Fi cards. */
+  linkMbps?: number;
+  /** IPv4 addresses. */
+  addresses?: string[];
 }
 
 /** The usage of one graphics processor. Memory and temperature are missing where it does not report them. */

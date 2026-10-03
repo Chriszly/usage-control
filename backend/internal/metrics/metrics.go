@@ -35,6 +35,9 @@ type Snapshot struct {
 	Throttling *Throttling `json:"throttling,omitempty"`
 	// Battery is only reported by machines with a battery.
 	Battery *Battery `json:"battery,omitempty"`
+	// Fans is only reported where Linux knows the fans, such as on a
+	// Raspberry Pi 5 with its cooling fan.
+	Fans []Fan `json:"fans,omitempty"`
 }
 
 // CPU is the processor usage across all cores. The usage of each core, the
@@ -77,6 +80,7 @@ type Collector struct {
 	batteries      *batteryReader
 	clockFiles     []string
 	throttlingFile string
+	fans           []fanSensor
 
 	// mu guards the readings of the previous call, which CPU usage and
 	// network and disk speeds are measured against.
@@ -87,6 +91,12 @@ type Collector struct {
 	networkTime     time.Time
 	diskCounters    map[string]ioCounters
 	diskTime        time.Time
+
+	// linkMu guards the speed and addresses of the network interfaces,
+	// which are read again every linkInterval.
+	linkMu   sync.Mutex
+	links    map[string]link
+	linkTime time.Time
 }
 
 // NewCollector returns a Collector for the machine the program runs on that
@@ -102,6 +112,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 		batteries:      newBatteryReader(),
 		clockFiles:     clockFiles(),
 		throttlingFile: throttlingFile(),
+		fans:           fanSensors(),
 	}, nil
 }
 
@@ -131,6 +142,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read network traffic: %w", err)
 	}
+	c.addLinks(network)
 
 	cpuUsage.Cores = cores
 	cpuUsage.ClockMHz = readClockMHz(c.clockFiles)
@@ -155,6 +167,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		GPUs:         c.gpus.read(ctx),
 		Throttling:   readThrottling(c.throttlingFile),
 		Battery:      c.batteries.read(),
+		Fans:         readFans(c.fans),
 	}, nil
 }
 
