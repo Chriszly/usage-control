@@ -99,9 +99,12 @@ func run(parent context.Context) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// One sampler reads the usage for every page, hub and the recorder.
+	sampler := metrics.NewSampler(ctx, collector)
+
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
 	// device keeps none and only answers the hub.
-	handler := server.NewDataOnly(collector, listSetting("ALLOWED_HOSTS"))
+	handler := server.NewDataOnly(sampler, listSetting("ALLOWED_HOSTS"))
 	if dataOnly {
 		slog.Info("serving only the usage data, for a hub; the website is turned off")
 	} else {
@@ -115,7 +118,7 @@ func run(parent context.Context) error {
 		}
 		defer func() { _ = store.Close() }()
 
-		site, waitForRecorders, err := withHistory(ctx, collector, store, remotes, retention, historyEntries)
+		site, waitForRecorders, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries)
 		if err != nil {
 			return err
 		}
@@ -165,14 +168,7 @@ func run(parent context.Context) error {
 // is done, and one pruner deletes what is older than retention; the returned
 // function waits until they have stopped. Of each device's disks, sensors,
 // network cards and GPUs, the first historyEntries are kept.
-func withHistory(ctx context.Context, collector *metrics.Collector, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int) (server.Site, func(), error) {
-	// The recorder measures with its own collector, so CPU usage and network
-	// speed in the history are averages over its own interval.
-	recorderCollector, err := metrics.NewCollector(ctx, diskPaths())
-	if err != nil {
-		return server.Site{}, nil, err
-	}
-
+func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int) (server.Site, func(), error) {
 	devicesPassword, err := password.Open(ctx, store.DB())
 	if err != nil {
 		return server.Site{}, nil, err
@@ -194,7 +190,7 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 	}
 
 	recent := &history.Recent{}
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, MaxEntries: historyEntries}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: sampler, MaxEntries: historyEntries}
 	pruner := &history.Pruner{Store: store, Retention: retention}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
@@ -205,7 +201,7 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 			local: server.Device{
 				ID:      hub.LocalID,
 				Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
-				Metrics: collector,
+				Metrics: sampler,
 				History: history.Reader{Store: store, Recent: recent},
 			},
 			hub: others,
