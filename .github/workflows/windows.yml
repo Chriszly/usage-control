@@ -73,11 +73,15 @@ jobs:
       # The test program runs the Windows-only tests on the Windows runner.
       - name: Build the programs
         working-directory: backend
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-              go build -trimpath -ldflags="-s -w" -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
+              go build -trimpath \
+                -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
+                -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
           done
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics

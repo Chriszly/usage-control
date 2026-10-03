@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -19,6 +20,9 @@ import (
 
 // Snapshot is the usage of the machine at one point in time.
 type Snapshot struct {
+	// Version is the version of usage-control that read the usage. Devices
+	// running a version from before it was reported leave it out.
+	Version       string             `json:"version,omitempty"`
 	Time          time.Time          `json:"time"`
 	UptimeSeconds uint64             `json:"uptimeSeconds"`
 	CPU           CPU                `json:"cpu"`
@@ -117,6 +121,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	}
 
 	return Snapshot{
+		Version:       version.Version,
 		Time:          time.Now().UTC(),
 		UptimeSeconds: uptime,
 		CPU: CPU{

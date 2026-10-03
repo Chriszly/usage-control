@@ -31,6 +31,7 @@ export const es: Messages = {
   'dashboard.loading': 'Cargando…',
   'dashboard.uptimeDays': '{days} d {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',
+  'dashboard.version': 'Versión {version}',
   'dashboard.availability': 'Disponibilidad',
   'dashboard.offlineSince': 'Sin conexión durante {duration} desde el {date}',
   'dashboard.noOutageSince': 'Siempre accesible desde el {date}',

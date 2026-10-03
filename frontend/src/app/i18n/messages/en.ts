@@ -32,6 +32,7 @@ export const en = {
   'dashboard.loading': 'Loading…',
   'dashboard.uptimeDays': '{days} d {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',
+  'dashboard.version': 'Version {version}',
   'dashboard.availability': 'Availability',
   'dashboard.offlineSince': 'Offline for {duration} since {date}',
   'dashboard.noOutageSince': 'Always answered since {date}',

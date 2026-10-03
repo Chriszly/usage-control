@@ -106,6 +106,11 @@ describe('Dashboard', () => {
     expect(text()).toContain('Write 0 B/s');
   });
 
+  it("shows the device's version when it reports one", () => {
+    respond({ ...snapshot, version: '0.1.0' });
+    expect(text()).toContain('Version 0.1.0');
+  });
+
   it('leaves out what the device does not report', () => {
     respond(snapshot);
 
@@ -116,6 +121,7 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('Swap');
     expect(text()).not.toContain('Read');
     expect(text()).not.toContain('Power and clock');
+    expect(text()).not.toContain('Version');
   });
 
   it("shows a Raspberry Pi's power and throttling state", () => {
