@@ -52,5 +52,5 @@ systemctl daemon-reload
 systemctl enable usage-control.service > /dev/null
 systemctl restart usage-control.service
 
-echo "usage-control is running. Open http://<this machine's address>:8080 on the local network (or the port in LISTEN_ADDR)."
+echo "usage-control is running. Open http://<this machine's address>:9393 on the local network (or the port in LISTEN_ADDR)."
 echo "Settings: $settings, then: sudo systemctl restart usage-control"

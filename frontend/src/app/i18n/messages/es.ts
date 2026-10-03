@@ -109,7 +109,7 @@ export const es: Messages = {
     'Da al dispositivo un nombre de hasta 64 caracteres, con al menos una letra o un número.',
   'devices.problem.nameTaken': 'Otro dispositivo ya tiene este nombre. Elige otro.',
   'devices.problem.address':
-    'Escribe la dirección como dirección IP y puerto, por ejemplo 192.168.1.20:8080.',
+    'Escribe la dirección como dirección IP y puerto, por ejemplo 192.168.1.20:9393.',
   'devices.problem.unreachable':
     'Ningún usage-control responde en esta dirección. ¿Está en marcha y la dirección está en la red local?',
   'devices.problem.fixed':

@@ -18,7 +18,7 @@ docker compose up -d
 
 This runs the published image `ghcr.io/chriszly/usage-control` for arm64 and amd64, so the Pi doesn't build anything. `IMAGE_TAG` picks the version: `latest` (default) is the newest release, a release such as `0.1.0` stays fixed, and `main` follows every change on the main branch, for testing. To build the image from this checkout instead, run `docker compose up -d --build`.
 
-Then open `http://<the machine's address>:8080` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges. The port is published over IPv4 only, so the program sees each client's real address and can keep requests from outside the local network out; a browser that tries IPv6 first falls back to IPv4 by itself.
+Then open `http://<the machine's address>:9393` from a device on the same network. The container reads the host's `/proc` and `/sys` read-only, runs as a non-root user and has no extra privileges. The port is published over IPv4 only, so the program sees each client's real address and can keep requests from outside the local network out; a browser that tries IPv6 first falls back to IPv4 by itself.
 
 The page answers only requests from the local network: private, link-local and loopback addresses, and IPv6 addresses in one of the machine's own subnets. It also answers only when opened by a name it knows: an IP address, `localhost`, its hostname or a `.local` name. A page from the internet could otherwise point its domain at the machine's LAN address and read the API from a browser on the LAN (DNS rebinding). To open the page by another name, such as one from the router's DNS, list it in `.env`:
 
@@ -26,7 +26,7 @@ The page answers only requests from the local network: private, link-local and l
 ALLOWED_HOSTS=pi.fritz.box
 ```
 
-Inside Docker the hostname is the container's, so a bare `http://raspberrypi:8080` needs that entry too; `raspberrypi.local` does not.
+Inside Docker the hostname is the container's, so a bare `http://raspberrypi:9393` needs that entry too; `raspberrypi.local` does not.
 
 ### Disks
 
@@ -57,14 +57,14 @@ When a new version changes the layout of the database, it first copies the file 
 
 ### Several devices (hub mode)
 
-Every device runs the same image. On its own it only shows itself. To see several devices on one page, open the page of the device that should be the hub, click *Add other devices* (later *Devices*) and add each other device with a name and its address, such as `192.168.1.30:8080`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
+Every device runs the same image. On its own it only shows itself. To see several devices on one page, open the page of the device that should be the hub, click *Add other devices* (later *Devices*) and add each other device with a name and its address, such as `192.168.1.30:9393`. The hub checks that a usage-control answers there before it adds the device, and starts collecting right away, with no restart.
 
 The first device you add asks you to choose a password, at least 8 characters, repeated once. From then on, adding or removing a device asks for it, and it cannot be changed on the page. Only a salted hash is kept, in the hub's database. If it is forgotten, set `RESET_PASSWORD=true` in the hub's `.env`, restart it, and unset it again: the next device you add chooses a new password. Removing a device deletes its history too, unless you tick *Keep its history*.
 
 Devices can also be listed in the hub's `.env`, each as `name=address:port`, separated by commas. These show on the page as *Set in .env* and are removed only there:
 
 ```bash
-HUB_DEVICES=Living room Pi=192.168.1.20:8080,Office PC=192.168.1.30:8080
+HUB_DEVICES=Living room Pi=192.168.1.20:9393,Office PC=192.168.1.30:9393
 ```
 
 `DEVICE_NAME` optionally sets how the page names the hub itself (default *Host Hub*). A device that only reports to the hub can turn its own website and history off with `DATA_ONLY=true` in its `.env`, as the [Windows installer](#install-it-on-windows) does.
@@ -100,7 +100,7 @@ cd usage-control-0.1.0-linux-arm64
 sudo ./install.sh
 ```
 
-The service starts right away and at every boot, on port 8080. Settings go in `/etc/usage-control.env` (the same ones as in `.env` for Docker), followed by `sudo systemctl restart usage-control`. The history is kept in `/var/lib/usage-control`. Running natively, it sees every disk and needs no `HOST_PROC` or mounts. Like the container, the service runs as an unprivileged throwaway user that can write only its own folder.
+The service starts right away and at every boot, on port 9393. Settings go in `/etc/usage-control.env` (the same ones as in `.env` for Docker), followed by `sudo systemctl restart usage-control`. The history is kept in `/var/lib/usage-control`. Running natively, it sees every disk and needs no `HOST_PROC` or mounts. Like the container, the service runs as an unprivileged throwaway user that can write only its own folder.
 
 To update, unpack the newer archive and run its `install.sh` again; settings and history are kept. `sudo ./install.sh --uninstall` removes it, and `--uninstall --purge` also deletes its settings and history.
 
@@ -112,9 +112,9 @@ Running the installer:
 
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
 - turns the website off (`DATA_ONLY=true`): the PC only answers the hub's `/api/metrics` requests and keeps no history of its own, unless it is installed with `WEBSITE=1`
-- opens port 8080 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
+- opens port 9393 in the Windows firewall, for private networks only. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 
-Then add the PC on the hub's page, such as *Office PC* at `192.168.1.30:8080`.
+Then add the PC on the hub's page, such as *Office PC* at `192.168.1.30:9393`.
 
 To change the defaults, install from a command prompt run as administrator and add options:
 
@@ -124,7 +124,7 @@ msiexec /i usage-control-1.2.3-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 
 | Option | Meaning |
 | --- | --- |
-| `PORT` | Port the PC is reachable on (default 8080) |
+| `PORT` | Port the PC is reachable on (default 9393) |
 | `WEBSITE` | `1` to show the website on this PC too and keep its history in `C:\ProgramData\Usage Control`, which uninstalling keeps; `0` to turn it off again (default off) |
 | `DEVICE_NAME` | With `WEBSITE=1`, how the page names this PC (default *Host Hub*) |
 | `HUB_DEVICES` | With `WEBSITE=1`, other devices this PC collects from, as on Linux ([hub mode](#several-devices-hub-mode)) |
@@ -179,7 +179,7 @@ Deploying to the Pi lives in the private settings repository rpi-deploy-and-upda
 | Website | `frontend/` | Angular, Node.js LTS (version in `frontend/.nvmrc`) |
 
 ```bash
-# Terminal 1: the backend, serving the API on http://localhost:8080
+# Terminal 1: the backend, serving the API on http://localhost:9393
 cd backend && go run ./cmd/usage-control
 
 # Terminal 2: the website with live reload on http://localhost:4200, forwarding /api to the backend
@@ -199,16 +199,16 @@ $env:DEVICE_NAME = "Office PC"   # optional, see the settings below
 .\usage-control.exe
 ```
 
-On Linux and macOS, build with `go build -o usage-control ./cmd/usage-control` and start it with `DEVICE_NAME="Office PC" ./usage-control`. The page is then at <http://localhost:8080>, and the history is kept in `usage-control.db` in the folder it was started from.
+On Linux and macOS, build with `go build -o usage-control ./cmd/usage-control` and start it with `DEVICE_NAME="Office PC" ./usage-control`. The page is then at <http://localhost:9393>, and the history is kept in `usage-control.db` in the folder it was started from.
 
 The settings are environment variables, listed at the top of `backend/cmd/usage-control/main.go`. The ones that matter most outside Docker:
 
-- `LISTEN_ADDR`: the port, such as `:8090` (default `:8080`)
+- `LISTEN_ADDR`: the port, such as `:8090` (default `:9393`)
 - `DATABASE_PATH`: where the history is kept (default `usage-control.db` in the current folder)
 - `DATA_ONLY=true`: serve only the usage data for a hub, with no website and no history, like the Windows installer does
 - `ALLOWED_HOSTS`: other names this computer answers to, besides its IP addresses, `localhost`, its hostname and `.local` names
 
-To show this computer on a hub, open the hub's page, click *Devices* and add it with its address and port, such as `192.168.1.30:8080`. The hub and this computer must be on the same local network: usage-control answers only private, link-local and loopback addresses, and IPv6 addresses in one of its own subnets. On Windows, allow `usage-control.exe` on private networks when the firewall asks on the first start. Start the built binary rather than `go run`, which builds a new file each time, so the firewall asks again.
+To show this computer on a hub, open the hub's page, click *Devices* and add it with its address and port, such as `192.168.1.30:9393`. The hub and this computer must be on the same local network: usage-control answers only private, link-local and loopback addresses, and IPv6 addresses in one of its own subnets. On Windows, allow `usage-control.exe` on private networks when the firewall asks on the first start. Start the built binary rather than `go run`, which builds a new file each time, so the firewall asks again.
 
 ### Translations
 

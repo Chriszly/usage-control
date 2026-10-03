@@ -35,5 +35,5 @@ COPY --from=backend /out/usage-control /usage-control
 COPY --from=backend --chown=65532:65532 /out/data /data
 ENV DATABASE_PATH=/data/usage-control.db
 VOLUME /data
-EXPOSE 8080
+EXPOSE 9393
 ENTRYPOINT ["/usage-control"]

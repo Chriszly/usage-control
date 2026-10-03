@@ -10,7 +10,7 @@
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -o usage-control.msi
 
   Install options (msiexec /i usage-control.msi PORT=8090 WEBSITE=1):
-    PORT            port the PC is reachable on (default 8080)
+    PORT            port the PC is reachable on (default 9393)
     WEBSITE         1 to show the website and keep the history on this PC
                     (default: only serve the usage to a hub)
     DEVICE_NAME     with WEBSITE=1, how the page names this PC
@@ -50,7 +50,7 @@
       Derived from the options, once all of them are known. Without WEBSITE=1
       the service only serves the usage to a hub, and ignores HUB_DEVICES.
     -->
-    <SetProperty Action="DefaultPORT" Id="PORT" Value="8080" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
+    <SetProperty Action="DefaultPORT" Id="PORT" Value="9393" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
     <Property Id="DATA_ONLY" Value="true" Secure="yes" />
     <Property Id="SERVICE_HUB_DEVICES" Secure="yes" />
     <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
