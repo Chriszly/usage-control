@@ -87,10 +87,16 @@ func (a *Agent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 func (a *Agent) Unreachable() (since time.Time, unreachable bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.latestAt.IsZero() && time.Since(a.latestAt) <= staleAfter {
+	if a.fresh() {
 		return time.Time{}, false
 	}
 	return a.failingSince, true
+}
+
+// fresh reports whether the newest reading is young enough to serve. The
+// caller holds mu.
+func (a *Agent) fresh() bool {
+	return !a.latestAt.IsZero() && time.Since(a.latestAt) <= staleAfter
 }
 
 // ask asks the device for its current usage.
@@ -131,7 +137,7 @@ type LatestCollector struct {
 func (l LatestCollector) Collect(context.Context) (metrics.Snapshot, error) {
 	l.agent.mu.Lock()
 	defer l.agent.mu.Unlock()
-	if l.agent.latestAt.IsZero() || time.Since(l.agent.latestAt) > staleAfter {
+	if !l.agent.fresh() {
 		return metrics.Snapshot{}, ErrUnreachable
 	}
 	return l.agent.latest, nil

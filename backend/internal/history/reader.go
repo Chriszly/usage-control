@@ -14,7 +14,7 @@ const maxPoints = 360
 type Reader struct {
 	Store  *Store
 	Recent *Recent
-	// Device is the name the readings are stored under; LocalDevice when empty.
+	// Device is the name the readings are stored under, such as LocalDevice.
 	Device string
 }
 
@@ -30,7 +30,7 @@ func (r Reader) Range(ctx context.Context, from, to time.Time) ([]Series, time.D
 		return r.Recent.Range(from, to, step), step, nil
 	}
 	step := stepFor(span, SampleInterval)
-	series, err := r.Store.cachedRange(ctx, deviceOrLocal(r.Device), from, to, step)
+	series, err := r.Store.cachedRange(ctx, r.Device, from, to, step)
 	return series, step, err
 }
 
@@ -45,12 +45,4 @@ func stepFor(span, interval time.Duration) time.Duration {
 		step = (step + time.Hour - 1) / time.Hour * time.Hour
 	}
 	return step
-}
-
-// deviceOrLocal returns device, or LocalDevice when it is empty.
-func deviceOrLocal(device string) string {
-	if device == "" {
-		return LocalDevice
-	}
-	return device
 }

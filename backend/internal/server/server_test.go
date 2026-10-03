@@ -20,6 +20,13 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/update"
 )
 
+// DeviceList is a fixed list of devices, as the tests need it.
+type DeviceList []Device
+
+func (l DeviceList) List() []Device {
+	return l
+}
+
 type fakeCollector struct {
 	snapshot metrics.Snapshot
 	err      error

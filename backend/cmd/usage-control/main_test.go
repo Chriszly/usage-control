@@ -87,9 +87,9 @@ func TestDataOnly(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Setenv("DATA_ONLY", tt.value)
-		got, err := dataOnly()
+		got, err := boolSetting("DATA_ONLY")
 		if got != tt.want || (err != nil) != tt.wantErr {
-			t.Errorf("dataOnly() with DATA_ONLY=%q = %v, %v, want %v with error %v", tt.value, got, err, tt.want, tt.wantErr)
+			t.Errorf("boolSetting(DATA_ONLY=%q) = %v, %v, want %v with error %v", tt.value, got, err, tt.want, tt.wantErr)
 		}
 	}
 }

@@ -4,7 +4,6 @@ package hub
 
 import (
 	"fmt"
-	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,8 +14,9 @@ import (
 )
 
 // addressPattern matches host:port, where the host is a name or IPv4 address
-// (letters, digits, dots and dashes) or an IPv6 address in brackets.
-var addressPattern = regexp.MustCompile(`^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$`)
+// (letters, digits, dots and dashes) or an IPv6 address in brackets, and
+// captures the port.
+var addressPattern = regexp.MustCompile(`^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):([0-9]{1,5})$`)
 
 // maxNameLength is the longest device name that is accepted.
 const maxNameLength = 64
@@ -75,14 +75,11 @@ func NewDevice(name, address string) (Device, error) {
 
 	// The address becomes part of the URL the hub asks, so it may only hold a
 	// host name or IP address and a port: no path, user or other URL parts.
-	if !addressPattern.MatchString(address) {
+	match := addressPattern.FindStringSubmatch(address)
+	if match == nil {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:9393"}
 	}
-	host, port, err := net.SplitHostPort(address)
-	if err != nil || host == "" {
-		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:9393"}
-	}
-	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+	if port, _ := strconv.Atoi(match[1]); port < 1 || port > 65535 {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "the port must be a number from 1 to 65535"}
 	}
 

@@ -8,11 +8,16 @@ import (
 
 // readUint reads a file that holds one whole number, as most files in /sys do.
 func readUint(path string) (uint64, error) {
+	return strconv.ParseUint(readText(path), 10, 64)
+}
+
+// readText reads a short file under /sys, or returns "" when it cannot be read.
+func readText(path string) string {
 	text, err := readFile(path)
 	if err != nil {
-		return 0, err
+		return ""
 	}
-	return strconv.ParseUint(strings.TrimSpace(string(text)), 10, 64)
+	return strings.TrimSpace(string(text))
 }
 
 // readFile reads a file under /sys. Its path is made of the names the kernel

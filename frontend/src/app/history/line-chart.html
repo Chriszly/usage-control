@@ -43,7 +43,7 @@
 
     @if (readout(); as r) {
       <div class="crosshair" [style.left.%]="r.left"></div>
-      <div class="tooltip" [class.flip]="r.left > 60" [style.left.%]="r.left" role="status">
+      <div class="tooltip" [class.flip]="r.left > 60" [style.left.%]="r.left" aria-hidden="true">
         <p class="time">
           {{ r.time * 1000 | date: readoutFormat() : undefined : i18n.language() }}
         </p>

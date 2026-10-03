@@ -74,7 +74,7 @@ func TestReaderReadsShortRangesFromTheDatabaseUntilMemoryCoversThem(t *testing.T
 	recent := &Recent{}
 	recent.Add(now.Add(-2*time.Minute), map[string]float64{MetricCPU: 20})
 	recent.Add(now.Add(-30*time.Second), map[string]float64{MetricCPU: 20})
-	reader := Reader{Store: store, Recent: recent}
+	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
 	long, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
 	if err != nil || step != SampleInterval || len(long) != 1 || long[0].Points[0].Value != 10 {
@@ -94,7 +94,7 @@ func TestReaderAnswersLongRangesFromTheCacheForAMinute(t *testing.T) {
 	if err := store.Add(ctx, LocalDevice, now.Add(-time.Minute), map[string]float64{MetricCPU: 10}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	reader := Reader{Store: store, Recent: &Recent{}}
+	reader := Reader{Store: store, Recent: &Recent{}, Device: LocalDevice}
 	month := 30 * 24 * time.Hour // 2 hour steps
 
 	first, step, err := reader.Range(ctx, now.Add(-month), now)
@@ -133,7 +133,7 @@ func TestReaderReadsShortRangesFromMemory(t *testing.T) {
 	recent := &Recent{}
 	recent.Add(now.Add(-10*time.Minute), map[string]float64{MetricCPU: 20})
 	recent.Add(now.Add(-time.Minute), map[string]float64{MetricCPU: 20})
-	reader := Reader{Store: store, Recent: recent}
+	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
 	short, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
 	if err != nil || step != RecentInterval || len(short) != 1 || short[0].Points[0].Value != 20 {

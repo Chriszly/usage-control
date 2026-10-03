@@ -97,30 +97,26 @@ export class DeviceService {
   }
 }
 
+/** The problems the backend names that have a message of their own, besides passwordLength. */
+const KNOWN_PROBLEMS = [
+  'wrongPassword',
+  'name',
+  'nameTaken',
+  'address',
+  'unreachable',
+  'fixed',
+  'notFound',
+] as const;
+
 /** Explains why adding or removing a device was refused, from the problem the backend names. */
 export function problemMessage(error: unknown, i18n: I18n): string {
   const problem =
     error instanceof HttpErrorResponse
       ? (error.error as { problem?: string } | null)?.problem
       : undefined;
-  switch (problem) {
-    case 'wrongPassword':
-      return i18n.t('devices.problem.wrongPassword');
-    case 'passwordLength':
-      return i18n.t('devices.problem.passwordLength', { count: MIN_PASSWORD_LENGTH });
-    case 'name':
-      return i18n.t('devices.problem.name');
-    case 'nameTaken':
-      return i18n.t('devices.problem.nameTaken');
-    case 'address':
-      return i18n.t('devices.problem.address');
-    case 'unreachable':
-      return i18n.t('devices.problem.unreachable');
-    case 'fixed':
-      return i18n.t('devices.problem.fixed');
-    case 'notFound':
-      return i18n.t('devices.problem.notFound');
-    default:
-      return i18n.t('devices.problem.other');
+  if (problem === 'passwordLength') {
+    return i18n.t('devices.problem.passwordLength', { count: MIN_PASSWORD_LENGTH });
   }
+  const known = KNOWN_PROBLEMS.find((p) => p === problem);
+  return i18n.t(known ? `devices.problem.${known}` : 'devices.problem.other');
 }

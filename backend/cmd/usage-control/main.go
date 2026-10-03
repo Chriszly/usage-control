@@ -83,7 +83,7 @@ func run(parent context.Context) error {
 		return fmt.Errorf("check HUB_DEVICES: %w", err)
 	}
 
-	dataOnly, err := dataOnly()
+	dataOnly, err := boolSetting("DATA_ONLY")
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 	}
 
 	recent := &history.Recent{}
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: sampler, MaxEntries: historyEntries}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: sampler, Device: history.LocalDevice, MaxEntries: historyEntries}
 	pruner := &history.Pruner{Store: store, Retention: retention}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
@@ -202,7 +202,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 				ID:      hub.LocalID,
 				Name:    strings.TrimSpace(os.Getenv("DEVICE_NAME")),
 				Metrics: sampler,
-				History: history.Reader{Store: store, Recent: recent},
+				History: history.Reader{Store: store, Recent: recent, Device: history.LocalDevice},
 			},
 			hub: others,
 		},
@@ -256,11 +256,6 @@ func (d hubDevices) List() []server.Device {
 		})
 	}
 	return devices
-}
-
-// dataOnly reports whether DATA_ONLY turns the website off (default false).
-func dataOnly() (bool, error) {
-	return boolSetting("DATA_ONLY")
 }
 
 // boolSetting reads a setting that is true or false (default false).

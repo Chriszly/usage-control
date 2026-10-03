@@ -1,40 +1,32 @@
 :host {
   display: block;
-  /* The first slots of a categorical palette checked for color blindness, in
-     steps for light and dark mode. Lines keep their color by order. */
-  --series-0: light-dark(#2a78d6, #3987e5);
-  --series-1: light-dark(#eb6834, #d95926);
-  --series-2: light-dark(#1baf7a, #199e70);
-  --series-3: light-dark(#eda100, #c98500);
-  --series-4: light-dark(#e87ba4, #d55181);
-  --series-5: light-dark(#008300, #008300);
-  --series-6: light-dark(#4a3aa7, #9085e9);
-  --series-7: light-dark(#e34948, #e66767);
 }
 
+/* The first slots of a categorical palette checked for color blindness, in
+   steps for light and dark mode. Lines keep their color by order. */
 .series-0 {
-  --color: var(--series-0);
+  --color: light-dark(#2a78d6, #3987e5);
 }
 .series-1 {
-  --color: var(--series-1);
+  --color: light-dark(#eb6834, #d95926);
 }
 .series-2 {
-  --color: var(--series-2);
+  --color: light-dark(#1baf7a, #199e70);
 }
 .series-3 {
-  --color: var(--series-3);
+  --color: light-dark(#eda100, #c98500);
 }
 .series-4 {
-  --color: var(--series-4);
+  --color: light-dark(#e87ba4, #d55181);
 }
 .series-5 {
-  --color: var(--series-5);
+  --color: light-dark(#008300, #008300);
 }
 .series-6 {
-  --color: var(--series-6);
+  --color: light-dark(#4a3aa7, #9085e9);
 }
 .series-7 {
-  --color: var(--series-7);
+  --color: light-dark(#e34948, #e66767);
 }
 
 .legend {

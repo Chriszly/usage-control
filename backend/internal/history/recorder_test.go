@@ -28,6 +28,7 @@ func TestRecorderStoresTheAverageOfItsReadings(t *testing.T) {
 			{Time: now.Add(-10 * time.Second), CPU: metrics.CPU{UsagePercent: 40}},
 			{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 44}},
 		}},
+		Device: LocalDevice,
 	}
 
 	recorder.read(ctx)

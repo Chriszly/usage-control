@@ -24,7 +24,7 @@ type Recorder struct {
 	Store     *Store
 	Recent    *Recent
 	Collector Collector
-	// Device is the name the readings are stored under; LocalDevice when empty.
+	// Device is the name the readings are stored under, such as LocalDevice.
 	Device string
 	// MaxEntries is how many disks, sensors, network cards and GPUs each are
 	// kept; DefaultMaxEntries when it is not positive.
@@ -73,13 +73,13 @@ func (r *Recorder) read(ctx context.Context) {
 	}
 	if r.failing {
 		r.failing = false
-		slog.Info("reading usage for the history works again", "device", deviceOrLocal(r.Device))
+		slog.Info("reading usage for the history works again", "device", r.Device)
 	}
 	v, dropped := values(snapshot, r.MaxEntries)
 	if dropped && !r.dropped {
 		r.dropped = true
 		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
-			"device", deviceOrLocal(r.Device), "kept", max(r.MaxEntries, DefaultMaxEntries))
+			"device", r.Device, "kept", max(r.MaxEntries, DefaultMaxEntries))
 	}
 	r.Recent.Add(snapshot.Time, v)
 }
@@ -88,7 +88,7 @@ func (r *Recorder) read(ctx context.Context) {
 func (r *Recorder) failed(err error) {
 	if !r.failing {
 		r.failing = true
-		slog.Error("read usage for the history", "device", deviceOrLocal(r.Device), "error", err)
+		slog.Error("read usage for the history", "device", r.Device, "error", err)
 	}
 }
 
@@ -98,7 +98,7 @@ func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if averages == nil {
 		return
 	}
-	if err := r.Store.Add(ctx, deviceOrLocal(r.Device), to, averages); err != nil {
+	if err := r.Store.Add(ctx, r.Device, to, averages); err != nil {
 		slog.Error("store usage in the history", "error", err)
 	}
 }

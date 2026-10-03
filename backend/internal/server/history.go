@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -48,17 +47,12 @@ func historyHandler(reader HistoryReader, retention time.Duration) http.HandlerF
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		err = json.NewEncoder(w).Encode(historyResponse{
+		writeJSON(w, http.StatusOK, historyResponse{
 			From:          from,
 			To:            to,
 			StepSeconds:   int64(step / time.Second),
 			RetentionDays: int(retention / (24 * time.Hour)),
 			Series:        series,
 		})
-		if err != nil {
-			slog.Error("write history response", "error", err)
-		}
 	}
 }
