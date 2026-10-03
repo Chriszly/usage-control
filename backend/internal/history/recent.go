@@ -38,6 +38,15 @@ func (r *Recent) Add(at time.Time, values map[string]float64) {
 	r.readings = slices.DeleteFunc(r.readings, func(x reading) bool { return x.time < oldest })
 }
 
+// Covers reports whether the readings reach back to from, so a range from
+// there on is complete. The oldest may be up to RecentInterval after from, as
+// the readings are that far apart and from falls between two of them.
+func (r *Recent) Covers(from time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.readings) > 0 && r.readings[0].time <= from.Add(RecentInterval).Unix()
+}
+
 // Average returns the average of each metric over the readings from from up
 // to (not including) to, or nil when there are none.
 func (r *Recent) Average(from, to time.Time) map[string]float64 {

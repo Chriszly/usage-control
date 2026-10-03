@@ -153,7 +153,8 @@ func run(parent context.Context) error {
 // withHistory returns the website's devices with their history: this device
 // and every device the hub collects from, from HUB_DEVICES or added on the
 // page. Each gets a recorder that reads its usage into the history until ctx
-// is done; the returned function waits until they have stopped.
+// is done, and one pruner deletes what is older than retention; the returned
+// function waits until they have stopped.
 func withHistory(ctx context.Context, collector *metrics.Collector, store *history.Store, fixed []hub.Device, retention time.Duration) (server.Site, func(), error) {
 	// The recorder measures with its own collector, so CPU usage and network
 	// speed in the history are averages over its own interval.
@@ -177,15 +178,17 @@ func withHistory(ctx context.Context, collector *metrics.Collector, store *histo
 		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
 	}
 
-	others, err := hub.New(ctx, store, retention, fixed)
+	others, err := hub.New(ctx, store, fixed)
 	if err != nil {
 		return server.Site{}, nil, err
 	}
 
 	recent := &history.Recent{}
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector, Retention: retention}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: recorderCollector}
+	pruner := &history.Pruner{Store: store, Retention: retention}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
+	recording.Go(func() { pruner.Run(ctx) })
 
 	site := server.Site{
 		Devices: hubDevices{

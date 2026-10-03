@@ -3,8 +3,10 @@ package history
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -41,6 +43,54 @@ func TestOpenGivesANewDatabaseTheLatestVersionWithoutACopy(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".backup"); err == nil {
 		t.Error("a new database was copied, want no copy")
+	}
+}
+
+func TestOpenFillsTheHourlyAveragesOfADatabaseFromBeforeThem(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.db")
+	db := openRaw(t, path)
+	hour := int64(1_800_000_000) // the start of an hour
+	_, err := db.Exec(`
+		CREATE TABLE samples (device TEXT NOT NULL, time INTEGER NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY (device, time, metric)) WITHOUT ROWID;
+		INSERT INTO samples VALUES ('local', ?1 + 60, 'cpu', 10), ('local', ?1 + 120, 'cpu', 20), ('local', ?1 + 3660, 'cpu', 60), ('other', ?1 + 60, 'cpu', 99);
+		PRAGMA user_version = 1`, hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	if v := userVersion(t, store.DB()); v != len(migrations) {
+		t.Errorf("user_version = %d, want %d", v, len(migrations))
+	}
+	if _, err := os.Stat(path + ".backup"); err != nil {
+		t.Errorf("no copy of the database from before the change: %v", err)
+	}
+	rows, err := store.DB().Query(`SELECT device, time, value, count FROM samples_hourly ORDER BY device, time`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var device string
+		var at, count int64
+		var value float64
+		if err := rows.Scan(&device, &at, &value, &count); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, fmt.Sprintf("%s %d %g/%d", device, at-hour, value, count))
+	}
+	want := []string{"local 0 15/2", "local 3600 60/1", "other 0 99/1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("samples_hourly = %q, want %q", got, want)
 	}
 }
 

@@ -66,10 +66,15 @@ const DEFAULT_RETENTION_DAYS = 30;
 
 /**
  * How often a range is read again: every 5 seconds for ranges of up to 30
- * minutes, which the backend has readings every 5 seconds for, else every minute.
+ * minutes, which the backend has readings every 5 seconds for; every minute
+ * up to a day, when the backend stores a new average; and every 5 minutes
+ * above that, where a step is hours long and a minute changes nothing visible.
  */
 export function refreshIntervalMs(spanSeconds: number): number {
-  return spanSeconds <= 30 * 60 ? 5_000 : 60_000;
+  if (spanSeconds <= 30 * 60) {
+    return 5_000;
+  }
+  return spanSeconds <= 86400 ? 60_000 : 300_000;
 }
 
 interface Chart {
