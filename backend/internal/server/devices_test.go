@@ -74,7 +74,7 @@ func TestTheFirstAddedDeviceChoosesThePassword(t *testing.T) {
 	pw := &fakePassword{}
 	handler := newChangeHandler(devices, pw)
 
-	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:8080","password":"correct horse"}`)
+	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body)
@@ -91,7 +91,7 @@ func TestChangesNeedThePassword(t *testing.T) {
 	devices := &fakeHub{}
 	handler := newChangeHandler(devices, &fakePassword{password: "correct horse"})
 
-	add := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:8080","password":"wrong"}`)
+	add := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"wrong"}`)
 	remove := send(handler, http.MethodDelete, "/api/devices/office-pc", `{"password":"wrong"}`)
 
 	for _, rec := range []*httptest.ResponseRecorder{add, remove} {
@@ -113,7 +113,7 @@ func TestAFailedFirstChangeChoosesNoPassword(t *testing.T) {
 	pw := &fakePassword{}
 	handler := newChangeHandler(&fakeHub{err: &hub.InputError{Problem: hub.ProblemUnreachable, Message: "no answer"}}, pw)
 
-	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:8080","password":"correct horse"}`)
+	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
 
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"problem":"unreachable"`) {
 		t.Errorf("status = %d, body = %s; want 422 unreachable", rec.Code, rec.Body)
@@ -127,7 +127,7 @@ func TestRefusesAShortFirstPassword(t *testing.T) {
 	devices := &fakeHub{}
 	handler := newChangeHandler(devices, &fakePassword{})
 
-	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:8080","password":"short"}`)
+	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"short"}`)
 
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"problem":"passwordLength"`) {
 		t.Errorf("status = %d, body = %s; want 400 passwordLength", rec.Code, rec.Body)

@@ -59,7 +59,7 @@ func TestAgentReportsAFailingDevice(t *testing.T) {
 }
 
 func TestAgentOnlyConnectsToTheLocalNetwork(t *testing.T) {
-	agent := NewAgent("203.0.113.5:8080")
+	agent := NewAgent("203.0.113.5:9393")
 
 	_, err := agent.Collect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "not on the local network") {

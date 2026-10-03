@@ -3,7 +3,7 @@
 //
 // Settings come from environment variables:
 //
-//	LISTEN_ADDR     address to listen on (default ":8080")
+//	LISTEN_ADDR     address to listen on (default ":9393")
 //	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/",
 //	                or the system drive such as "C:\" on Windows)
 //	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
@@ -65,7 +65,7 @@ func main() {
 func run(parent context.Context) error {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":9393"
 	}
 
 	retention, err := retentionDays()

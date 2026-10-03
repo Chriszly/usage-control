@@ -54,7 +54,7 @@ function Assert-Website([string] $Port) {
 }
 
 Write-Host 'Installing with the website on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:8080 RETENTION_DAYS=7"
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
@@ -71,12 +71,12 @@ if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction Sile
 
 Write-Host 'Installing with the defaults serves only the usage data'
 Invoke-Installer "/i `"$Msi`""
-$metrics = Get-Answer 'http://127.0.0.1:8080/api/metrics'
+$metrics = Get-Answer 'http://127.0.0.1:9393/api/metrics'
 $metrics | ConvertTo-Json -Depth 4
 if ($metrics.disks.Count -lt 1) { throw 'The system disk is missing from the metrics' }
-$status = Get-StatusCode 'http://127.0.0.1:8080/'
+$status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it should be off" }
-Assert-FirewallPort 8080
+Assert-FirewallPort 9393
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'

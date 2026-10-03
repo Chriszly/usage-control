@@ -16,7 +16,7 @@ folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 # Waits until the service answers at path and prints the answer.
 answer() {
   for _ in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:8080$1" 2> /dev/null; then
+    if curl -fsS "http://127.0.0.1:9393$1" 2> /dev/null; then
       return 0
     fi
     sleep 1

@@ -108,7 +108,7 @@ export const fr: Messages = {
     'Donnez à l’appareil un nom de 64 caractères au plus, avec au moins une lettre ou un chiffre.',
   'devices.problem.nameTaken': 'Un autre appareil porte déjà ce nom. Choisissez-en un autre.',
   'devices.problem.address':
-    'Écrivez l’adresse sous la forme adresse IP et port, par exemple 192.168.1.20:8080.',
+    'Écrivez l’adresse sous la forme adresse IP et port, par exemple 192.168.1.20:9393.',
   'devices.problem.unreachable':
     'Aucun usage-control ne répond à cette adresse. Est-il lancé, et l’adresse est-elle sur le réseau local ?',
   'devices.problem.fixed':

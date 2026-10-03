@@ -42,7 +42,7 @@ describe('DevicePicker', () => {
       {
         id: 'living-room-pi',
         name: 'Living room Pi',
-        address: '192.168.1.20:8080',
+        address: '192.168.1.20:9393',
         removable: true,
       },
     ]);

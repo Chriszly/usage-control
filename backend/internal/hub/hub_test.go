@@ -98,7 +98,7 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 		{"Laptop", "192.168.1.30", ProblemAddress},
 		{"--", address, ProblemName},
 		{"Laptop", "127.0.0.1:1", ProblemUnreachable},
-		{"Laptop", "203.0.113.5:8080", ProblemUnreachable},
+		{"Laptop", "203.0.113.5:9393", ProblemUnreachable},
 	}
 	for _, tt := range tests {
 		if _, err := h.Add(ctx, tt.name, tt.address); problemOf(err) != tt.want {

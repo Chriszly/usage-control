@@ -25,8 +25,8 @@ describe('DevicesDialog', () => {
     );
     TestBed.inject(DeviceService).devices.set([
       { id: 'local', name: '' },
-      { id: 'pi', name: 'Pi', address: '192.168.1.20:8080', removable: false },
-      { id: 'office-pc', name: 'Office PC', address: '192.168.1.30:8080', removable: true },
+      { id: 'pi', name: 'Pi', address: '192.168.1.20:9393', removable: false },
+      { id: 'office-pc', name: 'Office PC', address: '192.168.1.30:9393', removable: true },
     ]);
     fixture = TestBed.createComponent(DevicesDialog);
     fixture.detectChanges();
@@ -55,20 +55,20 @@ describe('DevicesDialog', () => {
   it('lists the other devices and which can be removed', () => {
     expect(element().textContent).toContain('Pi');
     expect(element().textContent).toContain('Set in .env');
-    expect(element().textContent).toContain('192.168.1.30:8080');
+    expect(element().textContent).toContain('192.168.1.30:9393');
     expect(element().querySelectorAll('li button')).toHaveLength(1);
   });
 
   it('adds a device with the password and reads the list again', async () => {
     await type('name', 'Laptop');
-    await type('address', '192.168.1.40:8080');
+    await type('address', '192.168.1.40:9393');
     button('Add').click();
 
     const add = http.expectOne('/api/devices');
     expect(add.request.method).toBe('POST');
     expect(add.request.body).toEqual({
       name: 'Laptop',
-      address: '192.168.1.40:8080',
+      address: '192.168.1.40:9393',
       password: 'correct horse',
     });
     add.flush(

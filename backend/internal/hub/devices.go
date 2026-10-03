@@ -33,7 +33,7 @@ type Device struct {
 }
 
 // ParseDevices reads the devices from a comma-separated list of entries such
-// as "Living room Pi=192.168.1.20:8080". The name and "=" may be left out;
+// as "Living room Pi=192.168.1.20:9393". The name and "=" may be left out;
 // the device is then named after its address.
 func ParseDevices(value string) ([]Device, error) {
 	var devices []Device
@@ -76,11 +76,11 @@ func NewDevice(name, address string) (Device, error) {
 	// The address becomes part of the URL the hub asks, so it may only hold a
 	// host name or IP address and a port: no path, user or other URL parts.
 	if !addressPattern.MatchString(address) {
-		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:9393"}
 	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || host == "" {
-		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:8080"}
+		return Device{}, &InputError{Problem: ProblemAddress, Message: "write the address as host:port, such as 192.168.1.20:9393"}
 	}
 	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "the port must be a number from 1 to 65535"}

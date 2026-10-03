@@ -2,7 +2,7 @@
 #   cp .env.example .env   # optional, to change settings
 #   docker compose pull && docker compose up -d   # the published image
 #   docker compose up -d --build                  # or build it from this checkout
-# Then open http://<the machine's address>:8080 from the local network.
+# Then open http://<the machine's address>:9393 from the local network.
 services:
   usage-control:
     build: .
@@ -13,7 +13,7 @@ services:
     # IPv6 connections over from its own internal address instead; browsers
     # that try IPv6 first fall back to IPv4 on their own.
     ports:
-      - "0.0.0.0:${PORT:-8080}:8080"
+      - "0.0.0.0:${PORT:-9393}:9393"
     environment:
       # Read the host's usage instead of the container's.
       HOST_PROC: /host/proc
