@@ -34,6 +34,9 @@ services:
       DATA_ONLY: ${DATA_ONLY:-}
       # false stops the daily check for a newer release; see .env.example.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
+      # Names the page may be opened by besides the IP address and .local
+      # names, such as one from the router's DNS; see .env.example.
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
     volumes:
       # The history database. Kept when the container is updated or recreated.
       - data:/data

@@ -16,6 +16,8 @@
     DEVICE_NAME     with WEBSITE=1, how the page names this PC
     HUB_DEVICES     with WEBSITE=1, other devices to collect from (hub mode)
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
+    ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
+                    localhost, its hostname and .local names; comma-separated
   An update keeps the options of the installed version; options given to the
   update replace them.
 -->
@@ -36,7 +38,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;ALLOWED_HOSTS ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -88,10 +90,11 @@
         <MultiStringValue Value="DEVICE_NAME=[DEVICE_NAME]" />
         <MultiStringValue Value="HUB_DEVICES=[SERVICE_HUB_DEVICES]" />
         <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
+        <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;ALLOWED_HOSTS ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 

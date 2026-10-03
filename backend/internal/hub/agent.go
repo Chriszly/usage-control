@@ -8,11 +8,11 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/lan"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -141,13 +141,8 @@ func (l LatestCollector) Collect(context.Context) (metrics.Snapshot, error) {
 // even when a host name resolves to one, so the hub only ever talks to its
 // own network, as the website only answers it.
 func localNetworkOnly(_, address string, _ syscall.RawConn) error {
-	addrPort, err := netip.ParseAddrPort(address)
-	if err != nil {
-		return err
-	}
-	addr := addrPort.Addr().Unmap()
-	if !addr.IsLoopback() && !addr.IsPrivate() && !addr.IsLinkLocalUnicast() {
-		return fmt.Errorf("%s is not on the local network", addr)
+	if !lan.Default.LocalAddrPort(address) {
+		return fmt.Errorf("%s is not on the local network", address)
 	}
 	return nil
 }
