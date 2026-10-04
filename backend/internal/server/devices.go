@@ -26,7 +26,9 @@ type Hub interface {
 	SetKind(ctx context.Context, id string, kind hub.Kind) error
 	// Suggest returns the device at from, the address of a visitor, to offer
 	// adding it; false when there is none to offer.
-	Suggest(ctx context.Context, from netip.Addr) (hub.Suggestion, bool)
+	// own lists the machine's addresses from its usage reading, which are the
+	// host's in a container.
+	Suggest(ctx context.Context, from netip.Addr, own []netip.Addr) (hub.Suggestion, bool)
 }
 
 // Password guards adding and removing devices. It is chosen with the first
@@ -131,13 +133,7 @@ func (c *deviceChanges) suggest(w http.ResponseWriter, r *http.Request) {
 	// localNetworkOnly has already read the sender's address.
 	sender, _ := netip.ParseAddrPort(r.RemoteAddr)
 	from := sender.Addr().Unmap()
-	var (
-		suggestion hub.Suggestion
-		ok         bool
-	)
-	if !c.isLocal(r.Context(), from) {
-		suggestion, ok = c.hub.Suggest(r.Context(), from)
-	}
+	suggestion, ok := c.hub.Suggest(r.Context(), from, c.ownAddresses(r.Context()))
 	if !ok {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
@@ -146,23 +142,24 @@ func (c *deviceChanges) suggest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, suggestion)
 }
 
-// isLocal reports whether addr belongs to a network card of the machine the
-// site runs on. In a container, the machine's own addresses are not the
-// container's, but the usage lists them: a browser on the machine itself can
-// show up with one of them.
-func (c *deviceChanges) isLocal(ctx context.Context, addr netip.Addr) bool {
+// ownAddresses lists the addresses of the machine's network cards from its
+// usage. In a container, the machine's own addresses are not the container's,
+// but the usage lists them: a browser on the machine itself can show up with
+// one of them.
+func (c *deviceChanges) ownAddresses(ctx context.Context) []netip.Addr {
 	snapshot, err := c.local.Collect(ctx)
 	if err != nil {
-		return false
+		return nil
 	}
+	var own []netip.Addr
 	for _, network := range snapshot.Network {
 		for _, address := range network.Addresses {
-			if own, err := netip.ParseAddr(address); err == nil && own.Unmap() == addr {
-				return true
+			if addr, err := netip.ParseAddr(address); err == nil {
+				own = append(own, addr.Unmap())
 			}
 		}
 	}
-	return false
+	return own
 }
 
 // change makes a change once the password is right. Without a password yet,

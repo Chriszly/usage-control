@@ -1,13 +1,14 @@
-/* appEvenColumns sets --columns so the rows stay even; 14rem is its MIN_CARD_REM. */
+/* appEvenColumns reads --min-card and sets --columns so the rows stay even. */
 .cards {
+  --min-card: 14rem;
   display: grid;
-  grid-template-columns: repeat(var(--columns, auto-fit), minmax(14rem, 1fr));
+  grid-template-columns: repeat(var(--columns, auto-fit), minmax(var(--min-card), 1fr));
   gap: 1rem;
 }
 
 /* A card shown on its own keeps the width it has next to others. */
 .cards.alone {
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--min-card), 1fr));
 }
 
 h2 {

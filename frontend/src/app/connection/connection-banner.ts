@@ -22,9 +22,12 @@ export class ConnectionBanner {
   /** The hub's name, as its button shows it. */
   protected readonly hub = computed(() => hubName(this.devices.devices(), this.i18n));
 
-  /** When the hub stopped answering, in the page's language. */
+  /**
+   * When the hub stopped answering, in the page's language. With the date, as in the device picker,
+   * so a page left open overnight still says which day.
+   */
   protected readonly since = computed(() => {
     const since = this.connection.lostSince();
-    return since ? formatDate(since, this.i18n.t('format.time'), this.i18n.language()) : '';
+    return since ? formatDate(since, 'short', this.i18n.language()) : '';
   });
 }

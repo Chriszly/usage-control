@@ -114,7 +114,7 @@ The bear in the taskbar's notification area shows whether Usage Control runs:
 
 Its menu, opened with a click:
 
-- **Address** shows where other devices reach this PC, such as `192.168.1.23:9393`: the IPv4 address of the network adapter Windows uses for its default route (else the first private one) and the installer's port. This is the address to add on the hub's *Devices* dialog
+- **Address** shows where other devices reach this PC, such as `192.168.1.23:9393`: the IPv4 address of the network adapter Windows uses for its default route (else the first private one) and the installer's port, looked up again every minute. This is the address to add on the hub's *Devices* dialog
 - **Open hub** opens the page of the hub that collects from this PC. The hub tells the PC its address each time it asks for the usage, so this needs no setup; until a hub has asked, the entry is greyed out
 - **Open the page on this PC** appears when the PC shows the website itself (`WEBSITE=1`)
 - **Pause** stops collecting until **Resume**. The service starts again with Windows

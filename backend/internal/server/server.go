@@ -87,9 +87,9 @@ type Site struct {
 func New(site Site) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/devices", devicesHandler(site))
-	if site.Hub != nil && site.Password != nil {
-		local := site.Devices.List()[0].Metrics
-		changes := &deviceChanges{hub: site.Hub, password: site.Password, local: local}
+	// The hub's own device comes first; without one, devices cannot be changed.
+	if list := site.Devices.List(); site.Hub != nil && site.Password != nil && len(list) > 0 {
+		changes := &deviceChanges{hub: site.Hub, password: site.Password, local: list[0].Metrics}
 		mux.HandleFunc("GET /api/devices/suggestion", changes.suggest)
 		mux.HandleFunc("POST /api/devices", changes.add)
 		mux.HandleFunc("DELETE /api/devices/{id}", changes.remove)

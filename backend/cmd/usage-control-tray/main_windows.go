@@ -38,6 +38,7 @@ func main() {
 		client: &http.Client{Timeout: 2 * time.Second},
 		check:  make(chan struct{}, 1),
 	}
+	t.addressOf.lookup = localAddress
 	systray.Run(t.ready, nil)
 }
 
@@ -54,6 +55,8 @@ type tray struct {
 	settings settings
 	state    state
 	shown    string
+	// addressOf is only used by refresh, which runs one at a time.
+	addressOf cachedAddress
 
 	status, address, openHub, openPage, toggle, stop *systray.MenuItem
 }
@@ -109,6 +112,8 @@ func (t *tray) refresh() {
 		cancel()
 		answers, hub = err == nil, link
 	}
+	// Listing the adapters can take a moment, so it is done before taking mu.
+	addr, found := t.addressOf.get(time.Now())
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -132,7 +137,6 @@ func (t *tray) refresh() {
 	text := t.text.stateText(t.state)
 	systray.SetTooltip("Usage Control: " + text)
 	t.status.SetTitle("Usage Control: " + text)
-	addr, found := localAddress()
 	t.address.SetTitle(t.text.addressText(addr, found, t.settings.port))
 	if t.hub != "" {
 		t.openHub.SetTitle(t.text.openHub)

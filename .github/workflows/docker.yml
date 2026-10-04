@@ -38,7 +38,8 @@ jobs:
 
       # main publishes :main, a tag v1.2.3 publishes :1.2.3, :1.2 and :latest,
       # and every published image also gets :sha-<commit>. A bugfix tag such as
-      # 1.2.3a is not semver, so the tags are matched by pattern instead.
+      # 1.2.3a is not semver, so the tags are matched by pattern instead. A
+      # pre-release tag such as v1.2.3-rc1 never moves :latest.
       - name: Image names and labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -49,7 +50,7 @@ jobs:
             type=ref,event=branch
             type=match,pattern=^v?(\d+\.\d+\.\d+[a-z]*)$,group=1
             type=match,pattern=^v?(\d+\.\d+)\.\d+[a-z]*$,group=1
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=sha,format=short
 
       # The version the program reports: 1.2.3 for a tag v1.2.3, otherwise the

@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { EvenColumns, evenColumns } from './even-columns';
+import { EvenColumns, evenColumns, minCardWidth } from './even-columns';
 
 /** Stands in for the browser's ResizeObserver, which jsdom lacks; tests report sizes by hand. */
 class FakeResizeObserver {
@@ -38,10 +38,22 @@ describe('evenColumns', () => {
   });
 });
 
+describe('minCardWidth', () => {
+  it('turns the rem of --min-card into pixels', () => {
+    expect(minCardWidth('14rem', 16)).toBe(224);
+    expect(minCardWidth(' 12.5rem', 20)).toBe(250);
+  });
+
+  it('refuses a width that is missing or not in rem', () => {
+    expect(() => minCardWidth('', 16)).toThrowError(/--min-card/);
+    expect(() => minCardWidth('224px', 16)).toThrowError(/--min-card/);
+  });
+});
+
 @Component({
   imports: [EvenColumns],
   template: `
-    <div appEvenColumns>
+    <div appEvenColumns style="--min-card: 14rem">
       @for (card of cards(); track card) {
         <div>{{ card }}</div>
       }
@@ -68,7 +80,7 @@ describe('EvenColumns', () => {
     vi.restoreAllMocks();
   });
 
-  /** jsdom computes no styles, so the grid's gap is 0: cards 224 pixels wide fit 4 in 1000. */
+  /** jsdom computes no gap, so it is 0: cards 14rem (224 pixels) wide fit 4 in 1000. */
   async function grid() {
     const fixture = TestBed.createComponent(Host);
     fixture.detectChanges();

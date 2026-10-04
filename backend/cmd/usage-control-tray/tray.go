@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // serviceState is what Windows tells about the service.
@@ -113,6 +114,27 @@ func newSettings(port, website string) settings {
 // pageURL is this PC's own page, when it shows one.
 func (s settings) pageURL() string {
 	return "http://localhost:" + s.port + "/"
+}
+
+// addressEvery is how often the PC's address is looked up again. Listing the
+// network adapters can take a moment, and the address seldom changes.
+const addressEvery = time.Minute
+
+// cachedAddress remembers what lookup found for addressEvery.
+type cachedAddress struct {
+	lookup func() (netip.Addr, bool)
+	at     time.Time
+	addr   netip.Addr
+	found  bool
+}
+
+// get returns the address, looking it up again when it is addressEvery old.
+func (c *cachedAddress) get(now time.Time) (netip.Addr, bool) {
+	if c.at.IsZero() || now.Sub(c.at) >= addressEvery {
+		c.addr, c.found = c.lookup()
+		c.at = now
+	}
+	return c.addr, c.found
 }
 
 // localAddress is the address other devices on the network reach this PC

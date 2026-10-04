@@ -22,8 +22,10 @@ export function labelScale(
 
 /**
  * Shrinks the font of all `.label` elements in the host together until the longest name fits,
- * so the names of one card keep the same size. It measures again when the content or the card's
- * width change; new values can leave the names more or less room.
+ * so the names of one card keep the same size. It measures again when the card's width or what
+ * its text needs changes: new names, or values with more or fewer digits, which leave the names
+ * less or more room. The digits themselves change with every refresh but, set in tabular figures,
+ * keep their width, so measuring for them would only cost layout work.
  */
 @Directive({ selector: '[appFitLabels]' })
 export class FitLabels {
@@ -32,11 +34,17 @@ export class FitLabels {
 
   private readonly host: HTMLElement = inject(ElementRef).nativeElement;
   private width = 0;
+  /** The card's text with every digit as 0, as of the last fit. */
+  private shape: string | null = null;
 
   constructor() {
     afterRenderEffect(() => {
       this.content();
-      this.fit();
+      const shape = (this.host.textContent ?? '').replace(/\d/g, '0');
+      if (shape !== this.shape) {
+        this.shape = shape;
+        this.fit();
+      }
     });
 
     // Of the card's sizes only its width changes what fits; the fit is applied in the next frame, so the

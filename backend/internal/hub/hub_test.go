@@ -270,3 +270,39 @@ func TestRemoveForgetsTheKind(t *testing.T) {
 		t.Errorf("kind after removing = %q, %v; want none stored", kind, err)
 	}
 }
+
+func TestAnEmptyKindIsAServer(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "NAS", startDevice(t), ""); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := h.SetKind(ctx, "nas", ""); err != nil {
+		t.Fatalf("SetKind() error = %v", err)
+	}
+	for _, remote := range openTestHub(t, store, nil).Remotes() {
+		if remote.Kind() != KindServer {
+			t.Errorf("kind of %s = %q, want %q", remote.ID, remote.Kind(), KindServer)
+		}
+	}
+	var rows int
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM hub_device_kinds`).Scan(&rows); err != nil || rows != 0 {
+		t.Errorf("hub_device_kinds has %d rows (%v), want none for a server", rows, err)
+	}
+}
+
+func TestASavedDeviceAtAnAddressInUseIsSkipped(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	address := startDevice(t)
+	openTestHub(t, store, nil) // creates the tables
+	// Added on the page before each address could be added only once.
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES ('pc', 'PC', ?, 0)`, address); err != nil {
+		t.Fatal(err)
+	}
+	h := openTestHub(t, store, []Device{{ID: "office-pc", Name: "Office PC", Address: address}})
+	if got := ids(h.Remotes()); len(got) != 1 || got[0] != "office-pc" {
+		t.Errorf("devices = %q, want only office-pc from HUB_DEVICES", got)
+	}
+}

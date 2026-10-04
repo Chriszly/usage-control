@@ -1,8 +1,5 @@
 import { DestroyRef, Directive, ElementRef, afterNextRender, inject } from '@angular/core';
 
-/** The narrowest a card gets, in rem; the same as the `minmax()` of `.cards` in dashboard.css. */
-export const MIN_CARD_REM = 14;
-
 /**
  * How many columns `cards` cards get in a grid `width` pixels wide: as many as fit, but no more
  * than keep the rows even, so a card never wraps onto a row of its own (7 that fit 6 per row
@@ -12,6 +9,15 @@ export function evenColumns(cards: number, width: number, minCard: number, gap: 
   const fit = Math.max(1, Math.floor((width + gap) / (minCard + gap)));
   const rows = Math.max(1, Math.ceil(cards / fit));
   return Math.max(1, Math.ceil(cards / rows));
+}
+
+/** The narrowest a card gets in pixels, from the grid's `--min-card` in rem, as dashboard.css sets it. */
+export function minCardWidth(minCard: string, rem: number): number {
+  const width = parseFloat(minCard);
+  if (!minCard.trim().endsWith('rem') || !(width > 0)) {
+    throw new Error(`--min-card must be set in rem on the grid, such as 14rem, not "${minCard}"`);
+  }
+  return width * rem;
 }
 
 /**
@@ -46,11 +52,12 @@ export class EvenColumns {
 
   private update(): void {
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const gap = parseFloat(getComputedStyle(this.host).columnGap) || 0;
+    const style = getComputedStyle(this.host);
+    const gap = parseFloat(style.columnGap) || 0;
     const columns = evenColumns(
       this.host.children.length,
       this.host.getBoundingClientRect().width,
-      MIN_CARD_REM * rem,
+      minCardWidth(style.getPropertyValue('--min-card'), rem),
       gap,
     );
     this.host.style.setProperty('--columns', String(columns));
