@@ -38,7 +38,7 @@ type Suggestion struct {
 type suggester struct {
 	// port is the port the suggested address gets and the device is asked on.
 	port int
-	// ownAddrs lists the machine's addresses, such as net.InterfaceAddrs.
+	// ownAddrs lists the machine's addresses; net.InterfaceAddrs when nil.
 	ownAddrs func() ([]net.Addr, error)
 	// gateways lists the default gateways of the machine's network.
 	gateways func() []netip.Addr
@@ -61,27 +61,29 @@ func defaultSuggester() suggester {
 }
 
 // Suggest returns the device at from, the address of a visitor of the page,
-// for the page to offer adding it. There is none when from is this machine,
+// for the page to offer adding it. own lists more addresses of this machine
+// besides its network interfaces' own: in a container, those of the host,
+// which its usage reading lists. There is none when from is this machine,
 // one of its gateways or a device the hub already collects from at that
 // address and the default port. Behind
 // Docker's port publishing, a visitor can show up with the address of the
 // Docker network's gateway instead of its own, which is not suggested either.
-func (h *Hub) Suggest(ctx context.Context, from netip.Addr) (Suggestion, bool) {
+func (h *Hub) Suggest(ctx context.Context, from netip.Addr, own []netip.Addr) (Suggestion, bool) {
 	var known []Device
 	for _, r := range h.Remotes() {
 		known = append(known, r.Device)
 	}
-	return h.suggester.suggest(ctx, from, known)
+	return h.suggester.suggest(ctx, from, known, own)
 }
 
-func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device) (Suggestion, bool) {
+func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device, own []netip.Addr) (Suggestion, bool) {
 	from = from.Unmap().WithZone("")
 	// A link-local IPv6 address only works with its zone, which an address
 	// on the page cannot carry.
 	if !from.IsValid() || from.IsLoopback() || from.IsUnspecified() || (from.Is6() && from.IsLinkLocalUnicast()) {
 		return Suggestion{}, false
 	}
-	if s.isOwn(from) {
+	if s.isOwn(from, own) {
 		return Suggestion{}, false
 	}
 	for _, gateway := range s.gateways() {
@@ -143,9 +145,19 @@ func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device)
 	return Suggestion{Address: address, Name: name, Kind: kind}, true
 }
 
-// isOwn reports whether addr is one of this machine's addresses.
-func (s suggester) isOwn(addr netip.Addr) bool {
-	addrs, err := s.ownAddrs()
+// isOwn reports whether addr is one of this machine's addresses: one of its
+// network interfaces' or one of own.
+func (s suggester) isOwn(addr netip.Addr, own []netip.Addr) bool {
+	for _, o := range own {
+		if o.Unmap().WithZone("") == addr {
+			return true
+		}
+	}
+	ownAddrs := s.ownAddrs
+	if ownAddrs == nil {
+		ownAddrs = net.InterfaceAddrs
+	}
+	addrs, err := ownAddrs()
 	if err != nil {
 		return false
 	}

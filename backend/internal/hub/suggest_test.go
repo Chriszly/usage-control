@@ -72,7 +72,7 @@ func TestSuggest(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := testSuggester(test.agentName).suggest(context.Background(), netip.MustParseAddr(test.from), test.known)
+			got, ok := testSuggester(test.agentName).suggest(context.Background(), netip.MustParseAddr(test.from), test.known, nil)
 			switch {
 			case test.want == nil && ok:
 				t.Errorf("suggest(%s) = %+v, want no suggestion", test.from, got)
@@ -88,7 +88,7 @@ func TestSuggestTakesALaptopForAPC(t *testing.T) {
 	s.ask = func(context.Context, string) (metrics.Snapshot, error) {
 		return metrics.Snapshot{Name: "Laptop", CPU: metrics.CPU{LoadAverage: &metrics.LoadAverage{}}, Battery: &metrics.Battery{}}, nil
 	}
-	got, ok := s.suggest(context.Background(), netip.MustParseAddr("192.168.1.20"), nil)
+	got, ok := s.suggest(context.Background(), netip.MustParseAddr("192.168.1.20"), nil, nil)
 	if want := (Suggestion{"192.168.1.20:9393", "Laptop", KindPC}); !ok || got != want {
 		t.Errorf("suggest() = %+v, %v; want %+v", got, ok, want)
 	}
@@ -121,5 +121,24 @@ func TestSuggestAsksTheDevice(t *testing.T) {
 	snapshot, err := defaultSuggester().ask(context.Background(), address)
 	if err != nil || snapshot.Name != "Office PC" {
 		t.Errorf("ask() = %+v, %v; want the name the device reports", snapshot, err)
+	}
+}
+
+func TestSuggestWithoutOwnAddrsAsksTheSystem(t *testing.T) {
+	s := testSuggester("")
+	s.ownAddrs = nil
+	if _, ok := s.suggest(context.Background(), netip.MustParseAddr("127.0.0.1"), nil, nil); ok {
+		t.Error("suggest(127.0.0.1) offered the hub itself")
+	}
+	if !s.isOwn(netip.MustParseAddr("127.0.0.1"), nil) {
+		t.Error("isOwn(127.0.0.1) = false without ownAddrs, want the system's addresses")
+	}
+}
+
+func TestSuggestLeavesOutTheHostsAddresses(t *testing.T) {
+	// In Docker, the host's address is not one of the container's interfaces.
+	own := []netip.Addr{netip.MustParseAddr("192.168.1.20")}
+	if got, ok := testSuggester("Pi").suggest(context.Background(), netip.MustParseAddr("192.168.1.20"), nil, own); ok {
+		t.Errorf("suggest() = %+v, want no suggestion for the host's own address", got)
 	}
 }

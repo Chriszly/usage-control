@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestStateOf(t *testing.T) {
@@ -184,5 +185,26 @@ func TestAddressText(t *testing.T) {
 func TestLocalAddressIsAPrivateIPv4Address(t *testing.T) {
 	if addr, found := localAddress(); found && (!addr.Is4() || !addr.IsPrivate()) {
 		t.Errorf("localAddress() = %v, want a private IPv4 address or none", addr)
+	}
+}
+
+func TestCachedAddressIsLookedUpOnceAMinute(t *testing.T) {
+	lookups := 0
+	c := cachedAddress{lookup: func() (netip.Addr, bool) {
+		lookups++
+		return netip.MustParseAddr("192.168.60.20"), true
+	}}
+	start := time.Now()
+	for _, after := range []time.Duration{0, 5 * time.Second, 55 * time.Second} {
+		if addr, found := c.get(start.Add(after)); !found || addr != netip.MustParseAddr("192.168.60.20") {
+			t.Errorf("get() = %v, %v", addr, found)
+		}
+	}
+	if lookups != 1 {
+		t.Errorf("looked up %d times within a minute, want 1", lookups)
+	}
+	c.get(start.Add(time.Minute))
+	if lookups != 2 {
+		t.Errorf("looked up %d times after a minute, want 2", lookups)
 	}
 }
