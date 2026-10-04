@@ -3,7 +3,9 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -13,8 +15,11 @@ import (
 // gpuReader reads every GPU through the performance counters Windows keeps for
 // Task Manager, which work for any vendor: "GPU Engine" for the usage and
 // "GPU Adapter Memory" for the GPU's own memory. Windows has no vendor-neutral
-// GPU temperature, so it is left out.
+// GPU temperature; that of NVIDIA GPUs comes from nvidia-smi, which the NVIDIA
+// driver installs.
 type gpuReader struct {
+	nvidia *nvidiaSMI
+
 	// mu guards the query, which measures usage since its previous reading.
 	mu      sync.Mutex
 	query   uintptr
@@ -48,7 +53,7 @@ type pdhCounterValueItem struct {
 }
 
 func newGPUReader() *gpuReader {
-	r := &gpuReader{}
+	r := &gpuReader{nvidia: newNvidiaSMI()}
 	r.err = r.open()
 	return r
 }
@@ -97,6 +102,18 @@ func (r *gpuReader) read(context.Context) []GPU {
 		r.adapters = adapters()
 	}
 	return gpusFromCounters(engines, memory, r.adapters)
+}
+
+// temperatures returns the temperature of each NVIDIA GPU, which the
+// performance counters leave out.
+func (r *gpuReader) temperatures(ctx context.Context) []Temperature {
+	return r.nvidia.temperatures(ctx)
+}
+
+// hideWindow starts a program without a console window, which would flash up
+// every few seconds when usage-control runs without one.
+func hideWindow(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 }
 
 // counterValues returns the value of each instance of a counter, by instance
