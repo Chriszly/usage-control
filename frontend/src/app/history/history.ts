@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, formatDate } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
@@ -86,7 +86,9 @@ interface Chart {
 /**
  * Shows the machine's usage over the latest stretch of time as charts. A unit
  * (minutes, hours, days or all) and then a range of that unit pick how long
- * that stretch is, up to everything the backend keeps.
+ * that stretch is, up to everything the backend keeps. For a device that is
+ * not answering, the backend moves the stretch back to end at its last
+ * reading, and a notice says the charts are not live.
  */
 @Component({
   selector: 'app-history',
@@ -131,6 +133,12 @@ export class HistoryCharts {
   protected readonly dateFormat = computed(() =>
     this.i18n.t(this.span() <= 30 * 60 ? 'format.dateTimeSeconds' : 'format.dateTime'),
   );
+
+  /** For a device that is not answering, when the shown data ends, in the page's language. */
+  protected readonly lastReading = computed(() => {
+    const last = this.history()?.lastReading;
+    return last ? formatDate(last * 1000, 'short', this.i18n.language()) : null;
+  });
 
   protected readonly charts = computed(() => {
     const history = this.history();

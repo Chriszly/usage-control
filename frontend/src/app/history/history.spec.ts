@@ -157,6 +157,21 @@ describe('HistoryCharts', () => {
     expect(request.request.params.get('device')).toBe('living-room-pi');
     request.flush(historyFor(NOW_SECONDS - 30 * 60, NOW_SECONDS, 30));
   });
+
+  it('says the charts are not live when they end at the last reading', () => {
+    respond();
+    expect(element().querySelector('[role=status]')).toBeNull();
+
+    vi.advanceTimersByTime(5_000);
+    const last = NOW_SECONDS - 3 * 3600;
+    http
+      .expectOne((r) => r.url === '/api/history')
+      .flush({ ...historyFor(last + 1 - 30 * 60, last + 1, 30), lastReading: last });
+    fixture.detectChanges();
+
+    expect(element().querySelector('[role=status]')?.textContent).toContain('Not live');
+    expect(element().querySelectorAll('app-line-chart').length).toBe(1);
+  });
 });
 
 describe('refreshIntervalMs', () => {

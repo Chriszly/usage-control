@@ -138,6 +138,8 @@ export const en = {
   'history.unit': 'Unit of the time shown',
   'history.range': 'Time shown',
   'history.unreachableStale': 'The history cannot be read. Showing the last values read.',
+  'history.notLive':
+    'Not live: this device has not answered since {time}. The charts show the last data recorded up to then.',
   'history.empty': 'No usage recorded for this time yet.',
   'history.unreachable': 'The history cannot be read.',
   'history.loading': 'Loading…',

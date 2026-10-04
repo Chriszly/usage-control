@@ -35,6 +35,8 @@
 
     @if (unreachable()) {
       <p class="warning" role="alert">{{ i18n.t('history.unreachableStale') }}</p>
+    } @else if (lastReading(); as time) {
+      <p class="warning" role="status">{{ i18n.t('history.notLive', { time }) }}</p>
     }
 
     <div class="charts">

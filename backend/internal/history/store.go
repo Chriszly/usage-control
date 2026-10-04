@@ -170,6 +170,18 @@ func (s *Store) Range(ctx context.Context, device string, from, to time.Time, st
 	return series, rows.Err()
 }
 
+// Newest returns the time of the newest stored value of one device, or false
+// when there is none. The primary key starts with device and time, so this
+// reads a single row of the index.
+func (s *Store) Newest(ctx context.Context, device string) (time.Time, bool, error) {
+	var newest sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(time) FROM samples WHERE device = ?`, device).Scan(&newest)
+	if err != nil || !newest.Valid {
+		return time.Time{}, false, err
+	}
+	return time.Unix(newest.Int64, 0), true, nil
+}
+
 // cachedRange is Range, but answers with the previous answer while that is
 // at most cacheFor old and covers the same steps (see rangeCache), so the
 // viewers of a long range share one query.
