@@ -17,6 +17,7 @@ import {
   TimeZone,
 } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
+import { EvenColumns } from './even-columns';
 import { FitLabels } from './fit-labels';
 
 /** How often the dashboard asks the backend for new values. */
@@ -43,7 +44,7 @@ type Problem = 'backend' | 'device';
 /** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe, FitLabels, NgTemplateOutlet],
+  imports: [BytesPipe, DecimalPipe, EvenColumns, FitLabels, NgTemplateOutlet],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })

@@ -1,0 +1,100 @@
+import { Component, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+
+import { EvenColumns, evenColumns } from './even-columns';
+
+/** Stands in for the browser's ResizeObserver, which jsdom lacks; tests report sizes by hand. */
+class FakeResizeObserver {
+  static last: FakeResizeObserver | undefined;
+  constructor(readonly callback: (entries: { contentRect: { width: number } }[]) => void) {
+    FakeResizeObserver.last = this;
+  }
+  observe = vi.fn();
+  disconnect = vi.fn();
+  resize(width: number): void {
+    this.callback([{ contentRect: { width } }]);
+  }
+}
+
+describe('evenColumns', () => {
+  // Cards at least 224 pixels wide with 16 pixels between them: a 1000 pixel grid fits 4.
+  const columns = (cards: number, width: number) => evenColumns(cards, width, 224, 16);
+
+  it('keeps every card on one row when they all fit', () => {
+    expect(columns(3, 1000)).toBe(3);
+    expect(columns(4, 1000)).toBe(4);
+  });
+
+  it('evens out the rows when the cards wrap', () => {
+    expect(columns(5, 1000)).toBe(3); // 3 + 2, not 4 + 1
+    expect(columns(7, 1456)).toBe(4); // fits 6: 4 + 3, not 6 + 1
+    expect(columns(8, 1696)).toBe(4); // fits 7: 4 + 4, not 7 + 1
+    expect(columns(10, 1000)).toBe(4); // 4 + 4 + 2, the fewest rows
+  });
+
+  it('gives a grid narrower than one card a single column', () => {
+    expect(columns(9, 200)).toBe(1);
+    expect(columns(0, 1000)).toBe(1);
+  });
+});
+
+@Component({
+  imports: [EvenColumns],
+  template: `
+    <div appEvenColumns>
+      @for (card of cards(); track card) {
+        <div>{{ card }}</div>
+      }
+    </div>
+  `,
+})
+class Host {
+  readonly cards = signal(['CPU', 'Memory', 'Disks', 'Network', 'Uptime']);
+}
+
+describe('EvenColumns', () => {
+  let width: number;
+
+  beforeEach(() => {
+    width = 1000;
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({ width }) as DOMRect,
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** jsdom computes no styles, so the grid's gap is 0: cards 224 pixels wide fit 4 in 1000. */
+  async function grid() {
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement.querySelector('[appEvenColumns]');
+    return { fixture, element };
+  }
+
+  it('sets the columns that keep the rows even', async () => {
+    const { element } = await grid();
+    expect(element.style.getPropertyValue('--columns')).toBe('3');
+  });
+
+  it('counts again when cards come or go', async () => {
+    const { fixture, element } = await grid();
+    fixture.componentInstance.cards.update((cards) => [...cards, 'GPU', 'Fans', 'Time']);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve)); // the MutationObserver reports later
+    expect(element.style.getPropertyValue('--columns')).toBe('4');
+  });
+
+  it('counts again when the grid gets a new width', async () => {
+    const { element } = await grid();
+    width = 2000;
+    FakeResizeObserver.last?.resize(2000);
+    expect(element.style.getPropertyValue('--columns')).toBe('5');
+  });
+});

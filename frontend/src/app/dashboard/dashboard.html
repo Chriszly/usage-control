@@ -57,7 +57,7 @@
 }
 
 @if (snapshot(); as s) {
-  <div class="cards" [class.stale]="connection.lost()">
+  <div class="cards" appEvenColumns [class.stale]="connection.lost()">
     <div class="card">
       <h2>{{ i18n.t('dashboard.cpu') }}</h2>
       <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' : i18n.language() }} %</p>
