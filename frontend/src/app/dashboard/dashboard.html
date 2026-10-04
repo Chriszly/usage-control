@@ -294,7 +294,7 @@
       </div>
     }
 
-    <div class="card">
+    <div class="card" [appFitLabels]="s.temperatures">
       <h2>{{ i18n.t('dashboard.temperature') }}</h2>
       @for (t of s.temperatures; track t.sensor) {
         <p class="sensor">
