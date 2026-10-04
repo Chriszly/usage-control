@@ -204,4 +204,10 @@ export const fr: Messages = {
   'bytes.unit.tib': 'Tio',
   'update.available': 'La version {latest} est disponible (cet appareil a la {current}).',
   'update.whatsNew': 'Nouveautés',
+  'format.time': 'HH:mm',
+  'format.timeSeconds': 'HH:mm:ss',
+  'format.weekdayTime': 'EEE HH:mm',
+  'format.dayMonth': 'd MMM',
+  'format.dateTime': 'EEE d MMM, HH:mm',
+  'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
 };

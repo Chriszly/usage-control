@@ -61,12 +61,12 @@ export class LineChart {
   protected readonly timeFormat = computed(() => {
     const span = this.to() - this.from();
     if (span <= 30 * 60) {
-      return 'HH:mm:ss';
+      return this.i18n.t('format.timeSeconds');
     }
     if (span <= 86400) {
-      return 'HH:mm';
+      return this.i18n.t('format.time');
     }
-    return span <= 8 * 86400 ? 'EEE HH:mm' : 'd MMM';
+    return this.i18n.t(span <= 8 * 86400 ? 'format.weekdayTime' : 'format.dayMonth');
   });
 
   /** The start of the step under the pointer, or null when the pointer is elsewhere. */
@@ -74,7 +74,7 @@ export class LineChart {
 
   /** The date format of the tooltip, with seconds when a step is shorter than a minute. */
   protected readonly readoutFormat = computed(() =>
-    this.step() < 60 ? 'EEE d MMM, HH:mm:ss' : 'EEE d MMM, HH:mm',
+    this.i18n.t(this.step() < 60 ? 'format.dateTimeSeconds' : 'format.dateTime'),
   );
 
   protected readonly readout = computed(() => {

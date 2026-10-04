@@ -59,7 +59,7 @@ GOOS=windows go build -ldflags=-H=windowsgui ./cmd/usage-control-tray
 
 ## Translations
 
-The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` is the source, and `de.ts`, `fr.ts` and `es.ts` must have the same keys, which the TypeScript compiler checks, so the build fails when a translation is missing. The `I18n` service holds the page's language as a signal, so switching it updates the page in place. The page starts in the language picked last time (kept in the browser's localStorage), else the browser's language, else English.
+The website's text lives in `frontend/src/app/i18n/messages/`: `en.ts` (British English) is the source, and `de.ts`, `fr.ts` and `es.ts` must have the same keys, which the TypeScript compiler checks, so the build fails when a translation is missing. `en-us.ts` (American English) takes the British text and replaces only what is written differently in the US, such as the `format.*` date patterns with the 12-hour clock, so a new key needs no American copy. Dates are formatted with these patterns, never with a pattern written into a component. The `I18n` service holds the page's language as a signal, so switching it updates the page in place. The page starts in the language picked last time (kept in the browser's localStorage), else the browser's language (American English for `en-US`, British English for any other English), else British English.
 
 - Add a text to `en.ts` and the same key to the other three files. A `{name}` in a text is a placeholder
 - Show it with `i18n.t('area.name')` (or `i18n.t('area.name', { name: value })`) in a template or a `computed`, after `protected readonly i18n = inject(I18n)`

@@ -4,7 +4,11 @@ import { I18n, LanguageCode } from '../app/i18n/i18n';
 
 /** The notice's text in each language the page is in. */
 const TEXT: Record<LanguageCode, { notice: string; install: string }> = {
-  en: {
+  'en-GB': {
+    notice: 'This is a demo with made-up values from sample devices.',
+    install: 'Install Usage Control',
+  },
+  'en-US': {
     notice: 'This is a demo with made-up values from sample devices.',
     install: 'Install Usage Control',
   },

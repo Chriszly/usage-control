@@ -23,13 +23,14 @@ describe('LanguageSwitcher', () => {
   afterEach(() => localStorage.removeItem(LANGUAGE_STORAGE_KEY));
 
   it('shows every language as a flag, named in that language', () => {
-    const shown = buttons('en').map((b) => [
+    const shown = buttons('en-GB').map((b) => [
       b.getAttribute('aria-label'),
       b.querySelector('img')?.getAttribute('src'),
     ]);
 
     expect(shown).toEqual([
-      ['English', 'flags/en.svg'],
+      ['English (UK)', 'flags/en-GB.svg'],
+      ['English (US)', 'flags/en-US.svg'],
       ['Deutsch', 'flags/de.svg'],
       ['Français', 'flags/fr.svg'],
       ['Español', 'flags/es.svg'],
@@ -41,9 +42,9 @@ describe('LanguageSwitcher', () => {
   });
 
   it('switches the language in place when a flag is clicked', () => {
-    const all = buttons('en');
+    const all = buttons('en-GB');
 
-    all[1].click();
+    all[2].click();
     TestBed.tick();
 
     expect(TestBed.inject(I18n).language()).toBe('de');

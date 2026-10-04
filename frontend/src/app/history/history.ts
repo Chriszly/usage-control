@@ -131,7 +131,7 @@ export class HistoryCharts {
 
   /** Short ranges show seconds too. */
   protected readonly dateFormat = computed(() =>
-    this.span() <= 30 * 60 ? 'EEE d MMM, HH:mm:ss' : 'EEE d MMM, HH:mm',
+    this.i18n.t(this.span() <= 30 * 60 ? 'format.dateTimeSeconds' : 'format.dateTime'),
   );
 
   /** For a device that is not answering, when the shown data ends, in the page's language. */
