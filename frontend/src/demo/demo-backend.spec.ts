@@ -40,6 +40,14 @@ describe('DemoBackend', () => {
     }
   });
 
+  it('counts the time the laptop sleeps as not in use, not as outages', async () => {
+    const laptop = await firstValueFrom(devices.availability('linux-laptop'));
+    expect(laptop.kind).toBe('pc');
+    expect(laptop.outages).toBeGreaterThan(0);
+    const nas = await firstValueFrom(devices.availability('linux-nas'));
+    expect(nas).toMatchObject({ kind: 'server', outages: 0 });
+  });
+
   it('answers 503 for the device that is asleep', async () => {
     await expect(firstValueFrom(metrics.current('linux-laptop'))).rejects.toMatchObject({
       status: 503,
@@ -59,11 +67,11 @@ describe('DemoBackend', () => {
   it('refuses to add or remove devices, and says why', async () => {
     const i18n = TestBed.inject(I18n);
     i18n.language.set('en');
-    const refused = await firstValueFrom(devices.add('NAS', '192.168.1.9:9393', 'password')).catch(
-      (error: unknown) => error,
-    );
+    const refused = await firstValueFrom(
+      devices.add('NAS', '192.168.1.9:9393', 'server', 'password'),
+    ).catch((error: unknown) => error);
     expect(problemMessage(refused, i18n)).toBe(
-      "This is a demo, so devices can't be added or removed.",
+      "This is a demo, so devices can't be added, removed or changed.",
     );
     await expect(
       firstValueFrom(devices.remove('windows-pc', 'password', false)),

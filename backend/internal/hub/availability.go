@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS hub_outages (
 // Availability tells how long a device was not answering since the hub
 // started collecting from it.
 type Availability struct {
+	// Kind tells whether the times the device did not answer are outages of
+	// a server or times a PC was not in use.
+	Kind Kind `json:"kind"`
 	// Since is when the device was added.
 	Since time.Time `json:"since"`
 	// OfflineSeconds adds up every outage. Time the hub itself was not
@@ -58,19 +61,24 @@ func watch(ctx context.Context, db *sql.DB, device string, since time.Time) erro
 	return err
 }
 
-// forget deletes what is known about device's availability.
+// forget deletes what is known about device's availability and its kind.
 func forget(ctx context.Context, db *sql.DB, device string) error {
-	if _, err := db.ExecContext(ctx, `DELETE FROM hub_outages WHERE device = ?`, device); err != nil {
-		return err
+	for _, query := range []string{
+		`DELETE FROM hub_outages WHERE device = ?`,
+		`DELETE FROM hub_watched WHERE device = ?`,
+		`DELETE FROM hub_device_kinds WHERE device = ?`,
+	} {
+		if _, err := db.ExecContext(ctx, query, device); err != nil {
+			return err
+		}
 	}
-	_, err := db.ExecContext(ctx, `DELETE FROM hub_watched WHERE device = ?`, device)
-	return err
+	return nil
 }
 
-// forgetOthers deletes the availability of every device but the kept ones:
+// forgetOthers deletes the availability and kind of every device but the kept ones:
 // the devices dropped from HUB_DEVICES without being added on the page.
 func forgetOthers(ctx context.Context, db *sql.DB, kept []string) error {
-	rows, err := db.QueryContext(ctx, `SELECT device FROM hub_watched UNION SELECT device FROM hub_outages`)
+	rows, err := db.QueryContext(ctx, `SELECT device FROM hub_watched UNION SELECT device FROM hub_outages UNION SELECT device FROM hub_device_kinds`)
 	if err != nil {
 		return err
 	}

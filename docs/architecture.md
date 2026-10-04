@@ -6,7 +6,7 @@ usage-control is one program. The same binary runs on every device, and settings
 - [Devices and connections](#devices-and-connections)
 - [Inside one device](#inside-one-device)
 - [How the hub collects from a device](#how-the-hub-collects-from-a-device)
-- [Availability and outages](#availability-and-outages)
+- [Availability, usage and outages](#availability-usage-and-outages)
 - [Adding and removing devices](#adding-and-removing-devices)
 - [How often the page asks](#how-often-the-page-asks)
 - [Local network only](#local-network-only)
@@ -64,7 +64,7 @@ What goes over the wire:
 | Browser | Hub | `GET /api/availability?device=<id>`: uptime of another device | every 10 s, while one is selected |
 | Browser | Hub | `GET /api/update`: running version and newer release | every hour |
 | Browser | Hub | `GET /api/devices/suggestion`: the device the page is open on, to fill in the *Devices* dialog | when the dialog opens |
-| Browser | Hub | `POST /api/devices`, `DELETE /api/devices/<id>` | when a device is added or removed |
+| Browser | Hub | `POST /api/devices`, `DELETE /api/devices/<id>`, `PUT /api/devices/<id>/kind` | when a device is added, removed or its kind changed |
 | Hub | The visitor's device | `GET /api/metrics` on port 9393, and a reverse DNS lookup of its address, for its name | when the *Devices* dialog opens |
 | Hub | Each device | `GET /api/metrics`: the device's current usage as JSON, a few kilobytes. The `Usage-Control-Hub-Port` header tells the port of the hub's page; the device remembers it with the hub's address | every 5 s |
 | Program on the device | The device | `GET /api/hub`: the hub's page as `{"url": "http://192.168.1.20:9393/"}`, empty until a hub asked; only answered to 127.0.0.1 and ::1 | when needed |
@@ -145,7 +145,7 @@ Rules the agent follows:
 
 Collecting uses no extra setting on the devices: retention, history and the charts all live on the hub.
 
-## Availability and outages
+## Availability, usage and outages
 
 For every other device, the hub remembers since when it collects from it and every time the device did not answer:
 
@@ -155,29 +155,38 @@ For every other device, the hub remembers since when it collects from it and eve
 
 The *Availability* card shows the share of time the device answered since it was added, the total time offline, how many outages there were and the last one. Time the hub itself was not running is not counted, since the hub cannot know about it. Outages are kept as long as the device is, not only for the retention.
 
-Removing a device on the page deletes its availability, and its history unless *Keep its history* is ticked. A device taken out of `HUB_DEVICES` loses its availability at the next start; its history stays until it ages out.
+What a time without an answer means depends on the device's kind, picked in the *Devices* dialog and stored in `hub_device_kinds`:
+
+| Kind | Time without an answer | Card | Device button |
+| --- | --- | --- | --- |
+| *Server / IoT* (the default, also for `HUB_DEVICES` and devices added before kinds existed) | an outage | *Availability* | red dot, warning above the cards |
+| *PC / laptop* | the PC was switched off or asleep | *Usage*: share of time it was on, how long and how often it was off | grey dot, a neutral note instead of the warning |
+
+The hub records both kinds the same way, so changing the kind later only changes how the times already recorded are shown.
+
+Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
 
 ## Adding and removing devices
 
-The *Devices* button on the hub's page opens a dialog that lists every device. Devices added there are stored in the hub's database (`hub_devices`) and are collected from right away, with no restart. Devices from `HUB_DEVICES` show as *Set in .env* and can only be removed there.
+The *Devices* button on the hub's page opens a dialog that lists every device. Devices added there are stored in the hub's database (`hub_devices`) and are collected from right away, with no restart. Devices from `HUB_DEVICES` show as *Set in .env* and can only be removed there. The kind of every device, those from `HUB_DEVICES` too, can be changed in the list (`PUT /api/devices/<id>/kind`).
 
 When the dialog opens, it fills in the form with the device the page is open on, unless the hub already collects from it:
 
 1. The page sends `GET /api/devices/suggestion`. The hub takes the address the request came from, not a header.
 2. It offers nothing for its own addresses (in Docker also the host's network cards, which its usage lists), loopback, link-local IPv6 and its default gateway. Behind Docker's port publishing, a request can arrive from the Docker network's gateway instead of the visitor; that is the container's default gateway, so it is never offered. It offers nothing either when a device's address is that IP with port 9393, or a name that resolves to it with port 9393.
 3. For the name, it asks a usage-control on that address at port 9393 for `/api/metrics`, whose `name` is the device's `DEVICE_NAME` or hostname, and at the same time looks the address up in the DNS (the router usually knows the names of its DHCP clients), using the first part of the name, such as `office-pc` for `office-pc.fritz.box`. Both are given 2 seconds. A device that calls itself by the name of a device already added is not offered.
-4. It answers `{ address, name }` with the address as `<ip>:9393` and the name empty when neither lookup found one, or `204` when there is nothing to offer. Nothing is typed over: a suggestion arriving after the visitor started typing is dropped.
+4. It answers `{ address, name, kind }` with the address as `<ip>:9393` the name empty when neither lookup found one, and the kind `pc` when the device reports a battery or no load average (Windows), else `server`, or `204` when there is nothing to offer. Nothing is typed over: a suggestion arriving after the visitor started typing is dropped.
 
 Adding a device:
 
-1. The page sends `POST /api/devices` with the name, the address (`host:port`) and the password.
+1. The page sends `POST /api/devices` with the name, the address (`host:port`), the kind (`server` or `pc`) and the password.
 2. The hub checks the name (1 to 64 characters, at least one letter or digit, not taken) and the address (a host name, IPv4 address or bracketed IPv6 address, and a port; nothing else, since it becomes part of a URL). An address and port that another device already has is refused, also when written differently, such as an IPv4-mapped IPv6 address or a name in other case; host names are not looked up. The same IP address with another port is another device, since each port can run its own usage-control. `HUB_DEVICES` refuses to start with the same address and port twice.
 3. It asks the address once for `/api/metrics`. Only when a usage-control answers is the device stored and the recording started.
 
 Every change asks for a password:
 
 - The first change chooses it: at least 8 characters, typed twice in the dialog. The password is stored only when that change works.
-- From then on every add or remove needs it. It cannot be changed on the page.
+- From then on every add, remove or change of kind needs it. It cannot be changed on the page.
 - Only a salt and a PBKDF2-SHA256 hash (600,000 iterations) are stored, in the `password` table. Each wrong password is answered one second late, and checks run one at a time, so guessing over the network is slow.
 - If it is forgotten, `RESET_PASSWORD=true` deletes it at the next start; the next change chooses a new one. Unset it right after, or every restart deletes it again.
 
@@ -189,7 +198,7 @@ The requests must be `application/json`. A browser does not send JSON to another
 | --- | --- | --- |
 | Current usage (dashboard) | 2 s | matches the sampler |
 | Device list and online dots | 5 s | |
-| Availability card | 10 s | only for another device |
+| Availability or Usage card | 10 s | only for another device |
 | Charts, up to 30 min | 5 s | from memory |
 | Charts, up to a day | 1 min | from the database, per minute |
 | Charts, longer | 5 min | from the hourly averages |
@@ -214,12 +223,13 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | Method and path | Answers | Errors |
 | --- | --- | --- |
 | `GET /api/metrics[?device=<id>]` | the device's current usage: version, time, time zone, uptime, CPU, memory, temperatures, disks, network, GPUs, throttling, battery, fans ([fields](data.md#the-snapshot)) | `404` unknown device, `503` another device that has not answered recently |
-| `GET /api/devices` | `{ devices: [{ id, name, address, removable, unreachable, unreachableSince }], passwordSet }` | |
-| `GET /api/devices/suggestion` | `{ address, name }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
-| `POST /api/devices` | body `{ name, address, password }`; `201` with the new device | `400` name, address or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
+| `GET /api/devices` | `{ devices: [{ id, name, address, kind, removable, unreachable, unreachableSince }], passwordSet }` | |
+| `GET /api/devices/suggestion` | `{ address, name, kind }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
+| `POST /api/devices` | body `{ name, address, kind, password }`, `kind` `server` (when left out) or `pc`; `201` with the new device | `400` name, address, kind or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
 | `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES` |
+| `PUT /api/devices/<id>/kind` | body `{ kind, password }`; `204` | `400` kind, `403` wrong password, `404` unknown device |
 | `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }] }`, at most 360 points per metric | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
-| `GET /api/availability?device=<id>` | `{ since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |
+| `GET /api/availability?device=<id>` | `{ kind, since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |
 | `GET /api/update` | `{ current, latest, url }`; `latest` and `url` only when a newer release exists | |
 | `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |
 

@@ -1,9 +1,17 @@
+<!-- A server's times without an answer are outages; a PC's or laptop's are times it was not in use. -->
 <ng-template #availabilityCard let-a>
   <div class="card">
-    <h2>{{ i18n.t('dashboard.availability') }}</h2>
+    <h2>{{ i18n.t(a.kind === 'pc' ? 'dashboard.usage' : 'dashboard.availability') }}</h2>
     <p class="value">{{ availablePercent(a) | number: '1.0-2' : i18n.language() }} %</p>
     <p class="detail">
-      @if (a.outages > 0) {
+      @if (a.kind === 'pc') {
+        {{
+          i18n.t(a.outages > 0 ? 'dashboard.notInUseSince' : 'dashboard.alwaysInUseSince', {
+            duration: formatDuration(a.offlineSeconds),
+            date: when(a.since),
+          })
+        }}
+      } @else if (a.outages > 0) {
         {{
           i18n.t('dashboard.offlineSince', {
             duration: formatDuration(a.offlineSeconds),
@@ -20,9 +28,13 @@
     </p>
     @if (a.lastOutage; as last) {
       <p class="detail">
-        {{ i18n.plural(a.outages, 'dashboard.outages.one', 'dashboard.outages.other') }}
         {{
-          i18n.t('dashboard.lastOutage', {
+          a.kind === 'pc'
+            ? i18n.plural(a.outages, 'dashboard.offTimes.one', 'dashboard.offTimes.other')
+            : i18n.plural(a.outages, 'dashboard.outages.one', 'dashboard.outages.other')
+        }}
+        {{
+          i18n.t(a.kind === 'pc' ? 'dashboard.lastOff' : 'dashboard.lastOutage', {
             date: when(last.start),
             duration: outageLength(last),
           })
@@ -34,6 +46,10 @@
 
 @if (problem() === 'backend') {
   <p class="warning" role="alert">{{ i18n.t('dashboard.unreachable') }}</p>
+} @else if (problem() === 'device' && isPC()) {
+  <p class="notice" role="status">
+    {{ i18n.t('dashboard.deviceNotInUse', { device: deviceName() }) }}
+  </p>
 } @else if (problem() === 'device') {
   <p class="warning" role="alert">
     {{ i18n.t('dashboard.deviceUnreachable', { device: deviceName() }) }}

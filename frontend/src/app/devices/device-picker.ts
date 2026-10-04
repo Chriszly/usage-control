@@ -6,7 +6,7 @@ import { EMPTY, catchError, exhaustMap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
 import { PageVisibility } from '../page-visibility';
-import { Device, DeviceService, deviceName } from './devices';
+import { Device, DeviceService, deviceName, notInUse } from './devices';
 
 /** How often the list is read again, so the buttons show which devices answer. */
 export const DEVICES_REFRESH_MS = 5000;
@@ -47,15 +47,20 @@ export class DevicePicker {
     return deviceName(device, this.i18n);
   }
 
-  /** Whether the device answers, and since when it does not. */
+  protected notInUse(device: Device): boolean {
+    return notInUse(device);
+  }
+
+  /** Whether the device answers, and since when it does not or is not in use. */
   protected status(device: Device): string {
     if (!device.unreachable) {
       return this.i18n.t('devices.reachable');
     }
+    const idle = notInUse(device);
     if (!device.unreachableSince) {
-      return this.i18n.t('devices.unreachable');
+      return this.i18n.t(idle ? 'devices.notInUse' : 'devices.unreachable');
     }
     const since = formatDate(device.unreachableSince, 'short', this.i18n.language());
-    return this.i18n.t('devices.unreachableSince', { since });
+    return this.i18n.t(idle ? 'devices.notInUseSince' : 'devices.unreachableSince', { since });
   }
 }

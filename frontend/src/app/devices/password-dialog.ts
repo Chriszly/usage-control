@@ -14,13 +14,15 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 
 import { I18n } from '../i18n/i18n';
-import { MIN_PASSWORD_LENGTH } from './devices';
+import { DeviceKind, MIN_PASSWORD_LENGTH, kindName } from './devices';
 
 /** What the password is asked for. */
 export interface PasswordDialogData {
-  action: 'add' | 'remove';
-  /** The name of the device that is added or removed. */
+  action: 'add' | 'remove' | 'kind';
+  /** The name of the device that is changed. */
   deviceName: string;
+  /** For changing the kind: the new kind. */
+  kind?: DeviceKind;
   /** Whether the password has been chosen; if not, this change chooses it. */
   passwordSet: boolean;
 }
@@ -33,7 +35,7 @@ export interface PasswordDialogResult {
 }
 
 /**
- * Asks for the password before a device is added or removed. Before the first
+ * Asks for the password before a device is added, removed or changed. Before the first
  * change it asks to choose one instead, twice, since it cannot be changed later.
  */
 @Component({
@@ -74,6 +76,33 @@ export class PasswordDialog {
       ? this.password() !== ''
       : !this.tooShort() && this.repeated() === this.password(),
   );
+
+  /** What the password is asked for, as a question to confirm. */
+  protected readonly question = computed(() => {
+    const device = this.data.deviceName;
+    switch (this.data.action) {
+      case 'add':
+        return this.i18n.t('passwordDialog.add', { device });
+      case 'remove':
+        return this.i18n.t('passwordDialog.remove', { device });
+      case 'kind':
+        return this.i18n.t('passwordDialog.kind', {
+          device,
+          kind: kindName(this.data.kind ?? 'server', this.i18n),
+        });
+    }
+  });
+
+  protected readonly confirmLabel = computed(() => {
+    switch (this.data.action) {
+      case 'add':
+        return this.i18n.t('passwordDialog.confirmAdd');
+      case 'remove':
+        return this.i18n.t('passwordDialog.confirmRemove');
+      case 'kind':
+        return this.i18n.t('passwordDialog.confirmKind');
+    }
+  });
 
   protected confirm(): void {
     if (this.canConfirm()) {

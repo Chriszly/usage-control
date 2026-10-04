@@ -8,6 +8,8 @@ export const de: Messages = {
     'Das Backend ist nicht erreichbar. Angezeigt werden die zuletzt bekannten Werte.',
   'dashboard.deviceUnreachable':
     '{device} hat in letzter Zeit nicht geantwortet. Läuft usage-control darauf?',
+  'dashboard.deviceNotInUse':
+    '{device} ist ausgeschaltet oder im Ruhezustand, also nicht in Benutzung. Angezeigt werden die zuletzt bekannten Werte.',
   'dashboard.cpu': 'CPU',
   'dashboard.cpuUsage': 'CPU-Auslastung',
   'dashboard.cores.one': '{count} Kern',
@@ -39,6 +41,12 @@ export const de: Messages = {
   'dashboard.outages.one': '{count} Ausfall,',
   'dashboard.outages.other': '{count} Ausfälle,',
   'dashboard.lastOutage': 'der letzte am {date} für {duration}',
+  'dashboard.usage': 'Nutzung',
+  'dashboard.notInUseSince': '{duration} nicht in Benutzung seit {date}',
+  'dashboard.alwaysInUseSince': 'Durchgehend eingeschaltet seit {date}',
+  'dashboard.offTimes.one': '{count}-mal aus,',
+  'dashboard.offTimes.other': '{count}-mal aus,',
+  'dashboard.lastOff': 'zuletzt am {date} für {duration}',
   'dashboard.seconds': '{seconds} s',
   'dashboard.minutes': '{minutes} min',
   'dashboard.coresUsage': 'Auslastung je Kern',
@@ -89,6 +97,10 @@ export const de: Messages = {
   'devices.reachable': 'Erreichbar',
   'devices.unreachable': 'Nicht erreichbar',
   'devices.unreachableSince': 'Nicht erreichbar seit {since}',
+  'devices.notInUse': 'Nicht in Benutzung',
+  'devices.notInUseSince': 'Nicht in Benutzung seit {since}',
+  'devices.kind.server': 'Server / IoT',
+  'devices.kind.pc': 'PC / Laptop',
   'devices.manage': 'Geräte',
   'devices.addOther': 'Weitere Geräte hinzufügen',
   'devicesDialog.title': 'Geräte',
@@ -102,6 +114,10 @@ export const de: Messages = {
   'devicesDialog.name': 'Name',
   'devicesDialog.address': 'Adresse',
   'devicesDialog.addressHint': 'IP-Adresse oder Name und Port',
+  'devicesDialog.kind': 'Art des Geräts',
+  'devicesDialog.kindOf': 'Art von {device}',
+  'devicesDialog.kindHint':
+    'Antwortet ein Server nicht, ist das ein Ausfall. Ein ausgeschalteter PC oder Laptop ist nur nicht in Benutzung.',
   'devicesDialog.add': 'Hinzufügen',
   'devicesDialog.close': 'Schließen',
   'devices.problem.wrongPassword': 'Das Passwort ist falsch.',
@@ -113,13 +129,15 @@ export const de: Messages = {
     'Ein Gerät mit dieser Adresse und diesem Port ist bereits in der Liste. Ein Gerät auf einem anderen Port kann hinzugefügt werden.',
   'devices.problem.address':
     'Schreibe die Adresse als IP-Adresse und Port, zum Beispiel 192.168.1.20:9393.',
+  'devices.problem.kind':
+    'Wähle, ob das Gerät ein Server oder IoT-Gerät oder ein PC oder Laptop ist.',
   'devices.problem.unreachable':
     'Unter dieser Adresse antwortet kein usage-control. Läuft es, und liegt die Adresse im lokalen Netzwerk?',
   'devices.problem.fixed':
     'Dieses Gerät ist in der .env-Datei des Hubs festgelegt. Entferne es dort.',
   'devices.problem.notFound': 'Dieses Gerät wurde bereits entfernt.',
   'devices.problem.demo':
-    'Dies ist eine Demo, darum können keine Geräte hinzugefügt oder entfernt werden.',
+    'Dies ist eine Demo, darum können keine Geräte hinzugefügt, entfernt oder geändert werden.',
   'devices.problem.other': 'Die Geräte konnten nicht geändert werden. Versuche es noch einmal.',
   'passwordDialog.enterTitle': 'Passwort eingeben',
   'passwordDialog.chooseTitle': 'Passwort festlegen',
@@ -135,6 +153,8 @@ export const de: Messages = {
   'passwordDialog.cancel': 'Abbrechen',
   'passwordDialog.confirmAdd': 'Hinzufügen',
   'passwordDialog.confirmRemove': 'Entfernen',
+  'passwordDialog.kind': '{device} zu {kind} ändern?',
+  'passwordDialog.confirmKind': 'Ändern',
   'history.title': 'Verlauf',
   'history.unit': 'Einheit des angezeigten Zeitraums',
   'history.range': 'Angezeigter Zeitraum',

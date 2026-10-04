@@ -11,7 +11,7 @@ usage-control is a website that monitors the hardware it runs on: it reads the u
 - **Backend:** Go, reading hardware data with [gopsutil](https://github.com/shirou/gopsutil) (and `/sys/class/thermal` for temperature on Linux). Format with `gofumpt` and `goimports` (run through `golangci-lint fmt`), lint with `golangci-lint`
 - **Frontend:** Angular with TypeScript, using standalone components and signals. The built app is embedded in the Go binary, so one binary serves both the API and the page. Translated into German, French and Spanish with a small signal-based `I18n` service (`src/app/i18n/`), with English as the source language, so the language switches in place without a reload
 - **Storage:** SQLite, one file on a volume. How long data is kept is set at setup with `RETENTION_DAYS`; older data is deleted automatically
-- **Multiple devices:** every device runs the same binary. By default it monitors only itself and serves a JSON API; in hub mode it also collects from the other devices on the local network and stores their data
+- **Multiple devices:** every device runs the same binary. By default it monitors only itself and serves a JSON API; in hub mode it also collects from the other devices on the local network and stores their data. Each other device is a server/IoT device, whose time without an answer is an outage, or a PC/laptop, whose time switched off is just time it was not in use
 - **Network:** reachable on the local network only; the server rejects requests from outside the private address ranges
 - **Build:** the Angular frontend is built in CI or in the Docker build, never on the Raspberry Pi itself
 

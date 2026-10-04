@@ -51,10 +51,16 @@ progress {
   white-space: nowrap;
 }
 
-.warning {
+.warning,
+.notice {
   padding: 0.75rem 1rem;
   border-radius: var(--mat-sys-corner-medium);
   background: var(--warning-surface);
+}
+
+/* A PC that is switched off is no problem, so it is told without the warning's color. */
+.notice {
+  background: var(--mat-sys-surface-container-high);
 }
 
 .disk + .disk,

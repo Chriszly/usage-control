@@ -10,7 +10,10 @@
   margin-left: auto;
 }
 
-/* In place of a check mark, a dot before the name: green while the device answers, red while it does not. */
+/*
+ * In place of a check mark, a dot before the name: green while the device answers, red while
+ * it does not, and grey for a PC or laptop that is switched off, which is no outage.
+ */
 .status {
   display: inline-block;
   width: 0.5rem;
@@ -25,6 +28,10 @@
 
 .status.unreachable {
   background: light-dark(#c62828, #f85149);
+}
+
+.status.not-in-use {
+  background: var(--mat-sys-outline);
 }
 
 .visually-hidden {

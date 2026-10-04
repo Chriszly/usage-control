@@ -75,4 +75,12 @@ describe('PasswordDialog', () => {
 
     expect(close).toHaveBeenCalledWith({ password: 'x', keepHistory: true });
   });
+
+  it('asks for the password to change the kind of a device', async () => {
+    await open({ action: 'kind', deviceName: 'Office PC', kind: 'pc', passwordSet: true });
+
+    expect(element().textContent).toContain('Change Office PC to PC / laptop?');
+    expect(element().querySelector('mat-checkbox')).toBeNull();
+    expect(confirmButton().textContent?.trim()).toBe('Change');
+  });
 });
