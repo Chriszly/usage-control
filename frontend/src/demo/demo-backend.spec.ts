@@ -58,7 +58,7 @@ describe('DemoBackend', () => {
 
   it('refuses to add or remove devices, and says why', async () => {
     const i18n = TestBed.inject(I18n);
-    i18n.language.set('en');
+    i18n.language.set('en-GB');
     const refused = await firstValueFrom(devices.add('NAS', '192.168.1.9:9393', 'password')).catch(
       (error: unknown) => error,
     );

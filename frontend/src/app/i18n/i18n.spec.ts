@@ -1,6 +1,8 @@
+import { formatDate } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
 
 import { BROWSER_LANGUAGES, I18n, LANGUAGE_STORAGE_KEY, preferredLanguage } from './i18n';
+import { MessageKey } from './messages/en';
 
 describe('I18n', () => {
   function i18n(browserLanguages: string[] = ['en-US']): I18n {
@@ -20,6 +22,26 @@ describe('I18n', () => {
 
   it("starts in the browser's language when none was picked", () => {
     expect(i18n(['it-IT', 'fr-CA', 'de']).language()).toBe('fr');
+  });
+
+  it('starts in British English when English was picked before it was split', () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+
+    expect(i18n(['en-US']).language()).toBe('en-GB');
+  });
+
+  it('writes dates the American way in American English and the British way in British', () => {
+    const service = i18n(['en-US']);
+    const time = Date.UTC(2026, 9, 4, 17, 5);
+    const format = (key: MessageKey) => formatDate(time, service.t(key), service.language(), 'UTC');
+
+    expect(format('format.dateTime')).toBe('Sun, Oct 4, 5:05 PM');
+    expect(formatDate(time, 'short', service.language(), 'UTC')).toBe('10/4/26, 5:05\u202fPM');
+
+    service.use('en-GB');
+
+    expect(format('format.dateTime')).toBe('Sun 4 Oct, 17:05');
+    expect(formatDate(time, 'short', service.language(), 'UTC')).toBe('04/10/2026, 17:05');
   });
 
   it('fills placeholders and follows a switch of language', () => {
@@ -52,8 +74,15 @@ describe('I18n', () => {
 });
 
 describe('preferredLanguage', () => {
-  it('falls back to English', () => {
-    expect(preferredLanguage(['it', 'ja'])).toBe('en');
-    expect(preferredLanguage([])).toBe('en');
+  it('falls back to British English', () => {
+    expect(preferredLanguage(['it', 'ja'])).toBe('en-GB');
+    expect(preferredLanguage([])).toBe('en-GB');
+  });
+
+  it('picks American English only for American browsers', () => {
+    expect(preferredLanguage(['en-US', 'en'])).toBe('en-US');
+    expect(preferredLanguage(['en'])).toBe('en-GB');
+    expect(preferredLanguage(['en-AU'])).toBe('en-GB');
+    expect(preferredLanguage(['en-GB'])).toBe('en-GB');
   });
 });

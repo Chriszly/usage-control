@@ -182,4 +182,10 @@ export const es: Messages = {
   'bytes.unit.tib': 'TiB',
   'update.available': 'La versión {latest} está disponible (este dispositivo tiene la {current}).',
   'update.whatsNew': 'Novedades',
+  'format.time': 'HH:mm',
+  'format.timeSeconds': 'HH:mm:ss',
+  'format.weekdayTime': 'EEE HH:mm',
+  'format.dayMonth': 'd MMM',
+  'format.dateTime': 'EEE d MMM, HH:mm',
+  'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
 };

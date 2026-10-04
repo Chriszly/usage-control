@@ -1,11 +1,13 @@
 import { DOCUMENT, registerLocaleData } from '@angular/common';
 import localeDe from '@angular/common/locales/de';
+import localeEnGb from '@angular/common/locales/en-GB';
 import localeEs from '@angular/common/locales/es';
 import localeFr from '@angular/common/locales/fr';
 import { Injectable, InjectionToken, effect, inject, signal } from '@angular/core';
 
 import { de } from './messages/de';
 import { MessageKey, Messages, en } from './messages/en';
+import { enUS } from './messages/en-us';
 import { es } from './messages/es';
 import { fr } from './messages/fr';
 
@@ -15,19 +17,21 @@ export interface Language {
   name: string;
 }
 
-export type LanguageCode = 'en' | 'de' | 'fr' | 'es';
+export type LanguageCode = 'en-GB' | 'en-US' | 'de' | 'fr' | 'es';
 
 /** Every language the website is in. Its flag is public/flags/<code>.svg. */
 export const LANGUAGES: readonly Language[] = [
-  { code: 'en', name: 'English' },
+  { code: 'en-GB', name: 'English (UK)' },
+  { code: 'en-US', name: 'English (US)' },
   { code: 'de', name: 'Deutsch' },
   { code: 'fr', name: 'Français' },
   { code: 'es', name: 'Español' },
 ];
 
-const MESSAGES: Record<LanguageCode, Messages> = { en, de, fr, es };
+const MESSAGES: Record<LanguageCode, Messages> = { 'en-GB': en, 'en-US': enUS, de, fr, es };
 
-// Number and date formats for Angular's number and date pipes; English is built in.
+// Number and date formats for Angular's number and date pipes; American English is built in.
+registerLocaleData(localeEnGb);
 registerLocaleData(localeDe);
 registerLocaleData(localeFr);
 registerLocaleData(localeEs);
@@ -45,7 +49,7 @@ export const BROWSER_LANGUAGES = new InjectionToken<readonly string[]>('browser 
  * the language through signals, so switching it updates the page in place.
  *
  * The page starts in the language picked last time, else the browser's
- * preferred language, else English.
+ * preferred language, else British English.
  */
 @Injectable({ providedIn: 'root' })
 export class I18n {
@@ -103,17 +107,27 @@ export function translate(
   );
 }
 
-/** The first of the browser's languages the website is in, such as "de" for "de-CH". */
+/**
+ * The first of the browser's languages the website is in, such as "de" for "de-CH".
+ * English is American for "en-US" and British for every other English.
+ */
 export function preferredLanguage(browserLanguages: readonly string[]): LanguageCode {
   for (const tag of browserLanguages) {
+    if (tag.toLowerCase() === 'en-us') {
+      return 'en-US';
+    }
     const language = asLanguage(tag.split('-')[0].toLowerCase());
     if (language) {
       return language;
     }
   }
-  return 'en';
+  return 'en-GB';
 }
 
 function asLanguage(value: string | null | undefined): LanguageCode | null {
+  // Before English was split, British English was saved as "en".
+  if (value === 'en') {
+    return 'en-GB';
+  }
   return LANGUAGES.find((language) => language.code === value)?.code ?? null;
 }

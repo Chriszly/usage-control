@@ -1,5 +1,5 @@
 /**
- * The website's text in English, the source language. Every other language
+ * The website's text in British English, the source language. Every other language
  * must have the same keys, which the compiler checks through {@link Messages}.
  * A {name} in a text is filled in by {@link I18n.t}.
  */
@@ -181,6 +181,13 @@ export const en = {
   'bytes.unit.tib': 'TiB',
   'update.available': 'Version {latest} is available (this device runs {current}).',
   'update.whatsNew': "What's new",
+  // Date patterns for Angular's date pipe; American English uses a 12-hour clock.
+  'format.time': 'HH:mm',
+  'format.timeSeconds': 'HH:mm:ss',
+  'format.weekdayTime': 'EEE HH:mm',
+  'format.dayMonth': 'd MMM',
+  'format.dateTime': 'EEE d MMM, HH:mm',
+  'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
 } as const;
 
 /** The key of one text on the website. */

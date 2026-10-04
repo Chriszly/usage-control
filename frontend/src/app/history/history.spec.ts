@@ -180,7 +180,7 @@ describe('chartsOf', () => {
         { metric: 'network.receive:wlan0', points: [{ time: 0, value: 50 }] },
         { metric: 'network.send:eth0', points: [{ time: 0, value: 7 }] },
       ],
-      (key, params) => translate('en', key, params),
+      (key, params) => translate('en-GB', key, params),
     );
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Network', 'Disks']);
@@ -198,7 +198,7 @@ describe('chartsOf with swap and disk activity', () => {
         { metric: 'disk.write:/', points: [{ time: 0, value: 512 }] },
         { metric: 'swap', points: [{ time: 0, value: 5 }] },
       ],
-      (key, params) => translate('en', key, params),
+      (key, params) => translate('en-GB', key, params),
     );
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Disk activity']);
@@ -209,7 +209,7 @@ describe('chartsOf with swap and disk activity', () => {
 
   it('has no swap line for a machine without swap space', () => {
     const charts = chartsOf([{ metric: 'cpu', points: [{ time: 0, value: 10 }] }], (key, params) =>
-      translate('en', key, params),
+      translate('en-GB', key, params),
     );
     expect(charts[0].lines.map((l) => l.label)).toEqual(['CPU', 'Memory']);
   });
@@ -222,7 +222,7 @@ describe('chartsOf with a battery', () => {
         { metric: 'cpu', points: [{ time: 0, value: 10 }] },
         { metric: 'battery', points: [{ time: 0, value: 80 }] },
       ],
-      (key, params) => translate('en', key, params),
+      (key, params) => translate('en-GB', key, params),
     );
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Battery']);
     expect(charts[1].lines[0].label).toBe('Charge');
@@ -237,7 +237,7 @@ describe('chartsOf with GPUs', () => {
         { metric: 'gpu:AMD GPU', points: [{ time: 0, value: 70 }] },
         { metric: 'gpu.memory:AMD GPU', points: [{ time: 0, value: 25 }] },
       ],
-      (key, params) => translate('en', key, params),
+      (key, params) => translate('en-GB', key, params),
     );
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'GPU']);
