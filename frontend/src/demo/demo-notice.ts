@@ -65,20 +65,27 @@ const TEXT: Record<LanguageCode, NoticeText> = {
     <p>
       {{ text().notice }}
       <span class="version">{{ version() }}</span>
+    </p>
+    <p>
       <a [href]="build.release ? 'main/' : '../'">{{
         build.release ? text().toMain : text().toRelease
       }}</a>
+    </p>
+    <p>
       <a href="https://github.com/Chriszly/usage-control#readme">{{ text().install }}</a>
     </p>
   `,
   styles: `
-    p {
-      margin: 0;
+    :host {
+      display: block;
       padding: 8px 16px;
       text-align: center;
       font: var(--mat-sys-body-medium);
       background: var(--mat-sys-tertiary-container);
       color: var(--mat-sys-on-tertiary-container);
+    }
+    p {
+      margin: 0;
     }
     .version {
       margin-left: 8px;
@@ -86,7 +93,6 @@ const TEXT: Record<LanguageCode, NoticeText> = {
     a {
       color: inherit;
       font-weight: 500;
-      margin-left: 8px;
     }
   `,
 })
