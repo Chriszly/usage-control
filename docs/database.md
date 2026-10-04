@@ -57,7 +57,7 @@ flowchart LR
 - After a restart, memory is empty. Until it reaches back far enough, short ranges come from the database in 1-minute steps instead, so the chart is never empty.
 - Database answers are kept for up to a minute per device and step, so every open tab and every viewer of the hub share one query.
 
-A device that did not answer has no values for that time, which shows as a gap in its chart.
+A device that did not answer has no values for that time, which shows as a gap in its chart. While a device does not answer, a range that ends after its newest reading is moved back to end there, keeping its length, so its charts show the last data there is instead of an empty range. The newest reading comes from memory, or after a restart from `samples` (one row of the primary key's index).
 
 ## Retention
 

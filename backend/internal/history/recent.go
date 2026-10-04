@@ -47,6 +47,18 @@ func (r *Recent) Covers(from time.Time) bool {
 	return len(r.readings) > 0 && r.readings[0].time <= from.Add(RecentInterval).Unix()
 }
 
+// Newest returns the time of the newest reading, or false when there is none.
+// The readings of a device that stopped answering stay until it answers
+// again, as only a new reading makes the old ones go.
+func (r *Recent) Newest() (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.readings) == 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(r.readings[len(r.readings)-1].time, 0), true
+}
+
 // Average returns the average of each metric over the readings from from up
 // to (not including) to, or nil when there are none.
 func (r *Recent) Average(from, to time.Time) map[string]float64 {

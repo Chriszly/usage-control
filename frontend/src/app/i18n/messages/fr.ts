@@ -159,6 +159,8 @@ export const fr: Messages = {
   'history.range': 'Période affichée',
   'history.unreachableStale':
     'Impossible de lire l’historique. Affichage des dernières valeurs lues.',
+  'history.notLive':
+    'Données en différé : cet appareil ne répond plus depuis le {time}. Les graphiques montrent les dernières données enregistrées jusque-là.',
   'history.empty': 'Aucune utilisation enregistrée pour cette période.',
   'history.unreachable': 'Impossible de lire l’historique.',
   'history.loading': 'Chargement…',

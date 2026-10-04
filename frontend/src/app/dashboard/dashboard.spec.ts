@@ -5,7 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DeviceService } from '../devices/devices';
 import { I18n, LANGUAGE_STORAGE_KEY } from '../i18n/i18n';
 import { Snapshot } from '../metrics/metrics';
-import { Dashboard, REFRESH_INTERVAL_MS } from './dashboard';
+import { Dashboard, REFRESH_INTERVAL_MS, coreColumns } from './dashboard';
 
 const snapshot: Snapshot = {
   time: '2026-10-02T17:00:00Z',
@@ -105,6 +105,17 @@ describe('Dashboard', () => {
     expect(text()).toContain('256.0 MiB of 1.0 GiB');
     expect(text()).toContain('Read 2.0 KiB/s');
     expect(text()).toContain('Write 0 B/s');
+  });
+
+  it('splits more than 8 cores evenly over several rows', () => {
+    respond({
+      ...snapshot,
+      cpu: { usagePercent: 10, cores: 20, coreUsagePercent: Array<number>(20).fill(10) },
+    });
+
+    const cores = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.cores');
+    expect(cores?.style.getPropertyValue('--core-columns')).toBe('7');
+    expect([4, 8, 12, 16, 24, 32].map(coreColumns)).toEqual([4, 8, 6, 8, 8, 8]);
   });
 
   it("shows the device's version when it reports one", () => {

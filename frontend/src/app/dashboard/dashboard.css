@@ -108,17 +108,18 @@ progress {
   text-align: end;
 }
 
-/* One bar per core, filled to its usage, side by side under the total. */
+/* One bar per core, filled to its usage, side by side under the total;
+   many cores are split evenly over several rows (see coreColumns). */
 .cores {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(var(--core-columns, 8), 1fr);
+  grid-auto-rows: 1.5rem;
   gap: 2px;
-  height: 1.5rem;
   margin-top: 0.5rem;
 }
 
 .core {
   display: flex;
-  flex: 1;
   align-items: flex-end;
   overflow: hidden;
   border-radius: 2px;

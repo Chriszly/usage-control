@@ -158,6 +158,11 @@ export interface History {
   /** How many days of history the backend keeps (its RETENTION_DAYS setting). */
   retentionDays: number;
   series: Series[];
+  /**
+   * Set for a device that is not answering: when its newest reading is from,
+   * in Unix seconds. The range then ends there instead of now.
+   */
+  lastReading?: number;
 }
 
 /**

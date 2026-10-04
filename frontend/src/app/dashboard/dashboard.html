@@ -67,7 +67,12 @@
         [attr.aria-label]="i18n.t('dashboard.cpuUsage')"
       ></progress>
       @if (s.cpu.coreUsagePercent?.length) {
-        <div class="cores" role="img" [attr.aria-label]="coresLabel(s.cpu.coreUsagePercent!)">
+        <div
+          class="cores"
+          role="img"
+          [attr.aria-label]="coresLabel(s.cpu.coreUsagePercent!)"
+          [style.--core-columns]="coreColumns(s.cpu.coreUsagePercent!.length)"
+        >
           @for (usage of s.cpu.coreUsagePercent; track $index) {
             <span
               class="core"
