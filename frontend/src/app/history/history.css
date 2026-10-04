@@ -82,3 +82,8 @@ h3 {
 .ranges .label {
   min-width: 3rem;
 }
+
+/* Faded while the hub does not answer: the values are from before it stopped. */
+.stale {
+  opacity: 0.55;
+}

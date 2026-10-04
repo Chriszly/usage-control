@@ -4,6 +4,9 @@ import { Messages } from './en';
 export const es: Messages = {
   'app.switchToLight': 'Cambiar al modo claro',
   'app.switchToDark': 'Cambiar al modo oscuro',
+  'connection.lost': '{hub} no responde',
+  'connection.notLive':
+    'Desde las {since}, nada en esta página está en directo, porque los valores de todos los dispositivos pasan por {hub}. La página sigue intentándolo y se actualiza en cuanto {hub} vuelva a responder.',
   'dashboard.unreachable':
     'No se puede conectar con el backend. Se muestran los últimos valores conocidos.',
   'dashboard.deviceUnreachable':
@@ -99,6 +102,7 @@ export const es: Messages = {
   'devices.unreachableSince': 'No accesible desde el {since}',
   'devices.notInUse': 'Sin uso',
   'devices.notInUseSince': 'Sin uso desde el {since}',
+  'devices.unknown': 'Desconocido mientras {hub} no responda',
   'devices.kind.server': 'Servidor / IoT',
   'devices.kind.pc': 'PC / portátil',
   'devices.manage': 'Dispositivos',

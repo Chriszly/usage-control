@@ -7,17 +7,10 @@
         [title]="status(device)"
         (click)="devices.selectedId.set(device.id)"
       >
-        <span
-          class="status"
-          [class.unreachable]="device.unreachable && !notInUse(device)"
-          [class.not-in-use]="notInUse(device)"
-          aria-hidden="true"
-        ></span>
+        <span class="status" [class]="state(device)" aria-hidden="true"></span>
         {{ deviceName(device) }}
-        @if (device.unreachable) {
-          <span class="visually-hidden"
-            >({{ i18n.t(notInUse(device) ? 'devices.notInUse' : 'devices.unreachable') }})</span
-          >
+        @if (state(device) !== 'reachable') {
+          <span class="visually-hidden">({{ shortStatus(device) }})</span>
         }
       </button>
     }

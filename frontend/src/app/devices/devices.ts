@@ -73,6 +73,11 @@ export function deviceName(device: Device, i18n: I18n): string {
   return device.name || i18n.t('devices.hostHub');
 }
 
+/** How the page names the hub, the machine the backend runs on, from the list of devices. */
+export function hubName(devices: Device[], i18n: I18n): string {
+  return deviceName(devices.find((d) => d.id === LOCAL_DEVICE.id) ?? LOCAL_DEVICE, i18n);
+}
+
 /** How the page names a kind of device, in the page's language. */
 export function kindName(kind: DeviceKind, i18n: I18n): string {
   return i18n.t(`devices.kind.${kind}`);

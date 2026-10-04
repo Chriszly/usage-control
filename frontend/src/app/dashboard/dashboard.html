@@ -44,7 +44,7 @@
   </div>
 </ng-template>
 
-@if (problem() === 'backend') {
+@if (problem() === 'backend' && !connection.lost()) {
   <p class="warning" role="alert">{{ i18n.t('dashboard.unreachable') }}</p>
 } @else if (problem() === 'device' && isPC()) {
   <p class="notice" role="status">
@@ -57,7 +57,7 @@
 }
 
 @if (snapshot(); as s) {
-  <div class="cards">
+  <div class="cards" [class.stale]="connection.lost()">
     <div class="card">
       <h2>{{ i18n.t('dashboard.cpu') }}</h2>
       <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' : i18n.language() }} %</p>

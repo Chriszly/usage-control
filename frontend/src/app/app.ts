@@ -1,5 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 
+import { ConnectionBanner } from './connection/connection-banner';
 import { Dashboard } from './dashboard/dashboard';
 import { DevicePicker } from './devices/device-picker';
 import { HistoryCharts } from './history/history';
@@ -11,7 +12,15 @@ import { UpdateNotice } from './update/update-notice';
 
 @Component({
   selector: 'app-root',
-  imports: [Dashboard, DevicePicker, HistoryCharts, LanguageSwitcher, Mascot, UpdateNotice],
+  imports: [
+    ConnectionBanner,
+    Dashboard,
+    DevicePicker,
+    HistoryCharts,
+    LanguageSwitcher,
+    Mascot,
+    UpdateNotice,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

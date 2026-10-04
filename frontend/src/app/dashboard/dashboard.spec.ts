@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { HubConnection } from '../connection/connection';
 import { DeviceService } from '../devices/devices';
 import { I18n, LANGUAGE_STORAGE_KEY } from '../i18n/i18n';
 import { Snapshot } from '../metrics/metrics';
@@ -361,6 +362,22 @@ describe('Dashboard', () => {
 
     expect(text()).toContain('cannot be reached');
     expect(text()).toContain('12.5 %');
+  });
+
+  it('leaves the warning to the banner and fades the cards while the hub does not answer', () => {
+    respond(snapshot);
+    TestBed.inject(HubConnection).failed();
+    vi.advanceTimersByTime(REFRESH_INTERVAL_MS);
+    respond(null);
+
+    expect(text()).not.toContain('cannot be reached');
+    expect(text()).toContain('12.5 %');
+    const cards = (fixture.nativeElement as HTMLElement).querySelector('.cards');
+    expect(cards?.classList).toContain('stale');
+
+    TestBed.inject(HubConnection).answered();
+    fixture.detectChanges();
+    expect(cards?.classList).not.toContain('stale');
   });
 
   it('skips a refresh while the previous reading is still on its way', () => {
