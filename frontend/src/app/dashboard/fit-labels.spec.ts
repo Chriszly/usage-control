@@ -95,6 +95,22 @@ describe('FitLabels', () => {
     expect(card.style.getPropertyValue('--label-scale')).toBe('');
   });
 
+  it('does not measure again when only the digits change', () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.names.set(['cpu_thermal 48']);
+    fixture.detectChanges();
+    const card: HTMLElement = fixture.nativeElement.querySelector('div');
+    const measure = vi.spyOn(card, 'querySelectorAll');
+
+    fixture.componentInstance.names.set(['cpu_thermal 51']);
+    fixture.detectChanges();
+    expect(measure).not.toHaveBeenCalled();
+
+    fixture.componentInstance.names.set(['cpu_thermal 100']);
+    fixture.detectChanges();
+    expect(measure).toHaveBeenCalled();
+  });
+
   it('measures again when the card gets a new width', () => {
     const fixture = TestBed.createComponent(Host);
     fixture.componentInstance.names.set(['NVIDIA RTX 4000 Ada Generation']);

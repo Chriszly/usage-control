@@ -67,6 +67,14 @@ func NewAgent(address string) *Agent {
 	}
 }
 
+// askOnce asks the device at address for its usage a single time and closes
+// the connection, which would otherwise stay open unused.
+func askOnce(ctx context.Context, address string) (metrics.Snapshot, error) {
+	agent := NewAgent(address)
+	defer agent.client.CloseIdleConnections()
+	return agent.ask(ctx)
+}
+
 // Collect asks the device for its current usage. The time of the snapshot is
 // set to when it arrived, so a device whose clock is off is still recorded at
 // the right time.

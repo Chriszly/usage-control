@@ -5,6 +5,7 @@ package metrics
 import (
 	"context"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,10 +51,11 @@ func (n *nvidiaSMI) read(ctx context.Context) []GPU {
 }
 
 // temperatures returns the temperature of each NVIDIA GPU that reports one,
-// named after the GPU.
+// named after the GPU and numbered like the GPUs, so two identical cards get
+// two names.
 func (n *nvidiaSMI) temperatures(ctx context.Context) []Temperature {
 	var temperatures []Temperature
-	for _, gpu := range n.read(ctx) {
+	for _, gpu := range sortGPUs(slices.Clone(n.read(ctx))) {
 		if gpu.Celsius != nil {
 			temperatures = append(temperatures, Temperature{Sensor: gpu.Name, Celsius: *gpu.Celsius})
 		}

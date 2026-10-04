@@ -62,8 +62,13 @@ func readKind(ctx context.Context, db *sql.DB, device string) (Kind, error) {
 	return kind, err
 }
 
+// execer is a database or a transaction.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // storeKind keeps the kind of device. A server is stored as no row.
-func storeKind(ctx context.Context, db *sql.DB, device string, kind Kind) error {
+func storeKind(ctx context.Context, db execer, device string, kind Kind) error {
 	if kind == KindServer {
 		_, err := db.ExecContext(ctx, `DELETE FROM hub_device_kinds WHERE device = ?`, device)
 		return err

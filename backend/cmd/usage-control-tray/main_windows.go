@@ -109,6 +109,8 @@ func (t *tray) refresh() {
 		cancel()
 		answers, hub = err == nil, link
 	}
+	// Listing the adapters can take a moment, so it is done before taking mu.
+	addr, found := localAddress()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -132,7 +134,6 @@ func (t *tray) refresh() {
 	text := t.text.stateText(t.state)
 	systray.SetTooltip("Usage Control: " + text)
 	t.status.SetTitle("Usage Control: " + text)
-	addr, found := localAddress()
 	t.address.SetTitle(t.text.addressText(addr, found, t.settings.port))
 	if t.hub != "" {
 		t.openHub.SetTitle(t.text.openHub)

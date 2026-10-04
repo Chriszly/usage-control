@@ -41,3 +41,20 @@ func TestNvidiaSMITemperaturesAreNamedAfterTheGPU(t *testing.T) {
 		t.Errorf("temperatures() without nvidia-smi = %+v, want none", got)
 	}
 }
+
+func TestNvidiaSMITemperaturesOfIdenticalGPUsAreNumbered(t *testing.T) {
+	first, second := 48.0, 61.0
+	n := &nvidiaSMI{
+		program: "nvidia-smi",
+		gpus:    []GPU{{Name: "NVIDIA GeForce RTX 3090", Celsius: &first}, {Name: "NVIDIA GeForce RTX 3090", Celsius: &second}},
+		at:      time.Now(),
+	}
+
+	want := []Temperature{{Sensor: "NVIDIA GeForce RTX 3090 1", Celsius: 48}, {Sensor: "NVIDIA GeForce RTX 3090 2", Celsius: 61}}
+	if got := n.temperatures(context.Background()); !reflect.DeepEqual(got, want) {
+		t.Errorf("temperatures() = %+v, want %+v", got, want)
+	}
+	if n.gpus[0].Name != "NVIDIA GeForce RTX 3090" {
+		t.Errorf("temperatures() renamed the cached GPU to %q", n.gpus[0].Name)
+	}
+}

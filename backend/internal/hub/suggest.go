@@ -38,7 +38,7 @@ type Suggestion struct {
 type suggester struct {
 	// port is the port the suggested address gets and the device is asked on.
 	port int
-	// ownAddrs lists the machine's addresses; net.InterfaceAddrs when nil.
+	// ownAddrs lists the machine's addresses, such as net.InterfaceAddrs.
 	ownAddrs func() ([]net.Addr, error)
 	// gateways lists the default gateways of the machine's network.
 	gateways func() []netip.Addr
@@ -51,12 +51,10 @@ type suggester struct {
 
 func defaultSuggester() suggester {
 	return suggester{
-		port:     DefaultPort,
-		ownAddrs: net.InterfaceAddrs,
-		gateways: defaultGateways,
-		ask: func(ctx context.Context, address string) (metrics.Snapshot, error) {
-			return NewAgent(address).ask(ctx)
-		},
+		port:       DefaultPort,
+		ownAddrs:   net.InterfaceAddrs,
+		gateways:   defaultGateways,
+		ask:        askOnce,
 		lookupAddr: net.DefaultResolver.LookupAddr,
 		lookupHost: net.DefaultResolver.LookupHost,
 	}
@@ -103,6 +101,7 @@ func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device)
 		ownName, dnsName string
 		kind             = KindServer
 		knownAddress     = make([]bool, len(known))
+		knownChecked     = make([]bool, len(known))
 	)
 	wait.Go(func() {
 		if snapshot, err := s.ask(ctx, address); err == nil {
@@ -115,23 +114,31 @@ func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device)
 		}
 	})
 	for i, device := range known {
-		wait.Go(func() { knownAddress[i] = s.reaches(ctx, device.Address, from) })
+		wait.Go(func() { knownAddress[i], knownChecked[i] = s.reaches(ctx, device.Address, from) })
 	}
 	wait.Wait()
 
+	taken := make(map[string]bool, len(known))
 	for i, device := range known {
 		if knownAddress[i] {
 			return Suggestion{}, false
 		}
 		// A device added under a name that does not resolve here is still
-		// recognized by what it calls itself.
-		if ownName != "" && idOf(ownName) == device.ID {
+		// recognized by what it calls itself. When its address could be
+		// checked, the visitor is another device with the same name, such as
+		// a second Pi called raspberrypi.
+		if !knownChecked[i] && ownName != "" && idOf(ownName) == device.ID {
 			return Suggestion{}, false
 		}
+		taken[device.ID] = true
 	}
+	// A name another device has is left out, for the visitor to fill in.
 	name := usableName(ownName)
-	if name == "" {
+	if name == "" || taken[idOf(name)] {
 		name = usableName(dnsName)
+	}
+	if taken[idOf(name)] {
+		name = ""
 	}
 	return Suggestion{Address: address, Name: name, Kind: kind}, true
 }
@@ -156,28 +163,29 @@ func (s suggester) isOwn(addr netip.Addr) bool {
 
 // reaches reports whether a device's address (host:port) points at addr
 // with the suggested port, looking a host name up in the DNS. The same address with
-// another port is another device.
-func (s suggester) reaches(ctx context.Context, address string, addr netip.Addr) bool {
+// another port is another device. checked is false when the address's host
+// name does not resolve here, so it could not be told.
+func (s suggester) reaches(ctx context.Context, address string, addr netip.Addr) (reaches, checked bool) {
 	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
-		return false
+		return false, false
 	}
 	if p, err := strconv.Atoi(portText); err != nil || p != s.port {
-		return false
+		return false, true
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		return ip.Unmap() == addr
+		return ip.Unmap() == addr, true
 	}
 	ips, err := s.lookupHost(ctx, host)
 	if err != nil {
-		return false
+		return false, false
 	}
 	for _, found := range ips {
 		if ip, err := netip.ParseAddr(found); err == nil && ip.Unmap().WithZone("") == addr {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 // firstLabel returns the host part of a DNS name, such as office-pc for

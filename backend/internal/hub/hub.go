@@ -97,6 +97,11 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 			slog.Warn("a device added on the page has the same name as one in HUB_DEVICES; using the one in HUB_DEVICES", "name", device.Name)
 			continue
 		}
+		// Devices added before each address and port could be added only once.
+		if other := h.findAddress(device.Address); other != nil {
+			slog.Warn("a device added on the page has the same address and port as another; collecting from it only once", "name", device.Name, "other", other.Name, "address", device.Address)
+			continue
+		}
 		h.start(device, false)
 	}
 	return h, nil
@@ -118,7 +123,8 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	if err != nil {
 		return Device{}, err
 	}
-	if _, err := ParseKind(string(kind)); err != nil {
+	kind, err = ParseKind(string(kind))
+	if err != nil {
 		return Device{}, err
 	}
 	// Checked before asking the device, so a device added already is refused
@@ -131,7 +137,7 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
-	if _, err := NewAgent(device.Address).Collect(ctx); err != nil {
+	if _, err := askOnce(ctx, device.Address); err != nil {
 		return Device{}, &InputError{Problem: ProblemUnreachable, Message: fmt.Sprintf("no usage-control answers at %s: %v", device.Address, err)}
 	}
 
@@ -140,22 +146,38 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	if err := h.taken(device); err != nil {
 		return Device{}, err
 	}
-	_, err = h.store.DB().ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES (?, ?, ?, ?)`,
-		device.ID, device.Name, device.Address, time.Now().Unix())
-	if err != nil {
-		return Device{}, err
-	}
-	if err := storeKind(ctx, h.store.DB(), device.ID, kind); err != nil {
+	// The device and its kind are saved together, and even when the page that
+	// asked has gone away, so a device is never saved without being collected.
+	if err := h.save(context.WithoutCancel(ctx), device, kind); err != nil {
 		return Device{}, err
 	}
 	h.start(device, false)
 	return device, nil
 }
 
+// save keeps an added device and its kind in the database, both or neither.
+func (h *Hub) save(ctx context.Context, device Device, kind Kind) error {
+	tx, err := h.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES (?, ?, ?, ?)`,
+		device.ID, device.Name, device.Address, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	if err := storeKind(ctx, tx, device.ID, kind); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SetKind changes what a device is used as, a device from HUB_DEVICES too.
 // The times it did not answer stay as they are; only what they mean changes.
 func (h *Hub) SetKind(ctx context.Context, id string, kind Kind) error {
-	if _, err := ParseKind(string(kind)); err != nil {
+	kind, err := ParseKind(string(kind))
+	if err != nil {
 		return err
 	}
 	h.mu.Lock()
