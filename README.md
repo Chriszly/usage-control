@@ -15,7 +15,7 @@ flowchart LR
     hub -- "every 5 s" --> windows["Windows PC"]
 ```
 
-**[Try the demo](https://chriszly.github.io/usage-control/)**: the real page with made-up Windows and Linux devices, to click through before installing anything.
+**[Try the demo](https://chriszly.github.io/usage-control/)**: the real page with made-up Windows and Linux devices, to click through before installing anything. It shows the latest release; the development version from main is at [/main/](https://chriszly.github.io/usage-control/main/).
 
 ## Quick start
 

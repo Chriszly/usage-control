@@ -1,9 +1,11 @@
 name: Demo page
 
-# Publishes the demo of the page to GitHub Pages
-# (https://chriszly.github.io/usage-control/): the real page, built with
-# `npm run build:demo`, with made-up devices instead of a backend. Pull
-# requests only build it, in the CI workflow.
+# Publishes the demo of the page to GitHub Pages: the real page, built with
+# `npm run build:demo`, with made-up devices instead of a backend. The latest
+# release is at https://chriszly.github.io/usage-control/ and main at
+# https://chriszly.github.io/usage-control/main/. Every run builds both, so a
+# new release and a change to main each publish the whole site. Pull requests
+# only build the demo, in the CI workflow.
 on:
   push:
     branches:
@@ -11,6 +13,8 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/demo.yml'
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -23,26 +27,67 @@ concurrency:
 
 jobs:
   build:
-    name: Build the demo
+    name: Build the demos
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: main
+
+      - name: Find the latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          path: release
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: frontend/.nvmrc
+          node-version-file: main/frontend/.nvmrc
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            main/frontend/package-lock.json
+            release/frontend/package-lock.json
 
-      - run: npm ci
-      - run: npm run build:demo
+      - name: Build the latest release at the root
+        working-directory: release/frontend
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f src/demo/main.ts ]]; then
+            echo "Release ${TAG} has no demo (src/demo/main.ts); publish a newer release first." >&2
+            exit 1
+          fi
+          npm ci
+          npm run build:demo -- --base-href /usage-control/ --define "DEMO_RELEASE=\"${TAG#v}\""
+
+      - name: Build main under main/
+        working-directory: main/frontend
+        run: |
+          set -euo pipefail
+          npm ci
+          commit="$(git rev-parse --short HEAD)"
+          npm run build:demo -- --base-href /usage-control/main/ --define "DEMO_COMMIT=\"${commit}\""
+
+      - name: Put both into one site
+        run: |
+          set -euo pipefail
+          mkdir site
+          cp -r release/frontend/dist/demo/. site/
+          cp -r main/frontend/dist/demo site/main
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: frontend/dist/demo
+          path: site
 
   deploy:
     name: Publish to GitHub Pages
