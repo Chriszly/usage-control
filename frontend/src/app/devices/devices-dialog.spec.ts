@@ -25,8 +25,14 @@ describe('DevicesDialog', () => {
     );
     TestBed.inject(DeviceService).devices.set([
       { id: 'local', name: '' },
-      { id: 'pi', name: 'Pi', address: '192.168.1.20:9393', removable: false },
-      { id: 'office-pc', name: 'Office PC', address: '192.168.1.30:9393', removable: true },
+      { id: 'pi', name: 'Pi', address: '192.168.1.20:9393', kind: 'server', removable: false },
+      {
+        id: 'office-pc',
+        name: 'Office PC',
+        address: '192.168.1.30:9393',
+        kind: 'server',
+        removable: true,
+      },
     ]);
     fixture = TestBed.createComponent(DevicesDialog);
     fixture.detectChanges();
@@ -68,11 +74,18 @@ describe('DevicesDialog', () => {
     return buttons.find((b) => b.textContent?.trim() === label)!;
   }
 
+  /** The button that picks a kind in the form to add a device. */
+  function formKind(label: string): HTMLButtonElement {
+    const buttons = Array.from(element().querySelectorAll('form .kind button'));
+    return buttons.find((b) => b.textContent?.trim() === label) as HTMLButtonElement;
+  }
+
   it('fills in the device the page is open on', async () => {
-    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet' });
+    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet', kind: 'pc' });
 
     expect(input('name').value).toBe('Kitchen tablet');
     expect(input('address').value).toBe('192.168.1.47:9393');
+    expect(formKind('PC / laptop').getAttribute('aria-pressed')).toBe('true');
     expect(element().textContent).toContain('Filled in with the device this page is open on.');
 
     await type('address', '192.168.1.48:9393');
@@ -81,7 +94,7 @@ describe('DevicesDialog', () => {
 
   it('keeps what was typed before the suggestion arrives', async () => {
     await type('name', 'Laptop');
-    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet' });
+    await suggest({ address: '192.168.1.47:9393', name: 'Kitchen tablet', kind: 'pc' });
 
     expect(input('name').value).toBe('Laptop');
     expect(input('address').value).toBe('');
@@ -99,12 +112,14 @@ describe('DevicesDialog', () => {
     expect(element().textContent).toContain('Pi');
     expect(element().textContent).toContain('Set in .env');
     expect(element().textContent).toContain('192.168.1.30:9393');
-    expect(element().querySelectorAll('li button')).toHaveLength(1);
+    expect(element().querySelectorAll('li > button')).toHaveLength(1);
   });
 
   it('adds a device with the password and reads the list again', async () => {
     await type('name', 'Laptop');
     await type('address', '192.168.1.40:9393');
+    formKind('PC / laptop').click();
+    fixture.detectChanges();
     button('Add').click();
 
     const add = http.expectOne('/api/devices');
@@ -112,6 +127,7 @@ describe('DevicesDialog', () => {
     expect(add.request.body).toEqual({
       name: 'Laptop',
       address: '192.168.1.40:9393',
+      kind: 'pc',
       password: 'correct horse',
     });
     add.flush(
@@ -167,5 +183,32 @@ describe('DevicesDialog', () => {
     button('Remove').click();
 
     http.expectNone('/api/devices/office-pc');
+  });
+
+  it('changes the kind of a listed device with the password', () => {
+    const pi = element().querySelectorAll('li')[0];
+    const pc = Array.from(pi.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'PC / laptop',
+    )!;
+    expect(pc.getAttribute('aria-pressed')).toBe('false');
+
+    pc.click();
+
+    const change = http.expectOne('/api/devices/pi/kind');
+    expect(change.request.method).toBe('PUT');
+    expect(change.request.body).toEqual({ kind: 'pc', password: 'correct horse' });
+    change.flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
+  });
+
+  it('asks nothing when the kind the device has is picked again', () => {
+    const pi = element().querySelectorAll('li')[0];
+    Array.from(pi.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Server / IoT')!
+      .click();
+
+    http.expectNone('/api/devices/pi/kind');
   });
 });

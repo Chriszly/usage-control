@@ -20,8 +20,10 @@ const maxChangeBytes = 4096
 // Hub adds and removes the other devices the site collects from. Problems
 // with the device asked for are hub.InputErrors.
 type Hub interface {
-	Add(ctx context.Context, name, address string) (hub.Device, error)
+	Add(ctx context.Context, name, address string, kind hub.Kind) (hub.Device, error)
 	Remove(ctx context.Context, id string, keepHistory bool) error
+	// SetKind changes what a device is used as.
+	SetKind(ctx context.Context, id string, kind hub.Kind) error
 	// Suggest returns the device at from, the address of a visitor, to offer
 	// adding it; false when there is none to offer.
 	Suggest(ctx context.Context, from netip.Addr) (hub.Suggestion, bool)
@@ -64,8 +66,15 @@ type deviceChanges struct {
 }
 
 type addRequest struct {
-	Name     string `json:"name"`
-	Address  string `json:"address"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	// Kind is "server" or "pc"; a server when left out.
+	Kind     string `json:"kind"`
+	Password string `json:"password"`
+}
+
+type kindRequest struct {
+	Kind     string `json:"kind"`
 	Password string `json:"password"`
 }
 
@@ -81,8 +90,27 @@ func (c *deviceChanges) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.change(w, r, request.Password, func() (any, error) {
-		device, err := c.hub.Add(r.Context(), request.Name, request.Address)
-		return Device{ID: device.ID, Name: device.Name, Address: device.Address, Removable: true}, err
+		kind, err := hub.ParseKind(request.Kind)
+		if err != nil {
+			return nil, err
+		}
+		device, err := c.hub.Add(r.Context(), request.Name, request.Address, kind)
+		return Device{ID: device.ID, Name: device.Name, Address: device.Address, Kind: kind, Removable: true}, err
+	})
+}
+
+// setKind serves PUT /api/devices/{id}/kind: changes what a device is used as.
+func (c *deviceChanges) setKind(w http.ResponseWriter, r *http.Request) {
+	var request kindRequest
+	if !readJSON(w, r, &request) {
+		return
+	}
+	c.change(w, r, request.Password, func() (any, error) {
+		kind, err := hub.ParseKind(request.Kind)
+		if err != nil {
+			return nil, err
+		}
+		return nil, c.hub.SetKind(r.Context(), r.PathValue("id"), kind)
 	})
 }
 

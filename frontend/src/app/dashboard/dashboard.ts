@@ -54,6 +54,8 @@ export class Dashboard {
   protected readonly problem = signal<Problem | null>(null);
   protected readonly i18n = inject(I18n);
   protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
+  /** Whether the picked device is a PC or laptop, which is just not in use while it does not answer. */
+  protected readonly isPC = computed(() => this.devices.selected().kind === 'pc');
   /** How long the picked device did not answer since it was added; null for this device. */
   protected readonly availability = signal<Availability | null>(null);
   protected readonly coreColumns = coreColumns;
@@ -107,7 +109,10 @@ export class Dashboard {
       .subscribe((availability) => this.availability.set(availability));
   }
 
-  /** The share of the time since the device was added that it answered, rounded down. */
+  /**
+   * The share of the time since the device was added that it answered, rounded down: its
+   * availability for a server, how much of the time it was in use for a PC or laptop.
+   */
   protected availablePercent(a: Availability): number {
     const seconds = Math.max(1, (Date.now() - Date.parse(a.since)) / 1000);
     const percent = 100 * (1 - Math.min(a.offlineSeconds, seconds) / seconds);

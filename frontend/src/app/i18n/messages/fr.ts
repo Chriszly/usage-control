@@ -7,6 +7,8 @@ export const fr: Messages = {
   'dashboard.unreachable': 'Le backend est injoignable. Affichage des dernières valeurs connues.',
   'dashboard.deviceUnreachable':
     '{device} n’a pas répondu récemment. usage-control y est-il lancé ?',
+  'dashboard.deviceNotInUse':
+    '{device} est éteint ou en veille, il n’est donc pas utilisé. Affichage des dernières valeurs connues.',
   'dashboard.cpu': 'CPU',
   'dashboard.cpuUsage': 'Utilisation du CPU',
   'dashboard.cores.one': '{count} cœur',
@@ -38,6 +40,12 @@ export const fr: Messages = {
   'dashboard.outages.one': '{count} panne,',
   'dashboard.outages.other': '{count} pannes,',
   'dashboard.lastOutage': 'la dernière le {date} pendant {duration}',
+  'dashboard.usage': 'Utilisation',
+  'dashboard.notInUseSince': 'Pas utilisé pendant {duration} depuis le {date}',
+  'dashboard.alwaysInUseSince': 'Toujours allumé depuis le {date}',
+  'dashboard.offTimes.one': 'Éteint {count} fois,',
+  'dashboard.offTimes.other': 'Éteint {count} fois,',
+  'dashboard.lastOff': 'la dernière le {date} pendant {duration}',
   'dashboard.seconds': '{seconds} s',
   'dashboard.minutes': '{minutes} min',
   'dashboard.coresUsage': 'Utilisation de chaque cœur',
@@ -88,6 +96,10 @@ export const fr: Messages = {
   'devices.reachable': 'Joignable',
   'devices.unreachable': 'Injoignable',
   'devices.unreachableSince': 'Injoignable depuis le {since}',
+  'devices.notInUse': 'Pas utilisé',
+  'devices.notInUseSince': 'Pas utilisé depuis le {since}',
+  'devices.kind.server': 'Serveur / IoT',
+  'devices.kind.pc': 'PC / portable',
   'devices.manage': 'Appareils',
   'devices.addOther': 'Ajouter d’autres appareils',
   'devicesDialog.title': 'Appareils',
@@ -101,6 +113,10 @@ export const fr: Messages = {
   'devicesDialog.name': 'Nom',
   'devicesDialog.address': 'Adresse',
   'devicesDialog.addressHint': 'Adresse IP ou nom, et port',
+  'devicesDialog.kind': 'Type d’appareil',
+  'devicesDialog.kindOf': 'Type de {device}',
+  'devicesDialog.kindHint':
+    'Quand un serveur ne répond pas, c’est une panne. Un PC ou portable éteint n’est simplement pas utilisé.',
   'devicesDialog.add': 'Ajouter',
   'devicesDialog.close': 'Fermer',
   'devices.problem.wrongPassword': 'Le mot de passe est incorrect.',
@@ -112,13 +128,15 @@ export const fr: Messages = {
     'Un appareil à cette adresse et ce port est déjà dans la liste. Un appareil sur un autre port peut être ajouté.',
   'devices.problem.address':
     'Écrivez l’adresse sous la forme adresse IP et port, par exemple 192.168.1.20:9393.',
+  'devices.problem.kind':
+    'Indiquez si l’appareil est un serveur ou un objet connecté, ou un PC ou portable.',
   'devices.problem.unreachable':
     'Aucun usage-control ne répond à cette adresse. Est-il lancé, et l’adresse est-elle sur le réseau local ?',
   'devices.problem.fixed':
     'Cet appareil est défini dans le fichier .env du hub. Retirez-le là-bas.',
   'devices.problem.notFound': 'Cet appareil a déjà été retiré.',
   'devices.problem.demo':
-    'Ceci est une démo : les appareils ne peuvent être ni ajoutés ni supprimés.',
+    'Ceci est une démo : les appareils ne peuvent être ni ajoutés, ni supprimés, ni modifiés.',
   'devices.problem.other': 'Les appareils n’ont pas pu être modifiés. Réessayez.',
   'passwordDialog.enterTitle': 'Saisir le mot de passe',
   'passwordDialog.chooseTitle': 'Choisir un mot de passe',
@@ -134,6 +152,8 @@ export const fr: Messages = {
   'passwordDialog.cancel': 'Annuler',
   'passwordDialog.confirmAdd': 'Ajouter',
   'passwordDialog.confirmRemove': 'Retirer',
+  'passwordDialog.kind': 'Passer {device} en {kind} ?',
+  'passwordDialog.confirmKind': 'Modifier',
   'history.title': 'Historique',
   'history.unit': 'Unité de la période affichée',
   'history.range': 'Période affichée',

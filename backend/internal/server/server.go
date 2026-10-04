@@ -35,6 +35,9 @@ type Device struct {
 	// Address is where another device is reachable, as host:port; empty for
 	// the machine the site runs on.
 	Address string `json:"address,omitempty"`
+	// Kind is what another device is used as, "server" or "pc"; empty for
+	// the machine the site runs on.
+	Kind hub.Kind `json:"kind,omitempty"`
 	// Removable is set for a device added on the page, which can be removed
 	// there too.
 	Removable bool `json:"removable"`
@@ -90,6 +93,7 @@ func New(site Site) http.Handler {
 		mux.HandleFunc("GET /api/devices/suggestion", changes.suggest)
 		mux.HandleFunc("POST /api/devices", changes.add)
 		mux.HandleFunc("DELETE /api/devices/{id}", changes.remove)
+		mux.HandleFunc("PUT /api/devices/{id}/kind", changes.setKind)
 	}
 	link := &hubLink{}
 	mux.HandleFunc("GET /api/metrics", link.remember(forDevice(site.Devices, metricsHandler)))

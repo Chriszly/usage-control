@@ -143,6 +143,7 @@ const (
 	ProblemUnreachable  Problem = "unreachable"
 	ProblemNotFound     Problem = "notFound"
 	ProblemFixed        Problem = "fixed"
+	ProblemKind         Problem = "kind"
 )
 
 // InputError is a device that cannot be added or removed as asked.

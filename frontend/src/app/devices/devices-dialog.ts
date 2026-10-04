@@ -14,12 +14,21 @@ import { MatInputModule } from '@angular/material/input';
 import { EMPTY, Observable, catchError, filter, finalize, of, switchMap, tap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
-import { Device, DeviceService, Suggestion, problemMessage } from './devices';
+import {
+  DEVICE_KINDS,
+  Device,
+  DeviceKind,
+  DeviceService,
+  Suggestion,
+  kindName,
+  problemMessage,
+} from './devices';
 import { PasswordDialog, PasswordDialogData, PasswordDialogResult } from './password-dialog';
 
 /**
- * Lists the other devices the hub collects from and adds or removes them.
- * Every change asks for the password in a dialog of its own.
+ * Lists the other devices the hub collects from, adds or removes them and
+ * changes what they are used as. Every change asks for the password in a
+ * dialog of its own.
  */
 @Component({
   selector: 'app-devices-dialog',
@@ -46,6 +55,8 @@ export class DevicesDialog {
 
   protected readonly name = signal('');
   protected readonly address = signal('');
+  protected readonly kind = signal<DeviceKind>('server');
+  protected readonly kinds = DEVICE_KINDS;
   protected readonly problem = signal('');
   protected readonly busy = signal(false);
   /** The device the page is open on, as the hub suggested it. */
@@ -71,6 +82,7 @@ export class DevicesDialog {
         this.suggestion.set(suggestion);
         this.name.set(suggestion.name);
         this.address.set(suggestion.address);
+        this.kind.set(suggestion.kind);
       });
   }
 
@@ -80,12 +92,27 @@ export class DevicesDialog {
     if (!name || !address) {
       return;
     }
+    const kind = this.kind();
     this.change({ action: 'add', deviceName: name }, (result) =>
-      this.devices.add(name, address, result.password),
+      this.devices.add(name, address, kind, result.password),
     ).subscribe(() => {
       this.name.set('');
       this.address.set('');
+      this.kind.set('server');
     });
+  }
+
+  protected kindName(kind: DeviceKind): string {
+    return kindName(kind, this.i18n);
+  }
+
+  protected setKind(device: Device, kind: DeviceKind): void {
+    if (device.kind === kind) {
+      return;
+    }
+    this.change({ action: 'kind', deviceName: device.name, kind }, (result) =>
+      this.devices.setKind(device.id, kind, result.password),
+    ).subscribe();
   }
 
   protected remove(device: Device): void {
