@@ -3,7 +3,8 @@ import { InjectionToken } from '@angular/core';
 /**
  * Which code a demo was built from. The Demo page workflow builds the latest
  * release at the root of the site and main under main/, and passes these with
- * `ng build --define`; a build without them, such as a local one, counts as main.
+ * `ng build --define`; a build without them, such as a local one, counts as main
+ * but has no link to the other demo.
  */
 declare const DEMO_RELEASE: string | undefined;
 declare const DEMO_COMMIT: string | undefined;

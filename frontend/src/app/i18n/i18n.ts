@@ -102,7 +102,12 @@ export function translate(
   key: MessageKey,
   params: TextParams = {},
 ): string {
-  return MESSAGES[language][key].replace(/\{(\w+)\}/g, (match, name: string) =>
+  return fillIn(MESSAGES[language][key], params);
+}
+
+/** text with each {name} in it replaced by params[name]; a name without a value stays as it is. */
+export function fillIn(text: string, params: TextParams): string {
+  return text.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in params ? String(params[name]) : match,
   );
 }

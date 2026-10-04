@@ -28,4 +28,11 @@ describe('DemoNotice', () => {
     expect(link?.getAttribute('href')).toBe('../');
     expect(link?.textContent?.trim()).toBe('See the latest release');
   });
+
+  it('has no link to another demo when it is neither published one, such as a local build', () => {
+    const notice = render({});
+    expect(notice.textContent).toContain('Development version from main');
+    const links = Array.from(notice.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['https://github.com/Chriszly/usage-control#readme']);
+  });
 });
