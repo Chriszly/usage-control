@@ -95,7 +95,7 @@ func New(site Site) http.Handler {
 	mux.HandleFunc("GET /api/metrics", link.remember(forDevice(site.Devices, metricsHandler)))
 	mux.HandleFunc("GET /api/hub", link.handler)
 	mux.HandleFunc("GET /api/history", forDevice(site.Devices, func(d Device) http.HandlerFunc {
-		return historyHandler(d.History, site.Retention)
+		return historyHandler(d, site.Retention)
 	}))
 	mux.HandleFunc("GET /api/availability", forDevice(site.Devices, availabilityHandler))
 	if site.Update != nil {

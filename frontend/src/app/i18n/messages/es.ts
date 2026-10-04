@@ -139,6 +139,8 @@ export const es: Messages = {
   'history.range': 'Periodo mostrado',
   'history.unreachableStale':
     'No se puede leer el historial. Se muestran los últimos valores leídos.',
+  'history.notLive':
+    'No son datos en directo: este dispositivo no responde desde el {time}. Los gráficos muestran los últimos datos registrados hasta entonces.',
   'history.empty': 'Aún no hay uso registrado para este periodo.',
   'history.unreachable': 'No se puede leer el historial.',
   'history.loading': 'Cargando…',

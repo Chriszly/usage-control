@@ -34,6 +34,16 @@ func (r Reader) Range(ctx context.Context, from, to time.Time) ([]Series, time.D
 	return series, step, err
 }
 
+// Newest returns the time of the device's newest reading: from memory, or
+// from the database when memory has none, as after a restart. It is false
+// when there is no reading at all.
+func (r Reader) Newest(ctx context.Context) (time.Time, bool, error) {
+	if newest, ok := r.Recent.Newest(); ok {
+		return newest, true, nil
+	}
+	return r.Store.Newest(ctx, r.Device)
+}
+
 // stepFor returns the step that splits span into at most maxPoints steps: a
 // whole number of intervals between readings, so every step averages the
 // same number of them. A step of an hour or more is a whole number of hours,

@@ -140,6 +140,8 @@ export const de: Messages = {
   'history.range': 'Angezeigter Zeitraum',
   'history.unreachableStale':
     'Der Verlauf kann nicht gelesen werden. Angezeigt werden die zuletzt gelesenen Werte.',
+  'history.notLive':
+    'Keine Live-Daten: Dieses Gerät antwortet seit {time} nicht. Die Diagramme zeigen die letzten bis dahin aufgezeichneten Daten.',
   'history.empty': 'Für diesen Zeitraum ist noch keine Auslastung aufgezeichnet.',
   'history.unreachable': 'Der Verlauf kann nicht gelesen werden.',
   'history.loading': 'Wird geladen…',

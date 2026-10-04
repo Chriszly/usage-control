@@ -46,6 +46,19 @@ describe('DemoBackend', () => {
     });
   });
 
+  it('ends the history of the device that is asleep at its last reading', async () => {
+    const to = Math.floor(Date.now() / 1000);
+    const history = await firstValueFrom(metrics.history(to - 60, to, 'linux-laptop'));
+    expect(history.lastReading).toBeDefined();
+    expect(history.to).toBe(history.lastReading! + 1);
+    expect(history.to - history.from).toBe(60);
+    expect(history.series.find((s) => s.metric === 'cpu')?.points.length).toBeGreaterThan(0);
+
+    const live = await firstValueFrom(metrics.history(to - 60, to, 'linux-nas'));
+    expect(live.lastReading).toBeUndefined();
+    expect(live.to).toBe(to);
+  });
+
   it('keeps the history within the retention and in at most 360 steps', async () => {
     const to = Math.floor(Date.now() / 1000);
     const history = await firstValueFrom(metrics.history(to - 365 * 86400, to, 'linux-nas'));

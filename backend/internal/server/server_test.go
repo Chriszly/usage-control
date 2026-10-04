@@ -269,6 +269,12 @@ func TestLocalNetworkOnly(t *testing.T) {
 
 type fakeHistory struct {
 	from, to time.Time
+	// newest is when the newest reading is from; zero when there is none.
+	newest time.Time
+}
+
+func (f *fakeHistory) Newest(context.Context) (time.Time, bool, error) {
+	return f.newest, !f.newest.IsZero(), nil
 }
 
 func (f *fakeHistory) Range(_ context.Context, from, to time.Time) ([]history.Series, time.Duration, error) {
@@ -314,6 +320,62 @@ func TestHistoryLimitsTheRangeToTheRetention(t *testing.T) {
 	now := time.Now()
 	if reader.from.Before(now.Add(-25*time.Hour)) || reader.to.After(now.Add(time.Minute)) {
 		t.Errorf("read %v to %v, want at most the last day", reader.from, reader.to)
+	}
+}
+
+func TestHistoryOfADeviceNotAnsweringEndsAtItsNewestReading(t *testing.T) {
+	newest := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
+	reader := &fakeHistory{newest: newest}
+	handler := newHandler([]Device{{ID: "local"}, {ID: "laptop", Unreachable: true, History: reader}}, 30*24*time.Hour, site)
+	to := time.Now().Unix()
+
+	rec := get(handler, fmt.Sprintf("/api/history?device=laptop&from=%d&to=%d", to-60, to), "10.0.0.5:5000")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body)
+	}
+	var got historyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	wantTo := newest.Unix() + 1
+	if got.From != wantTo-60 || got.To != wantTo || reader.to.Unix() != wantTo {
+		t.Errorf("range = %d to %d, want the minute up to the newest reading, %d to %d", got.From, got.To, wantTo-60, wantTo)
+	}
+	if got.LastReading != newest.Unix() {
+		t.Errorf("LastReading = %d, want %d", got.LastReading, newest.Unix())
+	}
+}
+
+func TestHistoryOfADeviceNotAnsweringWithoutReadingsStaysAsAsked(t *testing.T) {
+	reader := &fakeHistory{}
+	handler := newHandler([]Device{{ID: "local"}, {ID: "laptop", Unreachable: true, History: reader}}, 24*time.Hour, site)
+	to := time.Now().Unix()
+
+	rec := get(handler, fmt.Sprintf("/api/history?device=laptop&from=%d&to=%d", to-60, to), "10.0.0.5:5000")
+
+	var got historyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.To != to || got.LastReading != 0 {
+		t.Errorf("response = %+v, want the range as asked and no last reading", got)
+	}
+}
+
+func TestHistoryOfAnAnsweringDeviceIgnoresItsNewestReading(t *testing.T) {
+	reader := &fakeHistory{newest: time.Now().Add(-time.Hour)}
+	handler := newHandler(device(fakeCollector{}, reader), 24*time.Hour, site)
+	to := time.Now().Unix()
+
+	rec := get(handler, fmt.Sprintf("/api/history?from=%d&to=%d", to-60, to), "10.0.0.5:5000")
+
+	var got historyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.To != to || got.LastReading != 0 {
+		t.Errorf("response = %+v, want the range as asked and no last reading", got)
 	}
 }
 
