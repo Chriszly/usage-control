@@ -1,11 +1,11 @@
 name: Demo page
 
 # Publishes the demo of the page to GitHub Pages: the real page, built with
-# `npm run build:demo`, with made-up devices instead of a backend. The latest
-# release is at https://chriszly.github.io/usage-control/ and main at
-# https://chriszly.github.io/usage-control/main/. Every run builds both, so a
-# new release and a change to main each publish the whole site. Pull requests
-# only build the demo, in the CI workflow.
+# `npm run build:demo`, with made-up devices instead of a backend. The site is
+# the gh-pages branch, which GitHub Pages serves as it is. A published release
+# replaces its root (https://chriszly.github.io/usage-control/) and a change to
+# main replaces main/ (https://chriszly.github.io/usage-control/main/); each
+# leaves the other alone. Pull requests only build the demo, in the CI workflow.
 on:
   push:
     branches:
@@ -15,90 +15,93 @@ on:
       - '.github/workflows/demo.yml'
   release:
     types: [published]
+  # Run on main to rebuild the main demo, or on a release tag to rebuild the
+  # release demo from it.
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One deployment at a time; a newer one waits instead of cancelling a running one.
+# One change to the gh-pages branch at a time; a newer one waits instead of
+# cancelling a running one.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build the demos
+  publish:
+    name: Publish the demo
+    # A prerelease is not the latest release, so it keeps the root as it is.
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
-          path: main
+          path: source
 
-      - name: Find the latest release
-        id: release
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: source/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: source/frontend/package-lock.json
+
+      - name: Build the demo
+        working-directory: source/frontend
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          npm ci
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            npm run build:demo -- --base-href /usage-control/ --define "DEMO_RELEASE=\"${TAG#v}\""
+          else
+            commit="$(git rev-parse --short HEAD)"
+            npm run build:demo -- --base-href /usage-control/main/ --define "DEMO_COMMIT=\"${commit}\""
+          fi
+
+      - name: Check out the site
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.release.outputs.tag }}
-          path: release
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: main/frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: |
-            main/frontend/package-lock.json
-            release/frontend/package-lock.json
-
-      - name: Build the latest release at the root
-        working-directory: release/frontend
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [[ ! -f src/demo/main.ts ]]; then
-            echo "Release ${TAG} has no demo (src/demo/main.ts); publish a newer release first." >&2
-            exit 1
+          git init --quiet site
+          cd site
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch --quiet --depth 1 origin gh-pages; then
+            git checkout --quiet -b gh-pages FETCH_HEAD
+          else
+            git checkout --quiet --orphan gh-pages
           fi
-          npm ci
-          npm run build:demo -- --base-href /usage-control/ --define "DEMO_RELEASE=\"${TAG#v}\""
 
-      - name: Build main under main/
-        working-directory: main/frontend
+      - name: Replace this demo's part of the site
+        working-directory: site
         run: |
           set -euo pipefail
-          npm ci
-          commit="$(git rev-parse --short HEAD)"
-          npm run build:demo -- --base-href /usage-control/main/ --define "DEMO_COMMIT=\"${commit}\""
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            # The release is everything at the root except main/.
+            find . -mindepth 1 -maxdepth 1 ! -name .git ! -name main -exec rm -rf {} +
+            cp -r ../source/frontend/dist/demo/. .
+          else
+            rm -rf main
+            cp -r ../source/frontend/dist/demo main
+          fi
+          # Serve the files as they are, without Jekyll.
+          touch .nojekyll
 
-      - name: Put both into one site
+      - name: Publish the site
+        working-directory: site
+        env:
+          WHAT: ${{ github.ref_type == 'tag' && format('release {0}', github.ref_name) || format('main {0}', github.sha) }}
         run: |
           set -euo pipefail
-          mkdir site
-          cp -r release/frontend/dist/demo/. site/
-          cp -r main/frontend/dist/demo site/main
-
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: site
-
-  deploy:
-    name: Publish to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+          git add --all
+          if git diff --cached --quiet; then
+            echo "The demo of ${WHAT} is already published."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --quiet -m "Publish the demo of ${WHAT}"
+          git push --quiet origin gh-pages

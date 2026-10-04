@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 
-import { I18n, LanguageCode } from '../app/i18n/i18n';
+import { I18n, LanguageCode, fillIn } from '../app/i18n/i18n';
 import { DEMO_BUILD } from './demo-build';
 
 interface NoticeText {
@@ -22,6 +22,12 @@ const ENGLISH: NoticeText = {
   toMain: 'See the development version',
   toRelease: 'See the latest release',
 };
+
+/** The version the notice names and, for a published demo, the link to the other one. */
+interface Banner {
+  version: string;
+  other?: { href: string; text: string };
+}
 
 /** The notice's text in each language the page is in. */
 const TEXT: Record<LanguageCode, NoticeText> = {
@@ -64,13 +70,13 @@ const TEXT: Record<LanguageCode, NoticeText> = {
   template: `
     <p>
       {{ text().notice }}
-      <span class="version">{{ version() }}</span>
+      <span class="version">{{ banner().version }}</span>
     </p>
-    <p>
-      <a [href]="build.release ? 'main/' : '../'">{{
-        build.release ? text().toMain : text().toRelease
-      }}</a>
-    </p>
+    @if (banner().other; as other) {
+      <p>
+        <a [href]="other.href">{{ other.text }}</a>
+      </p>
+    }
     <p>
       <a href="https://github.com/Chriszly/usage-control#readme">{{ text().install }}</a>
     </p>
@@ -98,13 +104,26 @@ const TEXT: Record<LanguageCode, NoticeText> = {
 })
 export class DemoNotice {
   private readonly i18n = inject(I18n);
-  protected readonly build = inject(DEMO_BUILD);
-  protected readonly text = computed(() => TEXT[this.i18n.language()]);
-  protected readonly version = computed(() =>
-    this.build.release
-      ? this.text().release.replace('{version}', this.build.release)
-      : this.text()
-          .main.replace('{commit}', this.build.commit ?? '')
-          .trim(),
-  );
+  private readonly build = inject(DEMO_BUILD);
+  private readonly text = computed(() => TEXT[this.i18n.language()]);
+
+  /**
+   * Which version this demo shows and the link to the other one. A build that
+   * is neither of the two published demos, such as a local one, has no other
+   * demo next to it, so it gets no link.
+   */
+  protected readonly banner = computed((): Banner => {
+    const text = this.text();
+    const { release, commit } = this.build;
+    if (release) {
+      return {
+        version: fillIn(text.release, { version: release }),
+        other: { href: 'main/', text: text.toMain },
+      };
+    }
+    return {
+      version: fillIn(text.main, { commit: commit ?? '' }).trim(),
+      other: commit ? { href: '../', text: text.toRelease } : undefined,
+    };
+  });
 }

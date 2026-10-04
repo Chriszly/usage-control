@@ -1,7 +1,7 @@
 import { formatDate } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
 
-import { BROWSER_LANGUAGES, I18n, LANGUAGE_STORAGE_KEY, preferredLanguage } from './i18n';
+import { BROWSER_LANGUAGES, I18n, LANGUAGE_STORAGE_KEY, fillIn, preferredLanguage } from './i18n';
 import { MessageKey } from './messages/en';
 
 describe('I18n', () => {
@@ -70,6 +70,15 @@ describe('I18n', () => {
     TestBed.tick();
 
     expect(document.documentElement.lang).toBe('fr');
+  });
+});
+
+describe('fillIn', () => {
+  it('replaces each {name} that has a value and keeps the others', () => {
+    expect(fillIn('Version {version} of {name}', { version: '1.1.3c' })).toBe(
+      'Version 1.1.3c of {name}',
+    );
+    expect(fillIn('{count} devices', { count: 2 })).toBe('2 devices');
   });
 });
 

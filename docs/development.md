@@ -43,7 +43,7 @@ cd frontend && npm ci && npm start
 
 ## Demo page
 
-`npm run build:demo` in `frontend/` builds the demo into `frontend/dist/demo/`. The Demo page workflow publishes two: the latest release at https://chriszly.github.io/usage-control/ and main at https://chriszly.github.io/usage-control/main/. It builds both on every run, passing `--base-href` and, through `--define`, the release's version (`DEMO_RELEASE`) or main's commit (`DEMO_COMMIT`) for the notice above the page, which links to the other one (`src/demo/demo-build.ts`). It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
+`npm run build:demo` in `frontend/` builds the demo into `frontend/dist/demo/`. The Demo page workflow publishes two to the `gh-pages` branch, which GitHub Pages serves: the latest release at https://chriszly.github.io/usage-control/ and main at https://chriszly.github.io/usage-control/main/. A published release replaces only the root and a change to main only `main/`. It passes `--base-href` and, through `--define`, the release's version (`DEMO_RELEASE`) or main's commit (`DEMO_COMMIT`) for the notice above the page, which links to the other one (`src/demo/demo-build.ts`). It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
 
 ## Tray icon and theme colors
 
@@ -92,7 +92,7 @@ bash ci/check-no-secrets.sh
 | `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags |
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
-| `demo.yml` | publishes the demo of the latest release and of main to GitHub Pages when a release is published and on every merge to main that changes the frontend |
+| `demo.yml` | publishes the demo of a release to the root of GitHub Pages when the release is published, and the demo of main to `main/` on every merge to main that changes the frontend |
 
 A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own.
 
