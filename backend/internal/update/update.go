@@ -27,8 +27,9 @@ const (
 	maxResponseBytes = 1 << 20
 )
 
-// release matches a release version, such as 1.2.3 or the tag v1.2.3.
-var release = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+// release matches a release version, such as 1.2.3 or the tag v1.2.3. A
+// bugfix release adds letters: 1.2.3a, 1.2.3b, ... 1.2.3z, 1.2.3aa.
+var release = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)([a-z]*)$`)
 
 // Status is what the page shows about updates.
 type Status struct {
@@ -130,10 +131,10 @@ func (c *Checker) check(ctx context.Context) error {
 	if match == nil {
 		return fmt.Errorf("the newest release is %q, which is not a version such as v1.2.3", body.TagName)
 	}
-	latest := match[1] + "." + match[2] + "." + match[3]
+	latest := match[1] + "." + match[2] + "." + match[3] + match[4]
 
 	c.mu.Lock()
-	// The tag matched release, so it is only digits, dots and a v.
+	// The tag matched release, so it is only digits, dots, letters and a v.
 	c.latest, c.tag = latest, body.TagName
 	c.mu.Unlock()
 	return nil
@@ -150,15 +151,19 @@ func newer(a, b string) bool {
 	return false
 }
 
-// parts returns the three numbers of a release version.
-func parts(version string) [3]int {
-	var p [3]int
+// parts returns the three numbers of a release version and the number of its
+// bugfix letters: none is 0, a is 1, z is 26 and aa is 27.
+func parts(version string) [4]int {
+	var p [4]int
 	match := release.FindStringSubmatch(version)
 	if match == nil {
 		return p
 	}
-	for i := range p {
+	for i := range 3 {
 		p[i], _ = strconv.Atoi(match[i+1])
+	}
+	for _, letter := range match[4] {
+		p[3] = p[3]*26 + int(letter-'a') + 1
 	}
 	return p
 }

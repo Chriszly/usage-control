@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      msi_version: ${{ steps.version.outputs.msi_version }}
       installer: ${{ steps.changes.outputs.installer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,21 +61,35 @@ jobs:
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
 
       # A tag v1.2.3 builds version 1.2.3; anything else 0.0.<run number>, so
-      # every newer build can be installed over an older one.
+      # every newer build can be installed over an older one. An installer's
+      # version holds only numbers, so the letters of a bugfix release become
+      # a fourth number: 1.2.3a is 1.2.3.1, 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27.
       - name: Version
         id: version
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version="${GITHUB_REF_NAME#v}"
-            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3 (the v is optional)." >&2
+            if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)([a-z]*)$ ]]; then
+              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional)." >&2
               exit 1
+            fi
+            msi_version="${BASH_REMATCH[1]}"
+            letters="${BASH_REMATCH[2]}"
+            if [[ -n "$letters" ]]; then
+              number=0
+              for ((i = 0; i < ${#letters}; i++)); do
+                code="$(printf '%d' "'${letters:i:1}")"
+                number=$((number * 26 + code - 96))
+              done
+              msi_version+=".$number"
             fi
           else
             version="0.0.$GITHUB_RUN_NUMBER"
+            msi_version="$version"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -160,6 +175,7 @@ jobs:
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.programs.outputs.version }}
+      MSI_VERSION: ${{ needs.programs.outputs.msi_version }}
     defaults:
       run:
         shell: pwsh
@@ -185,7 +201,7 @@ jobs:
         run: |
           foreach ($arch in @{ x64 = 'amd64'; arm64 = 'arm64' }.GetEnumerator()) {
             wix build windows\usage-control.wxs -arch $arch.Key `
-              -d Version=$env:VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
+              -d Version=$env:MSI_VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
               -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d Icon=dist\usage-control.ico `
               -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
               -o "msi\usage-control-$env:VERSION-$($arch.Key).msi"
@@ -194,11 +210,13 @@ jobs:
           Get-ChildItem msi
 
       # The check updates to a newer version, so it also gets an installer
-      # with the next patch version, which is not published.
+      # with the next bugfix version, which is not published. A bugfix only
+      # changes the fourth number, which Windows Installer leaves out when it
+      # compares versions, so this also checks that it still replaces the old one.
       - name: Install, update and uninstall it
         run: |
-          $version = [version]$env:VERSION
-          $newer = "$($version.Major).$($version.Minor).$($version.Build + 1)"
+          $version = [version]$env:MSI_VERSION
+          $newer = "$($version.Major).$($version.Minor).$($version.Build).$([Math]::Max($version.Revision, 0) + 1)"
           wix build windows\usage-control.wxs -arch x64 `
             -d Version=$newer -d Binary=dist\amd64\usage-control.exe `
             -d TrayBinary=dist\amd64\usage-control-tray.exe -d Icon=dist\usage-control.ico `

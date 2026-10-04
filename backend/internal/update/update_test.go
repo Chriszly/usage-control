@@ -87,9 +87,41 @@ func TestCheckRefusesATagThatIsNotAVersion(t *testing.T) {
 }
 
 func TestNewCheckerSkipsBuildsThatAreNotReleases(t *testing.T) {
-	for _, current := range []string{"dev", "main-1a2b3c4", "1.2", ""} {
+	for _, current := range []string{"dev", "main-1a2b3c4", "1.2", "1.2.3-rc1", "1.2.3A", ""} {
 		if c := NewChecker(current); c != nil {
 			t.Errorf("NewChecker(%q) = %v, want nil", current, c)
 		}
+	}
+}
+
+func TestNewerOrdersBugfixLetters(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"1.0.4a", "1.0.4", true},
+		{"1.0.4b", "1.0.4a", true},
+		{"1.0.4aa", "1.0.4z", true},
+		{"1.0.5", "1.0.4z", true},
+		{"1.0.4", "1.0.4a", false},
+		{"1.0.4h", "1.0.4h", false},
+		{"1.0.4z", "1.0.5", false},
+	} {
+		if got := newer(tc.a, tc.b); got != tc.want {
+			t.Errorf("newer(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestStatusNamesANewerBugfixRelease(t *testing.T) {
+	c := checkerAgainst(t, "1.0.8", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name": "1.0.8h"}`))
+	})
+	if err := c.check(context.Background()); err != nil {
+		t.Fatalf("check() error = %v", err)
+	}
+	want := Status{Current: "1.0.8", Latest: "1.0.8h", URL: "https://github.com/Chriszly/usage-control/releases/tag/1.0.8h"}
+	if got := c.Status(); got != want {
+		t.Errorf("Status() = %+v, want %+v", got, want)
 	}
 }
