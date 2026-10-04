@@ -1,6 +1,7 @@
+/* appEvenColumns sets --columns so the rows stay even; 14rem is its MIN_CARD_REM. */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(var(--columns, auto-fit), minmax(14rem, 1fr));
   gap: 1rem;
 }
 
