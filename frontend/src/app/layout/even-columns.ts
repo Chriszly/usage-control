@@ -11,7 +11,7 @@ export function evenColumns(cards: number, width: number, minCard: number, gap: 
   return Math.max(1, Math.ceil(cards / rows));
 }
 
-/** The narrowest a card gets in pixels, from the grid's `--min-card` in rem, as dashboard.css sets it. */
+/** The narrowest a card gets in pixels, from the grid's `--min-card` in rem, as its CSS sets it. */
 export function minCardWidth(minCard: string, rem: number): number {
   const width = parseFloat(minCard);
   if (!minCard.trim().endsWith('rem') || !(width > 0)) {

@@ -8,6 +8,7 @@ import { DeviceService } from '../devices/devices';
 import { I18n, TextParams } from '../i18n/i18n';
 import { MessageKey } from '../i18n/messages/en';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
+import { EvenColumns } from '../layout/even-columns';
 import { PageVisibility } from '../page-visibility';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
 
@@ -93,7 +94,7 @@ interface Chart {
  */
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, LineChart],
+  imports: [DatePipe, EvenColumns, LineChart],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })

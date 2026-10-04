@@ -30,6 +30,14 @@ describe('HistoryCharts', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    // jsdom has no ResizeObserver, which the chart grid uses to keep its rows even.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
     TestBed.configureTestingModule({
       imports: [HistoryCharts],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -41,6 +49,7 @@ describe('HistoryCharts', () => {
   afterEach(() => {
     http.verify();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   /** Answers the pending history request and returns the range it asked for. */
