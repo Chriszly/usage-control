@@ -5,7 +5,7 @@
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
-#   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.4-x64.msi
+#   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
 param(
     [Parameter(Mandatory)] [string] $Msi,
     # The same installer with a higher version, to check an update.
@@ -117,6 +117,9 @@ Write-Host 'Updating without options keeps them and closes the tray icon'
 Start-Tray
 Invoke-Installer "/i `"$NewerMsi`""
 if (Get-Process usage-control-tray -ErrorAction SilentlyContinue) { throw 'The update left the old tray icon running' }
+$installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+    Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' })
+if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
 
 Write-Host 'Uninstalling'

@@ -40,8 +40,11 @@
            Version="$(Version)"
            UpgradeCode="C226A238-37CF-4C24-85FE-A29D04C94172"
            Scope="perMachine">
-    <!-- Installing a newer version replaces the old one and keeps the history. -->
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Usage Control is already installed." />
+    <!-- Installing a newer version replaces the old one and keeps the history.
+         A bugfix release only changes the fourth number of the version, which
+         Windows Installer ignores, so the same version counts as an update too. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Usage Control is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <!-- The mascot, in Apps and Features. -->
     <Icon Id="UsageControl.ico" SourceFile="$(Icon)" />
