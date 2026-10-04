@@ -1,7 +1,5 @@
-/* Grows with the window up to 2560 px, so big screens get more cards and charts per row. */
+/* Grows with the window without a limit, so big screens get more cards and charts per row. */
 main {
-  max-width: 160rem;
-  margin: 0 auto;
   padding: 1.5rem clamp(1rem, 3vw, 3rem);
 }
 
