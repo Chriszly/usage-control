@@ -163,3 +163,30 @@ func TestStepFor(t *testing.T) {
 		}
 	}
 }
+
+func TestReaderNewestComesFromMemoryAndElseFromTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	recent := &Recent{}
+	reader := Reader{Store: store, Recent: recent, Device: "laptop"}
+	if _, ok, err := reader.Newest(ctx); err != nil || ok {
+		t.Fatalf("Newest() without readings = %v, %v, want none", ok, err)
+	}
+
+	stored := time.Unix(1_800_000_000, 0)
+	if err := store.Add(ctx, "laptop", stored, map[string]float64{MetricCPU: 10}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := store.Add(ctx, "other", stored.Add(time.Hour), map[string]float64{MetricCPU: 10}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if got, ok, err := reader.Newest(ctx); err != nil || !ok || !got.Equal(stored) {
+		t.Errorf("Newest() after a restart = %v, %v, %v, want %v from the database", got, ok, err, stored)
+	}
+
+	read := stored.Add(30 * time.Second)
+	recent.Add(read, map[string]float64{MetricCPU: 20})
+	if got, ok, err := reader.Newest(ctx); err != nil || !ok || !got.Equal(read) {
+		t.Errorf("Newest() = %v, %v, %v, want %v from memory", got, ok, err, read)
+	}
+}

@@ -139,7 +139,7 @@ Rules the agent follows:
 - A device has 4 seconds to answer. Answers larger than 1 MiB are not read; a reading is a few kilobytes.
 - The agent connects directly, never through a proxy, and does not follow redirects.
 - It only connects to addresses on the local network, checked on the address it actually dials, so a host name that resolves to an address outside the network is refused too.
-- A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap.
+- A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap. While it stays unreachable, its charts show the chosen range up to its last reading instead of up to now, with a notice that they are not live; once it answers again, they are live again.
 - The device's id is its name in lower case with dashes, such as `living-room-pi` for *Living room Pi*. The hub's own device is `local`. The history is stored under the id, so renaming a device starts a new history.
 - Of each device's disks, temperature sensors, network cards and GPUs, the history keeps the first 64 (`HISTORY_MAX_ENTRIES`), so a misbehaving device cannot fill the hub's database. The live dashboard shows them all.
 
@@ -218,7 +218,7 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/devices/suggestion` | `{ address, name }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
 | `POST /api/devices` | body `{ name, address, password }`; `201` with the new device | `400` name, address or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
 | `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES` |
-| `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }] }`, at most 360 points per metric | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
+| `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }], lastReading? }`, at most 360 points per metric. For an unreachable device, `lastReading` is the time of its newest reading, and a range ending later is moved back to end there, keeping its length | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
 | `GET /api/availability?device=<id>` | `{ since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |
 | `GET /api/update` | `{ current, latest, url }`; `latest` and `url` only when a newer release exists | |
 | `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |

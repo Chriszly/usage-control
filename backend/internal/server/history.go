@@ -11,9 +11,11 @@ import (
 )
 
 // HistoryReader reads the machine's usage over time, averaged over steps so
-// a range has a few hundred points at most, and returns the step.
+// a range has a few hundred points at most, and returns the step. Newest
+// tells when the newest reading is from, false when there is none.
 type HistoryReader interface {
 	Range(ctx context.Context, from, to time.Time) ([]history.Series, time.Duration, error)
+	Newest(ctx context.Context) (time.Time, bool, error)
 }
 
 // historyResponse is the body of GET /api/history. Times are Unix seconds.
@@ -23,12 +25,18 @@ type historyResponse struct {
 	StepSeconds   int64            `json:"stepSeconds"`
 	RetentionDays int              `json:"retentionDays"`
 	Series        []history.Series `json:"series"`
+	// LastReading is set for a device that is not answering: when its newest
+	// reading is from. The range then ends there instead of now.
+	LastReading int64 `json:"lastReading,omitempty"`
 }
 
 // historyHandler serves GET /api/history?from=<unix seconds>&to=<unix seconds>:
 // the machine's usage in that range, averaged over steps. The range is limited to the retention period
-// and ends now at the latest.
-func historyHandler(reader HistoryReader, retention time.Duration) http.HandlerFunc {
+// and ends now at the latest. For a device that is not answering, a range
+// that ends after its newest reading is moved back to end there, keeping its
+// length, so the page shows the last data there is instead of nothing.
+func historyHandler(d Device, retention time.Duration) http.HandlerFunc {
+	reader := d.History
 	return func(w http.ResponseWriter, r *http.Request) {
 		from, fromErr := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 		to, toErr := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
@@ -39,6 +47,24 @@ func historyHandler(reader HistoryReader, retention time.Duration) http.HandlerF
 		now := time.Now()
 		from = min(max(from, now.Add(-retention).Unix()), now.Unix())
 		to = min(max(to, from+1), now.Unix()+1)
+
+		var lastReading int64
+		if d.Unreachable {
+			newest, ok, err := reader.Newest(r.Context())
+			if err != nil {
+				slog.Error("read the newest reading", "device", d.ID, "error", err)
+				http.Error(w, "could not read the history", http.StatusInternalServerError)
+				return
+			}
+			if ok {
+				lastReading = newest.Unix()
+				if lastReading+1 < to {
+					span := to - from
+					to = lastReading + 1
+					from = min(max(to-span, now.Add(-retention).Unix()), to-1)
+				}
+			}
+		}
 
 		series, step, err := reader.Range(r.Context(), time.Unix(from, 0), time.Unix(to, 0))
 		if err != nil {
@@ -53,6 +79,7 @@ func historyHandler(reader HistoryReader, retention time.Duration) http.HandlerF
 			StepSeconds:   int64(step / time.Second),
 			RetentionDays: int(retention / (24 * time.Hour)),
 			Series:        series,
+			LastReading:   lastReading,
 		})
 	}
 }

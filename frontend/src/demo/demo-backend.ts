@@ -59,10 +59,11 @@ export class DemoBackend implements HttpBackend {
       case '/api/history':
         return respond(
           request,
-          history(
+          historyEndingAtLastReading(
             machine,
             Number(url.searchParams.get('from')),
             Number(url.searchParams.get('to')),
+            now,
           ),
         );
       case '/api/availability':
@@ -80,6 +81,36 @@ function deviceList(): DeviceList {
 
 function isOnline(machine: DemoMachine, t: number): boolean {
   return machine.online?.(t) ?? true;
+}
+
+/**
+ * The history as the backend answers it: for a device that is not answering,
+ * a range ending after its last reading is moved back to end there.
+ */
+export function historyEndingAtLastReading(
+  machine: DemoMachine,
+  from: number,
+  to: number,
+  now: number,
+): History {
+  if (!machine.online || isOnline(machine, now)) {
+    return history(machine, from, to);
+  }
+  const last = lastReading(machine.online, now);
+  if (last + 1 >= to) {
+    return { ...history(machine, from, to), lastReading: last };
+  }
+  const end = last + 1;
+  return { ...history(machine, end - (to - from), end), lastReading: last };
+}
+
+/** The newest moment, in steps of the 5 second readings, a device that is offline now answered. */
+function lastReading(online: (t: number) => boolean, now: number): number {
+  let t = Math.floor(offlineSince(online, now) / RECENT_INTERVAL) * RECENT_INTERVAL;
+  while (!online(t) && t > now - 8 * 86400) {
+    t -= RECENT_INTERVAL;
+  }
+  return t;
 }
 
 /** The averages from `from` up to `to` in the steps the backend would use. */
