@@ -1,4 +1,4 @@
-import { DestroyRef, Directive, ElementRef, afterNextRender, inject } from '@angular/core';
+import { DestroyRef, Directive, ElementRef, inject } from '@angular/core';
 
 /**
  * How many columns `cards` cards get in a grid `width` pixels wide: as many as fit, but no more
@@ -30,12 +30,11 @@ export class EvenColumns {
   private width = 0;
 
   constructor() {
-    afterNextRender(() => this.update());
-
     const cards = new MutationObserver(() => this.update());
     cards.observe(this.host, { childList: true });
 
-    // Only the width changes how many cards fit; the columns never change the grid's width.
+    // Only the width changes how many cards fit; the columns never change the grid's width. The
+    // observer also reports the first width once the grid is laid out, which does the first count.
     const size = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width !== this.width) {
         this.width = entry.contentRect.width;
@@ -51,12 +50,15 @@ export class EvenColumns {
   }
 
   private update(): void {
+    if (this.width === 0) {
+      return; // not laid out yet; the first width counts the columns
+    }
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const style = getComputedStyle(this.host);
     const gap = parseFloat(style.columnGap) || 0;
     const columns = evenColumns(
       this.host.children.length,
-      this.host.getBoundingClientRect().width,
+      this.width,
       minCardWidth(style.getPropertyValue('--min-card'), rem),
       gap,
     );

@@ -29,6 +29,11 @@ h2 {
   column-gap: 1rem;
 }
 
+/* A chart shown on its own keeps the width it has next to others. */
+.charts.alone {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--min-card)), 1fr));
+}
+
 /* Cards side by side share their rows for title, legend and plot, so the
    plots line up even when only some cards have a legend or it wraps. */
 .charts .card {

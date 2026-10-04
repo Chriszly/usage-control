@@ -65,19 +65,12 @@ class Host {
 }
 
 describe('EvenColumns', () => {
-  let width: number;
-
   beforeEach(() => {
-    width = 1000;
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-      () => ({ width }) as DOMRect,
-    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 
   /** jsdom computes no gap, so it is 0: cards 14rem (224 pixels) wide fit 4 in 1000. */
@@ -86,8 +79,17 @@ describe('EvenColumns', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     const element: HTMLElement = fixture.nativeElement.querySelector('[appEvenColumns]');
+    FakeResizeObserver.last?.resize(1000); // the browser reports the first width once laid out
     return { fixture, element };
   }
+
+  it('waits for the first width before it counts', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement.querySelector('[appEvenColumns]');
+    expect(element.style.getPropertyValue('--columns')).toBe('');
+  });
 
   it('sets the columns that keep the rows even', async () => {
     const { element } = await grid();
@@ -105,7 +107,6 @@ describe('EvenColumns', () => {
 
   it('counts again when the grid gets a new width', async () => {
     const { element } = await grid();
-    width = 2000;
     FakeResizeObserver.last?.resize(2000);
     expect(element.style.getPropertyValue('--columns')).toBe('5');
   });
