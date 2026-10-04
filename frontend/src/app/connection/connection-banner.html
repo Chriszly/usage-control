@@ -1,0 +1,6 @@
+@if (connection.lost()) {
+  <div class="banner" role="alert">
+    <strong>{{ i18n.t('connection.lost', { hub: hub() }) }}</strong>
+    <span>{{ i18n.t('connection.notLive', { hub: hub(), since: since() }) }}</span>
+  </div>
+}

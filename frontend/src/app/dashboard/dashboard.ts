@@ -4,6 +4,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { EMPTY, catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
+import { HubConnection } from '../connection/connection';
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
 import { BytesPipe } from '../metrics/bytes.pipe';
@@ -50,6 +51,8 @@ export class Dashboard {
   private readonly metrics = inject(MetricsService);
   private readonly devices = inject(DeviceService);
   private readonly page = inject(PageVisibility);
+  /** While the hub does not answer, the banner across the page says so instead of a warning here, and the cards fade. */
+  protected readonly connection = inject(HubConnection);
 
   protected readonly snapshot = signal<Snapshot | null>(null);
   protected readonly problem = signal<Problem | null>(null);

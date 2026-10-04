@@ -3,6 +3,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
+import { HubConnection } from '../connection/connection';
 import { DeviceService } from '../devices/devices';
 import { I18n, TextParams } from '../i18n/i18n';
 import { MessageKey } from '../i18n/messages/en';
@@ -101,6 +102,8 @@ export class HistoryCharts {
   private readonly devices = inject(DeviceService);
   private readonly page = inject(PageVisibility);
   protected readonly i18n = inject(I18n);
+  /** While the hub does not answer, the banner across the page says the charts are not live, and they fade. */
+  protected readonly connection = inject(HubConnection);
 
   /** The length of the shown time, in seconds; opens on the last 30 minutes. */
   protected readonly span = signal(30 * 60);

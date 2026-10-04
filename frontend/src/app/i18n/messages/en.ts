@@ -6,6 +6,9 @@
 export const en = {
   'app.switchToLight': 'Switch to light mode',
   'app.switchToDark': 'Switch to dark mode',
+  'connection.lost': '{hub} is not answering',
+  'connection.notLive':
+    'Since {since}, nothing on this page is live, because the values of all devices come through {hub}. The page keeps trying and catches up as soon as it answers again.',
   'dashboard.unreachable': 'The backend cannot be reached. Showing the last known values.',
   'dashboard.deviceUnreachable':
     '{device} has not answered recently. Is usage-control running on it?',
@@ -101,6 +104,7 @@ export const en = {
   'devices.unreachableSince': 'Not reachable since {since}',
   'devices.notInUse': 'Not in use',
   'devices.notInUseSince': 'Not in use since {since}',
+  'devices.unknown': 'Unknown while {hub} is not answering',
   'devices.kind.server': 'Server / IoT',
   'devices.kind.pc': 'PC / laptop',
   'devices.manage': 'Devices',

@@ -4,6 +4,9 @@ import { Messages } from './en';
 export const de: Messages = {
   'app.switchToLight': 'Zum hellen Design wechseln',
   'app.switchToDark': 'Zum dunklen Design wechseln',
+  'connection.lost': '{hub} antwortet nicht',
+  'connection.notLive':
+    'Seit {since} ist nichts auf dieser Seite live, denn die Werte aller Geräte kommen über {hub}. Die Seite versucht es weiter und aktualisiert sich, sobald {hub} wieder antwortet.',
   'dashboard.unreachable':
     'Das Backend ist nicht erreichbar. Angezeigt werden die zuletzt bekannten Werte.',
   'dashboard.deviceUnreachable':
@@ -99,6 +102,7 @@ export const de: Messages = {
   'devices.unreachableSince': 'Nicht erreichbar seit {since}',
   'devices.notInUse': 'Nicht in Benutzung',
   'devices.notInUseSince': 'Nicht in Benutzung seit {since}',
+  'devices.unknown': 'Unbekannt, solange {hub} nicht antwortet',
   'devices.kind.server': 'Server / IoT',
   'devices.kind.pc': 'PC / Laptop',
   'devices.manage': 'Geräte',

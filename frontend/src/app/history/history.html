@@ -33,13 +33,13 @@
       {{ h.to * 1000 | date: dateFormat() : undefined : i18n.language() }}
     </p>
 
-    @if (unreachable()) {
+    @if (unreachable() && !connection.lost()) {
       <p class="warning" role="alert">{{ i18n.t('history.unreachableStale') }}</p>
     } @else if (lastReading(); as time) {
       <p class="warning" role="status">{{ i18n.t('history.notLive', { time }) }}</p>
     }
 
-    <div class="charts">
+    <div class="charts" [class.stale]="connection.lost()">
       @for (chart of charts(); track chart.title) {
         <div class="card">
           <h3>{{ chart.title }}</h3>
@@ -57,7 +57,9 @@
       }
     </div>
   } @else if (unreachable()) {
-    <p class="warning" role="alert">{{ i18n.t('history.unreachable') }}</p>
+    @if (!connection.lost()) {
+      <p class="warning" role="alert">{{ i18n.t('history.unreachable') }}</p>
+    }
   } @else {
     <p>{{ i18n.t('history.loading') }}</p>
   }

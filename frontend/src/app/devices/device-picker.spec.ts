@@ -6,6 +6,7 @@ import {
 } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { HubConnection } from '../connection/connection';
 import { DEVICES_REFRESH_MS, DevicePicker } from './device-picker';
 import { Device, DeviceService } from './devices';
 
@@ -102,9 +103,30 @@ describe('DevicePicker', () => {
 
     const laptop = (fixture.nativeElement as HTMLElement).querySelectorAll('.choices button')[1];
     expect(laptop.getAttribute('title')).toMatch(/^Not in use since /);
-    expect(laptop.querySelector('.status')?.classList).toContain('not-in-use');
+    expect(laptop.querySelector('.status')?.classList).toContain('notInUse');
     expect(laptop.querySelector('.status')?.classList).not.toContain('unreachable');
     expect(labels()[1]).toBe('Laptop (Not in use)');
+  });
+
+  it('marks the hub unreachable and the other devices unknown while the hub does not answer', () => {
+    respond([
+      { id: 'local', name: '' },
+      { id: 'pi', name: 'Pi' },
+    ]);
+
+    TestBed.inject(HubConnection).failed();
+    fixture.detectChanges();
+
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('.choices button');
+    expect(buttons[0].querySelector('.status')?.classList).toContain('unreachable');
+    expect(buttons[0].getAttribute('title')).toMatch(/^Not reachable since /);
+    expect(buttons[1].querySelector('.status')?.classList).toContain('unknown');
+    expect(buttons[1].getAttribute('title')).toBe('Unknown while Host Hub is not answering');
+
+    TestBed.inject(HubConnection).answered();
+    fixture.detectChanges();
+    expect(buttons[0].querySelector('.status')?.classList).toContain('reachable');
+    expect(buttons[1].querySelector('.status')?.classList).toContain('reachable');
   });
 
   it('shows only this device when the list cannot be read', () => {
