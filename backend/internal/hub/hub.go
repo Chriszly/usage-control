@@ -58,6 +58,10 @@ type Remote struct {
 	watched  *watchedAgent
 	stop     context.CancelFunc
 	recorded chan struct{}
+
+	// mu guards kind, which the page can change.
+	mu   sync.Mutex
+	kind Kind
 }
 
 // New starts collecting from the fixed devices and the ones added on the page
@@ -66,7 +70,7 @@ type Remote struct {
 // Every device is told pagePort, the port the hub's page is reachable on.
 func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, pagePort string) (*Hub, error) {
 	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
-	for _, schema := range []string{savedSchema, availabilitySchema} {
+	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
 		}
@@ -106,11 +110,15 @@ func (h *Hub) Remotes() []*Remote {
 }
 
 // Add checks the device, asks it for its usage once to make sure a
-// usage-control answers at its address, keeps it in the database and starts
-// collecting from it. Problems with the device are InputErrors.
-func (h *Hub) Add(ctx context.Context, name, address string) (Device, error) {
+// usage-control answers at its address, keeps it in the database with its
+// kind and starts collecting from it. Problems with the device are
+// InputErrors.
+func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device, error) {
 	device, err := NewDevice(name, address)
 	if err != nil {
+		return Device{}, err
+	}
+	if _, err := ParseKind(string(kind)); err != nil {
 		return Device{}, err
 	}
 	// Checked before asking the device, so a device added already is refused
@@ -137,8 +145,33 @@ func (h *Hub) Add(ctx context.Context, name, address string) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
+	if err := storeKind(ctx, h.store.DB(), device.ID, kind); err != nil {
+		return Device{}, err
+	}
 	h.start(device, false)
 	return device, nil
+}
+
+// SetKind changes what a device is used as, a device from HUB_DEVICES too.
+// The times it did not answer stay as they are; only what they mean changes.
+func (h *Hub) SetKind(ctx context.Context, id string, kind Kind) error {
+	if _, err := ParseKind(string(kind)); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	remote := h.find(id)
+	if remote == nil {
+		return &InputError{Problem: ProblemNotFound, Message: "there is no device with this id"}
+	}
+	if err := storeKind(ctx, h.store.DB(), id, kind); err != nil {
+		return err
+	}
+	remote.mu.Lock()
+	remote.kind = kind
+	remote.mu.Unlock()
+	slog.Info("changed the kind of another device", "name", remote.Name, "kind", kind)
+	return nil
 }
 
 // Remove stops collecting from a device added on the page and forgets it.
@@ -186,12 +219,20 @@ func (r *Remote) Unreachable() (since time.Time, unreachable bool) {
 	return time.Time{}, true
 }
 
+// Kind tells what the device is used as.
+func (r *Remote) Kind() Kind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.kind
+}
+
 // Availability tells how long the device did not answer since it was added.
 func (r *Remote) Availability(ctx context.Context) (Availability, error) {
 	availability, err := readAvailability(ctx, r.db, r.ID)
 	if err != nil {
 		return Availability{}, err
 	}
+	availability.Kind = r.Kind()
 	// An outage that lasts is in the database only up to its last write; its
 	// current end is known in memory.
 	if outage, unwritten, ok := r.watched.ongoing(); ok {
@@ -213,6 +254,11 @@ func (h *Hub) start(device Device, fixed bool) {
 	if err := watch(h.ctx, h.store.DB(), device.ID, time.Now()); err != nil {
 		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)
 	}
+	kind, err := readKind(h.ctx, h.store.DB(), device.ID)
+	if err != nil {
+		slog.Error("read the kind of a device; taking it for a server", "name", device.Name, "error", err)
+		kind = KindServer
+	}
 	recent := &history.Recent{}
 	watched := &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID}
 	ctx, stop := context.WithCancel(h.ctx)
@@ -225,6 +271,7 @@ func (h *Hub) start(device Device, fixed bool) {
 		watched:  watched,
 		stop:     stop,
 		recorded: make(chan struct{}),
+		kind:     kind,
 	}
 	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries}
 	h.recording.Go(func() {

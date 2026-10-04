@@ -256,6 +256,7 @@ func (d hubDevices) List() []server.Device {
 			ID:               remote.ID,
 			Name:             remote.Name,
 			Address:          remote.Address,
+			Kind:             remote.Kind(),
 			Removable:        !remote.Fixed,
 			Unreachable:      unreachable,
 			UnreachableSince: unreachableSince,

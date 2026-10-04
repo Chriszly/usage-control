@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // testSuggester answers like a home network: the hub is 192.168.1.9 in a
@@ -21,11 +23,11 @@ func testSuggester(agentName string) suggester {
 			return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.1.9"), Mask: net.CIDRMask(24, 32)}}, nil
 		},
 		gateways: func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("172.17.0.1")} },
-		askName: func(_ context.Context, address string) (string, error) {
+		ask: func(_ context.Context, address string) (metrics.Snapshot, error) {
 			if address != "192.168.1.20:9393" || agentName == "" {
-				return "", errors.New("connection refused")
+				return metrics.Snapshot{}, errors.New("connection refused")
 			}
-			return agentName, nil
+			return metrics.Snapshot{Name: agentName, CPU: metrics.CPU{LoadAverage: &metrics.LoadAverage{}}}, nil
 		},
 		lookupAddr: func(_ context.Context, addr string) ([]string, error) {
 			if addr == "192.168.1.20" {
@@ -50,17 +52,17 @@ func TestSuggest(t *testing.T) {
 		known     []Device
 		want      *Suggestion
 	}{
-		{"a usage-control that names itself", "192.168.1.20", "Christof's PC", nil, &Suggestion{"192.168.1.20:9393", "Christof's PC"}},
-		{"named by the DNS", "192.168.1.20", "", nil, &Suggestion{"192.168.1.20:9393", "office-pc"}},
-		{"no name known", "192.168.1.30", "", nil, &Suggestion{"192.168.1.30:9393", ""}},
-		{"an IPv4-mapped address", "::ffff:192.168.1.30", "", nil, &Suggestion{"192.168.1.30:9393", ""}},
-		{"IPv6", "fd00::30", "", nil, &Suggestion{"[fd00::30]:9393", ""}},
-		{"a name that cannot be added", "192.168.1.20", "local", nil, &Suggestion{"192.168.1.20:9393", "office-pc"}},
+		{"a usage-control that names itself", "192.168.1.20", "Christof's PC", nil, &Suggestion{"192.168.1.20:9393", "Christof's PC", KindServer}},
+		{"named by the DNS", "192.168.1.20", "", nil, &Suggestion{"192.168.1.20:9393", "office-pc", KindServer}},
+		{"no name known", "192.168.1.30", "", nil, &Suggestion{"192.168.1.30:9393", "", KindServer}},
+		{"an IPv4-mapped address", "::ffff:192.168.1.30", "", nil, &Suggestion{"192.168.1.30:9393", "", KindServer}},
+		{"IPv6", "fd00::30", "", nil, &Suggestion{"[fd00::30]:9393", "", KindServer}},
+		{"a name that cannot be added", "192.168.1.20", "local", nil, &Suggestion{"192.168.1.20:9393", "office-pc", KindServer}},
 		{"already added by address", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "192.168.1.20:9393"}}, nil},
 		{"already added by name", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "office-pc.fritz.box:9393"}}, nil},
 		{"already added under its own name", "192.168.1.20", "Office PC", []Device{{ID: "office-pc", Name: "Office PC", Address: "pc.lan:9393"}}, nil},
-		{"added on another port", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "192.168.1.20:8080"}}, &Suggestion{"192.168.1.20:9393", "office-pc"}},
-		{"another device is added", "192.168.1.30", "", []Device{{ID: "pc", Name: "PC", Address: "office-pc.fritz.box:9393"}}, &Suggestion{"192.168.1.30:9393", ""}},
+		{"added on another port", "192.168.1.20", "", []Device{{ID: "pc", Name: "PC", Address: "192.168.1.20:8080"}}, &Suggestion{"192.168.1.20:9393", "office-pc", KindServer}},
+		{"another device is added", "192.168.1.30", "", []Device{{ID: "pc", Name: "PC", Address: "office-pc.fritz.box:9393"}}, &Suggestion{"192.168.1.30:9393", "", KindServer}},
 		{"the hub itself", "192.168.1.9", "", nil, nil},
 		{"loopback", "127.0.0.1", "", nil, nil},
 		{"the Docker gateway", "172.17.0.1", "", nil, nil},
@@ -79,17 +81,43 @@ func TestSuggest(t *testing.T) {
 	}
 }
 
+func TestSuggestTakesALaptopForAPC(t *testing.T) {
+	s := testSuggester("")
+	s.ask = func(context.Context, string) (metrics.Snapshot, error) {
+		return metrics.Snapshot{Name: "Laptop", CPU: metrics.CPU{LoadAverage: &metrics.LoadAverage{}}, Battery: &metrics.Battery{}}, nil
+	}
+	got, ok := s.suggest(context.Background(), netip.MustParseAddr("192.168.1.20"), nil)
+	if want := (Suggestion{"192.168.1.20:9393", "Laptop", KindPC}); !ok || got != want {
+		t.Errorf("suggest() = %+v, %v; want %+v", got, ok, want)
+	}
+}
+
+func TestKindOf(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot metrics.Snapshot
+		want     Kind
+	}{
+		{"Linux without a battery", metrics.Snapshot{CPU: metrics.CPU{LoadAverage: &metrics.LoadAverage{}}}, KindServer},
+		{"Linux with a battery", metrics.Snapshot{CPU: metrics.CPU{LoadAverage: &metrics.LoadAverage{}}, Battery: &metrics.Battery{}}, KindPC},
+		{"Windows", metrics.Snapshot{}, KindPC},
+	}
+	for _, test := range tests {
+		if got := kindOf(test.snapshot); got != test.want {
+			t.Errorf("%s: kindOf() = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
 func TestSuggestAsksTheDevice(t *testing.T) {
 	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"name":"Office PC","cpu":{"usagePercent":12.5,"cores":4}}`))
 	}))
 	t.Cleanup(device.Close)
 	address := strings.TrimPrefix(device.URL, "http://")
-	s := testSuggester("")
-	s.askName = defaultSuggester().askName
 
-	name, err := s.askName(context.Background(), address)
-	if err != nil || name != "Office PC" {
-		t.Errorf("askName() = %q, %v; want the name the device reports", name, err)
+	snapshot, err := defaultSuggester().ask(context.Background(), address)
+	if err != nil || snapshot.Name != "Office PC" {
+		t.Errorf("ask() = %+v, %v; want the name the device reports", snapshot, err)
 	}
 }

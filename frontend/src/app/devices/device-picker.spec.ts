@@ -88,6 +88,25 @@ describe('DevicePicker', () => {
     expect(labels()[2]).toBe('Office PC (Not reachable)');
   });
 
+  it('shows a PC that does not answer as not in use rather than unreachable', () => {
+    respond([
+      { id: 'local', name: '' },
+      {
+        id: 'laptop',
+        name: 'Laptop',
+        kind: 'pc',
+        unreachable: true,
+        unreachableSince: '2026-10-02T11:00:00Z',
+      },
+    ]);
+
+    const laptop = (fixture.nativeElement as HTMLElement).querySelectorAll('.choices button')[1];
+    expect(laptop.getAttribute('title')).toMatch(/^Not in use since /);
+    expect(laptop.querySelector('.status')?.classList).toContain('not-in-use');
+    expect(laptop.querySelector('.status')?.classList).not.toContain('unreachable');
+    expect(labels()[1]).toBe('Laptop (Not in use)');
+  });
+
   it('shows only this device when the list cannot be read', () => {
     request().flush('down', { status: 502, statusText: 'Bad Gateway' });
     fixture.detectChanges();

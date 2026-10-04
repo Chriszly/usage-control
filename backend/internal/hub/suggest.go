@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // DefaultPort is the port usage-control listens on unless it is set up
@@ -26,6 +28,9 @@ type Suggestion struct {
 	// Name is what the device calls itself, or its name in the local DNS;
 	// empty when neither is known.
 	Name string `json:"name"`
+	// Kind is what the device seems to be from its usage: a PC when it has a
+	// battery or runs Windows, else a server. The visitor picks the kind.
+	Kind Kind `json:"kind"`
 }
 
 // suggester works out the Suggestion for an address. The fields are the
@@ -37,8 +42,8 @@ type suggester struct {
 	ownAddrs func() ([]net.Addr, error)
 	// gateways lists the default gateways of the machine's network.
 	gateways func() []netip.Addr
-	// askName asks the usage-control at address what the device calls itself.
-	askName func(ctx context.Context, address string) (string, error)
+	// ask asks the usage-control at address for its usage.
+	ask func(ctx context.Context, address string) (metrics.Snapshot, error)
 	// lookupAddr and lookupHost are reverse and forward DNS lookups.
 	lookupAddr func(ctx context.Context, addr string) ([]string, error)
 	lookupHost func(ctx context.Context, host string) ([]string, error)
@@ -49,9 +54,8 @@ func defaultSuggester() suggester {
 		port:     DefaultPort,
 		ownAddrs: net.InterfaceAddrs,
 		gateways: defaultGateways,
-		askName: func(ctx context.Context, address string) (string, error) {
-			snapshot, err := NewAgent(address).ask(ctx)
-			return snapshot.Name, err
+		ask: func(ctx context.Context, address string) (metrics.Snapshot, error) {
+			return NewAgent(address).ask(ctx)
 		},
 		lookupAddr: net.DefaultResolver.LookupAddr,
 		lookupHost: net.DefaultResolver.LookupHost,
@@ -97,11 +101,12 @@ func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device)
 	var (
 		wait             sync.WaitGroup
 		ownName, dnsName string
+		kind             = KindServer
 		knownAddress     = make([]bool, len(known))
 	)
 	wait.Go(func() {
-		if name, err := s.askName(ctx, address); err == nil {
-			ownName = name
+		if snapshot, err := s.ask(ctx, address); err == nil {
+			ownName, kind = snapshot.Name, kindOf(snapshot)
 		}
 	})
 	wait.Go(func() {
@@ -128,7 +133,7 @@ func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device)
 	if name == "" {
 		name = usableName(dnsName)
 	}
-	return Suggestion{Address: address, Name: name}, true
+	return Suggestion{Address: address, Name: name, Kind: kind}, true
 }
 
 // isOwn reports whether addr is one of this machine's addresses.

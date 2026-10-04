@@ -22,14 +22,18 @@ const SAMPLE_INTERVAL = 60;
 const MAX_POINTS = 360;
 
 /** The visitor's device, which the Devices dialog offers to add like on a real hub. */
-const DEMO_SUGGESTION: Suggestion = { address: '192.168.1.47:9393', name: 'Kitchen tablet' };
+const DEMO_SUGGESTION: Suggestion = {
+  address: '192.168.1.47:9393',
+  name: 'Kitchen tablet',
+  kind: 'pc',
+};
 
 /** How long the made-up devices take to answer, so the page loads like it does on a real hub. */
 const LATENCY_MS = 60;
 
 /**
  * Answers the page's requests to /api with made-up values from the sample
- * devices instead of sending them anywhere. Devices cannot be added or removed.
+ * devices instead of sending them anywhere. Devices cannot be added, removed or changed.
  */
 @Injectable()
 export class DemoBackend implements HttpBackend {
@@ -45,7 +49,7 @@ export class DemoBackend implements HttpBackend {
     if (request.method === 'GET' && url.pathname === '/api/devices/suggestion') {
       return respond(request, DEMO_SUGGESTION);
     }
-    if (request.method === 'POST' || request.method === 'DELETE') {
+    if (request.method === 'POST' || request.method === 'PUT' || request.method === 'DELETE') {
       return fail(request, 403, { problem: 'demo' });
     }
     if (!machine) {
@@ -149,12 +153,16 @@ export function history(machine: DemoMachine, from: number, to: number): History
   return { from, to, stepSeconds: step, retentionDays: DEMO_RETENTION_DAYS, series };
 }
 
-/** Every device was added 60 days ago; only the laptop that sleeps at night was ever offline. */
+/**
+ * Every device was added 60 days ago; only the laptop that sleeps at night was ever off, which
+ * the page shows as the time it was not in use, since it is a PC.
+ */
 function availability(machine: DemoMachine, now: number): Availability {
   const since = now - 60 * 86400;
+  const kind = machine.device.kind ?? 'server';
   const online = machine.online;
   if (!online) {
-    return { since: iso(since), offlineSeconds: 0, outages: 0 };
+    return { kind, since: iso(since), offlineSeconds: 0, outages: 0 };
   }
   let offlineSeconds = 0;
   let outages = 0;
@@ -168,6 +176,7 @@ function availability(machine: DemoMachine, now: number): Availability {
     wasOnline = answered;
   }
   return {
+    kind,
     since: iso(since),
     offlineSeconds,
     outages,

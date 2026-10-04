@@ -422,6 +422,7 @@ describe('Dashboard', () => {
       .expectOne('/api/metrics?device=living-room-pi')
       .flush('down', { status: 503, statusText: 'Service Unavailable' });
     http.expectOne('/api/availability?device=living-room-pi').flush({
+      kind: 'server',
       since: '2026-10-01T12:00:00Z',
       offlineSeconds: 864,
       outages: 1,
@@ -434,6 +435,40 @@ describe('Dashboard', () => {
     expect(text()).toContain('Offline for 14 min since');
     expect(text()).toContain('1 outage, the last on');
     expect(text()).toContain('for 14 min');
+  });
+
+  it('shows the time a PC was off as not in use, not as outages', () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'laptop', name: 'Laptop', kind: 'pc', unreachable: true },
+    ]);
+    devices.selectedId.set('laptop');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http
+      .expectOne('/api/metrics?device=laptop')
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    http.expectOne('/api/availability?device=laptop').flush({
+      kind: 'pc',
+      since: '2026-10-01T12:00:00Z',
+      offlineSeconds: 43200,
+      outages: 2,
+      lastOutage: { start: '2026-10-02T11:00:00Z', end: '2026-10-02T12:00:00Z' },
+    });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Laptop is switched off or asleep, so it is not in use.');
+    expect(fixture.nativeElement.querySelector('.warning')).toBeNull();
+    expect(text()).toContain('Usage');
+    expect(text()).not.toContain('Availability');
+    expect(text()).toContain('50 %');
+    expect(text()).toContain('Not in use for 12 h');
+    expect(text()).toContain('Off 2 times, the last on');
+    expect(text()).not.toContain('outage');
   });
 
   it('leaves out the availability for this device', () => {

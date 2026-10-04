@@ -166,7 +166,13 @@ const piHub: DemoMachine = {
 };
 
 const windowsPc: DemoMachine = {
-  device: { id: 'windows-pc', name: 'Windows PC', address: '192.168.1.21:9393', removable: true },
+  device: {
+    id: 'windows-pc',
+    kind: 'pc',
+    name: 'Windows PC',
+    address: '192.168.1.21:9393',
+    removable: true,
+  },
   os: 'windows',
   cores: 16,
   maxClockMHz: 4700,
@@ -235,6 +241,7 @@ const windowsPc: DemoMachine = {
 const windowsLaptop: DemoMachine = {
   device: {
     id: 'windows-laptop',
+    kind: 'pc',
     name: 'Windows laptop',
     address: '192.168.1.34:9393',
     removable: true,
@@ -288,7 +295,12 @@ const windowsLaptop: DemoMachine = {
 };
 
 const windowsServer: DemoMachine = {
-  device: { id: 'windows-server', name: 'Windows Server', address: '192.168.1.5:9393' },
+  device: {
+    id: 'windows-server',
+    kind: 'server',
+    name: 'Windows Server',
+    address: '192.168.1.5:9393',
+  },
   os: 'windows',
   cores: 8,
   maxClockMHz: 3000,
@@ -342,6 +354,7 @@ const windowsServer: DemoMachine = {
 const linuxDesktop: DemoMachine = {
   device: {
     id: 'linux-desktop',
+    kind: 'pc',
     name: 'Linux desktop',
     address: '192.168.1.22:9393',
     removable: true,
@@ -403,7 +416,7 @@ const linuxDesktop: DemoMachine = {
 };
 
 const linuxNas: DemoMachine = {
-  device: { id: 'linux-nas', name: 'Linux NAS', address: '192.168.1.6:9393' },
+  device: { id: 'linux-nas', kind: 'server', name: 'Linux NAS', address: '192.168.1.6:9393' },
   os: 'linux',
   cores: 4,
   maxClockMHz: 2900,
@@ -478,7 +491,12 @@ const linuxNas: DemoMachine = {
 };
 
 const linuxServer: DemoMachine = {
-  device: { id: 'linux-server', name: 'Linux build server', address: '192.168.1.7:9393' },
+  device: {
+    id: 'linux-server',
+    kind: 'server',
+    name: 'Linux build server',
+    address: '192.168.1.7:9393',
+  },
   os: 'linux',
   cores: 32,
   maxClockMHz: 4200,
@@ -543,6 +561,7 @@ export function offlineSince(online: (t: number) => boolean, now: number): numbe
 const linuxLaptop: DemoMachine = {
   device: {
     id: 'linux-laptop',
+    kind: 'pc',
     name: 'Linux laptop',
     address: '192.168.1.38:9393',
     removable: true,

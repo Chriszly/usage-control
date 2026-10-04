@@ -16,17 +16,20 @@ import (
 type fakeHub struct {
 	added   []string
 	removed []string
-	err     error
+	// kinds is every kind added or set, as "id=kind".
+	kinds []string
+	err   error
 	// suggestFor answers Suggest for this address; any other has no suggestion.
 	suggestFor string
 	asked      []netip.Addr
 }
 
-func (f *fakeHub) Add(_ context.Context, name, address string) (hub.Device, error) {
+func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind) (hub.Device, error) {
 	if f.err != nil {
 		return hub.Device{}, f.err
 	}
 	f.added = append(f.added, name)
+	f.kinds = append(f.kinds, strings.ToLower(name)+"="+string(kind))
 	return hub.Device{ID: strings.ToLower(name), Name: name, Address: address}, nil
 }
 
@@ -38,12 +41,20 @@ func (f *fakeHub) Remove(_ context.Context, id string, _ bool) error {
 	return nil
 }
 
+func (f *fakeHub) SetKind(_ context.Context, id string, kind hub.Kind) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.kinds = append(f.kinds, id+"="+string(kind))
+	return nil
+}
+
 func (f *fakeHub) Suggest(_ context.Context, from netip.Addr) (hub.Suggestion, bool) {
 	f.asked = append(f.asked, from)
 	if from.String() != f.suggestFor {
 		return hub.Suggestion{}, false
 	}
-	return hub.Suggestion{Address: from.String() + ":9393", Name: "Office PC"}, true
+	return hub.Suggestion{Address: from.String() + ":9393", Name: "Office PC", Kind: hub.KindPC}, true
 }
 
 type fakePassword struct{ password string }
@@ -95,8 +106,31 @@ func TestTheFirstAddedDeviceChoosesThePassword(t *testing.T) {
 	if pw.password != "correct horse" || len(devices.added) != 1 {
 		t.Errorf("password = %q, added = %q; want the password chosen and the device added", pw.password, devices.added)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, `"removable":true`) {
-		t.Errorf("body = %s, want the added device", body)
+	if body := rec.Body.String(); !strings.Contains(body, `"kind":"server","removable":true`) {
+		t.Errorf("body = %s, want the added device, a server", body)
+	}
+}
+
+func TestAddAndChangeTheKind(t *testing.T) {
+	devices := &fakeHub{}
+	handler := newChangeHandler(devices, &fakePassword{password: "correct horse"})
+
+	add := send(handler, http.MethodPost, "/api/devices", `{"name":"Laptop","address":"192.168.1.30:9393","kind":"pc","password":"correct horse"}`)
+	set := send(handler, http.MethodPut, "/api/devices/pi/kind", `{"kind":"pc","password":"correct horse"}`)
+	wrong := send(handler, http.MethodPut, "/api/devices/pi/kind", `{"kind":"server","password":"wrong"}`)
+	unknown := send(handler, http.MethodPut, "/api/devices/pi/kind", `{"kind":"phone","password":"correct horse"}`)
+
+	if add.Code != http.StatusCreated || set.Code != http.StatusNoContent {
+		t.Errorf("add = %d, set = %d; want 201 and 204", add.Code, set.Code)
+	}
+	if wrong.Code != http.StatusForbidden {
+		t.Errorf("with a wrong password: status = %d, want 403", wrong.Code)
+	}
+	if unknown.Code != http.StatusBadRequest || !strings.Contains(unknown.Body.String(), `"problem":"kind"`) {
+		t.Errorf("an unknown kind: status = %d, body = %s; want 400 kind", unknown.Code, unknown.Body)
+	}
+	if got := strings.Join(devices.kinds, " "); got != "laptop=pc pi=pc" {
+		t.Errorf("kinds = %s, want laptop=pc pi=pc", got)
 	}
 }
 
@@ -173,7 +207,7 @@ func TestSuggestsTheVisitorsDevice(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
 	}
-	if got, want := strings.TrimSpace(rec.Body.String()), `{"address":"192.168.1.20:9393","name":"Office PC"}`; got != want {
+	if got, want := strings.TrimSpace(rec.Body.String()), `{"address":"192.168.1.20:9393","name":"Office PC","kind":"pc"}`; got != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
 	if len(devices.asked) != 1 || devices.asked[0] != netip.MustParseAddr("192.168.1.20") {

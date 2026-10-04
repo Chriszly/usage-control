@@ -6,8 +6,26 @@
   <ul>
     @for (device of others(); track device.id) {
       <li>
-        <span class="name">{{ device.name }}</span>
-        <span class="address">{{ device.address }}</span>
+        <span class="who">
+          <span class="name">{{ device.name }}</span>
+          <span class="address">{{ device.address }}</span>
+        </span>
+        <span
+          class="choices kind"
+          role="group"
+          [attr.aria-label]="i18n.t('devicesDialog.kindOf', { device: device.name })"
+        >
+          @for (option of kinds; track option) {
+            <button
+              type="button"
+              [attr.aria-pressed]="device.kind === option"
+              [disabled]="busy()"
+              (click)="setKind(device, option)"
+            >
+              {{ kindName(option) }}
+            </button>
+          }
+        </span>
         @if (device.removable) {
           <button mat-button type="button" [disabled]="busy()" (click)="remove(device)">
             {{ i18n.t('devicesDialog.remove') }}
@@ -41,6 +59,14 @@
       />
       <mat-hint>{{ i18n.t('devicesDialog.addressHint') }}</mat-hint>
     </mat-form-field>
+    <div class="choices kind" role="group" [attr.aria-label]="i18n.t('devicesDialog.kind')">
+      @for (option of kinds; track option) {
+        <button type="button" [attr.aria-pressed]="option === kind()" (click)="kind.set(option)">
+          {{ kindName(option) }}
+        </button>
+      }
+    </div>
+    <p class="hint">{{ i18n.t('devicesDialog.kindHint') }}</p>
     <button
       mat-flat-button
       type="submit"

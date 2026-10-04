@@ -70,7 +70,7 @@ func TestAddedDevicesAreKeptAcrossRestarts(t *testing.T) {
 	address := startDevice(t)
 	h := openTestHub(t, store, nil)
 
-	device, err := h.Add(ctx, "Office PC", address)
+	device, err := h.Add(ctx, "Office PC", address, KindServer)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -103,7 +103,7 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 		{"Laptop", "203.0.113.5:9393", ProblemUnreachable},
 	}
 	for _, tt := range tests {
-		if _, err := h.Add(ctx, tt.name, tt.address); problemOf(err) != tt.want {
+		if _, err := h.Add(ctx, tt.name, tt.address, KindServer); problemOf(err) != tt.want {
 			t.Errorf("Add(%q, %q) error = %v, want problem %q", tt.name, tt.address, err, tt.want)
 		}
 	}
@@ -114,7 +114,7 @@ func TestRemoveForgetsTheDeviceAndItsHistory(t *testing.T) {
 	store := openTestStore(t)
 	h := openTestHub(t, store, []Device{{ID: "pi", Name: "Pi", Address: startDevice(t)}})
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, startDevice(t)); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t), KindServer); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}
@@ -153,7 +153,7 @@ func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Office PC", startDevice(t)); err != nil {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -189,7 +189,7 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := h.Add(ctx, "Laptop", startDevice(t)); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -219,5 +219,54 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 		if series, err := store.Range(ctx, id, now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 1 {
 			t.Errorf("history of %s = %+v, %v; want it kept", id, series, err)
 		}
+	}
+}
+
+func TestKindIsKeptAndCanBeChanged(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
+	h := openTestHub(t, store, []Device{pi})
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if _, err := h.Add(ctx, "Tablet", startDevice(t), "phone"); problemOf(err) != ProblemKind {
+		t.Errorf("Add() with an unknown kind error = %v, want problem %q", err, ProblemKind)
+	}
+	if err := h.SetKind(ctx, "pi", KindPC); err != nil {
+		t.Fatalf("SetKind(pi) error = %v", err)
+	}
+	if err := h.SetKind(ctx, "laptop", KindServer); err != nil {
+		t.Fatalf("SetKind(laptop) error = %v", err)
+	}
+	if err := h.SetKind(ctx, "nas", KindPC); problemOf(err) != ProblemNotFound {
+		t.Errorf("SetKind(nas) error = %v, want problem %q", err, ProblemNotFound)
+	}
+
+	again := openTestHub(t, store, []Device{pi})
+	want := map[string]Kind{"pi": KindPC, "laptop": KindServer}
+	for _, remote := range again.Remotes() {
+		if remote.Kind() != want[remote.ID] {
+			t.Errorf("kind of %s after a restart = %q, want %q", remote.ID, remote.Kind(), want[remote.ID])
+		}
+		availability, err := remote.Availability(ctx)
+		if err != nil || availability.Kind != want[remote.ID] {
+			t.Errorf("Availability(%s) = %+v, %v; want kind %q", remote.ID, availability, err, want[remote.ID])
+		}
+	}
+}
+
+func TestRemoveForgetsTheKind(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := h.Remove(ctx, "laptop", false); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindServer {
+		t.Errorf("kind after removing = %q, %v; want none stored", kind, err)
 	}
 }

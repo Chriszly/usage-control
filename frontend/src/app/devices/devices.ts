@@ -4,6 +4,16 @@ import { Observable, tap } from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
 
+/**
+ * What another device is used as. The times a server does not answer are
+ * outages; a PC or laptop that does not answer is switched off or asleep, so
+ * it is just not in use.
+ */
+export type DeviceKind = 'server' | 'pc';
+
+/** The kinds in the order the page offers them. */
+export const DEVICE_KINDS: readonly DeviceKind[] = ['server', 'pc'];
+
 /** A machine whose usage the website shows, as served by GET /api/devices. */
 export interface Device {
   /** Picks the device in the API, as ?device=<id>. */
@@ -12,6 +22,8 @@ export interface Device {
   name: string;
   /** Where another device is reachable, as host:port; missing for the machine the backend runs on. */
   address?: string;
+  /** What another device is used as; missing for the machine the backend runs on. */
+  kind?: DeviceKind;
   /** Set for a device added on the page, which can be removed there too. */
   removable?: boolean;
   /** Set for another device that has not answered the backend recently. */
@@ -22,6 +34,8 @@ export interface Device {
 
 /** The body of GET /api/availability: how long another device did not answer since it was added. */
 export interface Availability {
+  /** Whether the times it did not answer are outages of a server or times a PC was not in use. */
+  kind: DeviceKind;
   /** When the device was added, as an ISO time. */
   since: string;
   /** All outages added up; time the backend itself was not running is not counted. */
@@ -47,6 +61,8 @@ export interface Suggestion {
   address: string;
   /** What the device calls itself, or its name in the local DNS; empty when neither is known. */
   name: string;
+  /** What the device seems to be: a PC when it has a battery or runs Windows. */
+  kind: DeviceKind;
 }
 
 /** The machine the backend runs on. The API answers for it when a request names no device. */
@@ -55,6 +71,16 @@ export const LOCAL_DEVICE: Device = { id: 'local', name: '' };
 /** How the page names a device, in the page's language. */
 export function deviceName(device: Device, i18n: I18n): string {
   return device.name || i18n.t('devices.hostHub');
+}
+
+/** How the page names a kind of device, in the page's language. */
+export function kindName(kind: DeviceKind, i18n: I18n): string {
+  return i18n.t(`devices.kind.${kind}`);
+}
+
+/** Whether a device that does not answer is just not in use rather than having an outage. */
+export function notInUse(device: Device): boolean {
+  return device.kind === 'pc' && !!device.unreachable;
 }
 
 /** The shortest password that can be chosen; the backend checks it too. */
@@ -91,8 +117,13 @@ export class DeviceService {
   }
 
   /** Adds a device; without a password yet, `password` becomes the password. */
-  add(name: string, address: string, password: string): Observable<Device> {
-    return this.http.post<Device>('/api/devices', { name, address, password });
+  add(name: string, address: string, kind: DeviceKind, password: string): Observable<Device> {
+    return this.http.post<Device>('/api/devices', { name, address, kind, password });
+  }
+
+  /** Changes what a device is used as, one from the hub's .env file too. */
+  setKind(id: string, kind: DeviceKind, password: string): Observable<void> {
+    return this.http.put<void>(`/api/devices/${encodeURIComponent(id)}/kind`, { kind, password });
   }
 
   /**
@@ -123,6 +154,7 @@ const KNOWN_PROBLEMS = [
   'nameTaken',
   'addressTaken',
   'address',
+  'kind',
   'unreachable',
   'fixed',
   'notFound',
