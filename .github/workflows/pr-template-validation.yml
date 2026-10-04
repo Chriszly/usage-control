@@ -3,6 +3,9 @@ name: PR Template Validation
 on:
   pull_request:
     types: [opened, edited, synchronize]
+  # The nightly "Vulnerability fixes" workflow starts this on its branch: a pull
+  # request it opens starts no workflows of its own.
+  workflow_dispatch:
 
 permissions:
   pull-requests: read
@@ -19,7 +22,21 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const body = context.payload.pull_request.body || '';
+            let pr = context.payload.pull_request;
+            if (!pr) {
+              const branch = context.ref.replace('refs/heads/', '');
+              const { data } = await github.rest.pulls.list({
+                ...context.repo,
+                head: `${context.repo.owner}:${branch}`,
+                state: 'open'
+              });
+              pr = data[0];
+              if (!pr) {
+                core.setFailed(`No open pull request for the branch ${branch}.`);
+                return;
+              }
+            }
+            const body = pr.body || '';
             const requiredSections = [
               '## Summary',
               '## Type of change',

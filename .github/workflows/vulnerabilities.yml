@@ -1,0 +1,125 @@
+name: Vulnerability fixes
+
+# Every night, checks main for known vulnerabilities in the backend's Go modules and
+# Go version and in the frontend's npm packages, and opens a pull request with the
+# updates that fix them (ci/fix-vulnerabilities.sh). There is one such pull request
+# at a time: a later night updates it, or closes it when main needs nothing anymore.
+# The run fails when a vulnerability is left that no update fixes yet, so GitHub
+# sends the usual failed-workflow email. Dependabot security updates cover the rest,
+# such as the actions, as soon as an advisory is published.
+on:
+  schedule:
+    # 01:23 UTC: 03:23 in Germany in summer, 02:23 in winter.
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vulnerabilities
+  cancel-in-progress: false
+
+env:
+  BRANCH: security/nightly-fixes
+
+jobs:
+  fix:
+    name: Fix known vulnerabilities
+    runs-on: ubuntu-latest
+    permissions:
+      # Push the branch, open the pull request and start its checks.
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.nvmrc
+
+      # A vulnerability left unfixed fails this step; the updates that did work
+      # still go into the pull request, and the last step fails the run.
+      - name: Update what has a fix
+        id: fix
+        continue-on-error: true
+        run: bash ci/fix-vulnerabilities.sh "$RUNNER_TEMP/fixes.md"
+
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open_pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+
+          if git diff --quiet; then
+            echo "Nothing to update."
+            if [[ -n "$open_pr" ]]; then
+              gh pr close "$open_pr" --delete-branch \
+                --comment "main has no known vulnerabilities with a fix anymore, so this is no longer needed."
+            fi
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898799+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git commit -qam "Update dependencies with known vulnerabilities"
+
+          # Skip the push when the open pull request already has exactly these changes
+          # on top of the current main.
+          if [[ -n "$open_pr" ]] && git fetch -q origin "$BRANCH" && git diff --quiet FETCH_HEAD HEAD; then
+            echo "The pull request is up to date."
+            exit 0
+          fi
+          git push -f origin "$BRANCH"
+
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "## Summary"
+            echo
+            echo "The nightly vulnerability check found known vulnerabilities on main that these updates fix:"
+            echo
+            cat "$RUNNER_TEMP/fixes.md"
+            echo
+            echo "Opened by the [Vulnerability fixes]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) workflow."
+            echo
+            echo "## Type of change"
+            echo
+            echo "- [x] Bug fix"
+            echo "- [x] Build / CI / tooling"
+            echo
+            echo "## Checklist"
+            echo
+            echo "- [x] No secrets, passwords or personal info added"
+            echo
+            echo "## Testing"
+            echo
+            echo "The CI checks run on this branch, govulncheck and npm audit included."
+          } >"$body"
+
+          if [[ -n "$open_pr" ]]; then
+            gh pr edit "$open_pr" --body-file "$body"
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "Fix known vulnerabilities in dependencies" --body-file "$body"
+          fi
+
+          # A pull request opened with this workflow's token starts no workflows of its
+          # own, so start the required checks on the branch by hand.
+          gh workflow run ci.yml --ref "$BRANCH"
+          gh workflow run pr-template-validation.yml --ref "$BRANCH"
+
+      - name: Fail when a vulnerability is left
+        if: steps.fix.outcome == 'failure'
+        run: |
+          echo "::error::Some vulnerabilities have no fix yet, or updating failed; see the step \"Update what has a fix\"."
+          exit 1
