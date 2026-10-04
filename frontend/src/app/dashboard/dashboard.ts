@@ -23,6 +23,18 @@ export const REFRESH_INTERVAL_MS = 2000;
 /** How often the availability of another device is read again. */
 export const AVAILABILITY_REFRESH_MS = 10000;
 
+/** The most core bars in one row; more cores are split evenly over several rows. */
+const MAX_CORES_PER_ROW = 8;
+
+/**
+ * How many core bars go in one row: up to 8 stay in one row, more are split
+ * evenly over as few rows as keep each at 8 or fewer (12 → 2 × 6, 20 → 7 + 7 + 6).
+ */
+export function coreColumns(cores: number): number {
+  const rows = Math.ceil(cores / MAX_CORES_PER_ROW);
+  return Math.ceil(cores / rows);
+}
+
 /** Why no new values arrived: the backend did not answer, or the device it collects from did not. */
 type Problem = 'backend' | 'device';
 
@@ -44,6 +56,7 @@ export class Dashboard {
   protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
   /** How long the picked device did not answer since it was added; null for this device. */
   protected readonly availability = signal<Availability | null>(null);
+  protected readonly coreColumns = coreColumns;
 
   constructor() {
     toObservable(this.devices.selectedId)
