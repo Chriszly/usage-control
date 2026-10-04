@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // gpuReader reads the GPUs Linux reports usage for without special rights:
@@ -21,22 +20,14 @@ import (
 // Intel GPUs report their usage only to programs with extra rights, so they
 // are left out.
 type gpuReader struct {
-	sysDir    string
-	nvidiaSMI string
+	sysDir string
+	nvidia *nvidiaSMI
 
 	// mu guards the previous gpu_stats reading of each v3d GPU, which its
-	// usage is measured against, and the last nvidia-smi answer.
+	// usage is measured against.
 	mu  sync.Mutex
 	v3d map[string]v3dReading
-	// nvidia is what nvidia-smi answered at nvidiaAt; see nvidiaSMIInterval.
-	nvidia   []GPU
-	nvidiaAt time.Time
 }
-
-// nvidiaSMIInterval is how long an nvidia-smi answer is used again. Starting
-// a process for every reading costs more than the values are worth, and the
-// page's 2 second refresh does not need every one of them.
-const nvidiaSMIInterval = 4 * time.Second
 
 // v3dReading is one reading of a v3d GPU's gpu_stats: the clock and how long
 // each of its queues has been busy, all in nanoseconds.
@@ -46,12 +37,10 @@ type v3dReading struct {
 }
 
 func newGPUReader() *gpuReader {
-	// Not installed, which is the usual case, means no NVIDIA GPU is read.
-	nvidiaSMI, _ := exec.LookPath("nvidia-smi")
 	return &gpuReader{
-		sysDir:    hostPath("HOST_SYS", "/sys"),
-		nvidiaSMI: nvidiaSMI,
-		v3d:       map[string]v3dReading{},
+		sysDir: hostPath("HOST_SYS", "/sys"),
+		nvidia: newNvidiaSMI(),
+		v3d:    map[string]v3dReading{},
 	}
 }
 
@@ -68,22 +57,13 @@ func (r *gpuReader) read(ctx context.Context) []GPU {
 			gpus = append(gpus, gpu)
 		}
 	}
-	if r.nvidiaSMI != "" {
-		gpus = append(gpus, r.readNvidia(ctx)...)
-	}
+	gpus = append(gpus, r.nvidia.read(ctx)...)
 	return sortGPUs(gpus)
 }
 
-// readNvidia returns the NVIDIA GPUs, asking nvidia-smi again once the last
-// answer is nvidiaSMIInterval old.
-func (r *gpuReader) readNvidia(ctx context.Context) []GPU {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if now := time.Now(); now.Sub(r.nvidiaAt) >= nvidiaSMIInterval {
-		r.nvidia, r.nvidiaAt = readNvidiaSMI(ctx, r.nvidiaSMI), now
-	}
-	return r.nvidia
-}
+// temperatures returns no GPU temperature: the GPU card shows those of NVIDIA
+// GPUs, and the kernel lists those of AMD GPUs with the other sensors.
+func (*gpuReader) temperatures(context.Context) []Temperature { return nil }
 
 // readCard reads one DRM card, and reports false for a card whose usage the
 // kernel does not report, such as a display controller.
@@ -181,54 +161,5 @@ func busyShare(busyBefore, busyNow, clockBefore, clockNow uint64) float64 {
 	return min(100, float64(busyNow-busyBefore)/float64(clockNow-clockBefore)*100)
 }
 
-// readNvidiaSMI asks nvidia-smi for the usage of the NVIDIA GPUs. It gives up
-// after a second, so a hanging driver does not hold up the other values.
-func readNvidiaSMI(ctx context.Context, program string) []GPU {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	query := "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu"
-	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
-	out, err := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits").Output()
-	if err != nil {
-		return nil
-	}
-	return parseNvidiaSMI(string(out))
-}
-
-// parseNvidiaSMI reads the CSV nvidia-smi writes for readNvidiaSMI's query,
-// one line per GPU. A value the GPU does not report, written as [N/A] or
-// [Not Supported], is left out; a GPU without a usage is left out completely.
-func parseNvidiaSMI(out string) []GPU {
-	gpus := []GPU{}
-	for line := range strings.Lines(out) {
-		fields := strings.Split(line, ",")
-		if len(fields) < 5 {
-			continue
-		}
-		// The name comes first and is the only field that could hold a comma.
-		values := fields[len(fields)-4:]
-		number := func(i int) (float64, bool) {
-			v, err := strconv.ParseFloat(strings.TrimSpace(values[i]), 64)
-			return v, err == nil
-		}
-		usage, ok := number(0)
-		if !ok {
-			continue
-		}
-		gpu := GPU{
-			Name:         strings.TrimSpace(strings.Join(fields[:len(fields)-4], ",")),
-			UsagePercent: min(100, usage),
-		}
-		const mebibyte = 1 << 20
-		used, usedOK := number(1)
-		total, totalOK := number(2)
-		if usedOK && totalOK {
-			gpu.MemoryUsedBytes, gpu.MemoryTotalBytes = uint64(used*mebibyte), uint64(total*mebibyte)
-		}
-		if celsius, ok := number(3); ok {
-			gpu.Celsius = &celsius
-		}
-		gpus = append(gpus, gpu)
-	}
-	return gpus
-}
+// hideWindow does nothing: only Windows opens a window for a started program.
+func hideWindow(*exec.Cmd) {}

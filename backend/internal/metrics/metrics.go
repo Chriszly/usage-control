@@ -168,7 +168,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 			CachedBytes:    memory.Cached + memory.Buffers,
 			Swap:           readSwap(ctx, memory),
 		},
-		Temperatures: readTemperatures(ctx),
+		Temperatures: append(readTemperatures(ctx), c.gpus.temperatures(ctx)...),
 		Disks:        c.readDisks(ctx),
 		Network:      network,
 		GPUs:         c.gpus.read(ctx),

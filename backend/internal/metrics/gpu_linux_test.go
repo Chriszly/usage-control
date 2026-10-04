@@ -38,21 +38,6 @@ func TestParseV3DStatsRefusesOtherFormats(t *testing.T) {
 	}
 }
 
-func TestParseNvidiaSMI(t *testing.T) {
-	out := "NVIDIA GeForce RTX 3080, 42, 1024, 10240, 61\n" +
-		"Tesla T4, 7, [N/A], [N/A], [N/A]\n" +
-		"Broken GPU, [Not Supported], 1, 2, 3\n"
-
-	celsius := 61.0
-	want := []GPU{
-		{Name: "NVIDIA GeForce RTX 3080", UsagePercent: 42, MemoryUsedBytes: 1024 << 20, MemoryTotalBytes: 10240 << 20, Celsius: &celsius},
-		{Name: "Tesla T4", UsagePercent: 7},
-	}
-	if got := parseNvidiaSMI(out); !reflect.DeepEqual(got, want) {
-		t.Errorf("parseNvidiaSMI() = %+v, want %+v", got, want)
-	}
-}
-
 func TestGPUReaderReadsAMDAndVideoCoreFromSys(t *testing.T) {
 	sys := t.TempDir()
 	write := func(path, text string) {
@@ -100,7 +85,7 @@ func TestGPUReaderAsksNvidiaSMIEveryFewSeconds(t *testing.T) {
 		data, _ := os.ReadFile(runs) //nolint:gosec // a file this test created
 		return len(strings.Fields(string(data)))
 	}
-	reader := &gpuReader{sysDir: t.TempDir(), nvidiaSMI: script, v3d: map[string]v3dReading{}}
+	reader := &gpuReader{sysDir: t.TempDir(), nvidia: &nvidiaSMI{program: script}, v3d: map[string]v3dReading{}}
 
 	first := reader.read(context.Background())
 	second := reader.read(context.Background())
@@ -108,7 +93,7 @@ func TestGPUReaderAsksNvidiaSMIEveryFewSeconds(t *testing.T) {
 		t.Errorf("two reads = %+v, %+v after %d runs; want the GeForce twice from one run", first, second, countRuns())
 	}
 
-	reader.nvidiaAt = reader.nvidiaAt.Add(-nvidiaSMIInterval)
+	reader.nvidia.at = reader.nvidia.at.Add(-nvidiaSMIInterval)
 	if got := reader.read(context.Background()); len(got) != 1 || countRuns() != 2 {
 		t.Errorf("read() after the interval = %+v after %d runs; want the GeForce from a second run", got, countRuns())
 	}

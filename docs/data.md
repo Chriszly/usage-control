@@ -63,7 +63,7 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 | Network speed per card | yes | yes | yes |
 | Network errors and dropped packets | since start | since start | no |
 | Network link speed and IPv4 address | yes, read once a minute; most Wi-Fi cards report no speed | yes, read once a minute | no |
-| Temperatures | where `/sys` has sensors (a Raspberry Pi has one for its CPU) | rarely; then shown as unavailable | yes |
+| Temperatures | where `/sys` has sensors (a Raspberry Pi has one for its CPU) | rarely, except NVIDIA GPUs through `nvidia-smi`; otherwise shown as unavailable | yes |
 | GPU usage and memory | see [GPUs](#gpus) | see [GPUs](#gpus) | yes |
 | Fan speed | where the kernel knows the fan, such as the Raspberry Pi 5 | no | no |
 | Undervoltage and throttling | Raspberry Pi only | no | no |
@@ -76,7 +76,7 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 
 The GPU card appears when usage-control finds a GPU whose usage the system reports to programs without extra rights:
 
-- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs, so it is left out.
+- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs; the temperature of NVIDIA GPUs comes from `nvidia-smi`, which the NVIDIA driver installs, and is shown in the Temperature card under the GPU's name.
 - **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it; then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image; its answer is reused for 4 seconds. Intel GPUs report their usage only to programs with extra rights, so they are not shown.
 - **macOS:** not shown.
 
