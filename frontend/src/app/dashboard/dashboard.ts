@@ -17,7 +17,7 @@ import {
   TimeZone,
 } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
-import { EvenColumns } from './even-columns';
+import { EvenColumns } from '../layout/even-columns';
 import { FitLabels } from './fit-labels';
 
 /** How often the dashboard asks the backend for new values. */
