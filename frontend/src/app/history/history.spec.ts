@@ -26,14 +26,19 @@ function historyFor(from: number, to: number, retentionDays: number): History {
 describe('HistoryCharts', () => {
   let fixture: ComponentFixture<HistoryCharts>;
   let http: HttpTestingController;
+  let reportWidth: (width: number) => void;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
-    // jsdom has no ResizeObserver, which the chart grid uses to keep its rows even.
+    // jsdom has no ResizeObserver, which the chart grid uses to keep its rows even; tests report
+    // the grid's width by hand.
     vi.stubGlobal(
       'ResizeObserver',
       class {
+        constructor(callback: (entries: { contentRect: { width: number } }[]) => void) {
+          reportWidth = (width) => callback([{ contentRect: { width } }]);
+        }
         observe = vi.fn();
         disconnect = vi.fn();
       },
@@ -180,6 +185,14 @@ describe('HistoryCharts', () => {
 
     expect(element().querySelector('[role=status]')?.textContent).toContain('Not live');
     expect(element().querySelectorAll('app-line-chart').length).toBe(1);
+  });
+
+  it('keeps the rows of charts even and a lone chart at its usual width', () => {
+    respond();
+    reportWidth(1000);
+    const charts = element().querySelector<HTMLElement>('.charts');
+    expect(charts?.style.getPropertyValue('--columns')).toBe('1');
+    expect(charts?.classList).toContain('alone');
   });
 });
 

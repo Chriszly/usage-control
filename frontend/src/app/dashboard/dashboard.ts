@@ -7,6 +7,7 @@ import { EMPTY, catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 import { HubConnection } from '../connection/connection';
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
+import { EvenColumns } from '../layout/even-columns';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import {
   MetricsService,
@@ -17,7 +18,6 @@ import {
   TimeZone,
 } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
-import { EvenColumns } from '../layout/even-columns';
 import { FitLabels } from './fit-labels';
 
 /** How often the dashboard asks the backend for new values. */

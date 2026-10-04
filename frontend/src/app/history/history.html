@@ -39,7 +39,12 @@
       <p class="warning" role="status">{{ i18n.t('history.notLive', { time }) }}</p>
     }
 
-    <div class="charts" appEvenColumns [class.stale]="connection.lost()">
+    <div
+      class="charts"
+      appEvenColumns
+      [class.alone]="charts().length === 1"
+      [class.stale]="connection.lost()"
+    >
       @for (chart of charts(); track chart.title) {
         <div class="card">
           <h3>{{ chart.title }}</h3>
