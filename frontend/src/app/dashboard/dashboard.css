@@ -46,6 +46,11 @@ progress {
   white-space: nowrap;
 }
 
+/* Cards that fit their names (appFitLabels) set a smaller scale when the longest name is too long. */
+.sensor > .label {
+  font-size: calc(var(--label-scale, 1) * 1em);
+}
+
 .sensor > :not(.label) {
   flex: none;
   white-space: nowrap;

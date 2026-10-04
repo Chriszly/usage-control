@@ -31,6 +31,14 @@ describe('Dashboard', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    // jsdom has no ResizeObserver, which the temperature card uses to fit its names.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
     TestBed.configureTestingModule({
       imports: [Dashboard],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -43,6 +51,7 @@ describe('Dashboard', () => {
     http.verify();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   function respond(body: Snapshot | null): void {

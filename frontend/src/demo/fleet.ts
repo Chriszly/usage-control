@@ -493,7 +493,7 @@ const linuxServer: DemoMachine = {
     { name: 'eno2' },
     { name: 'docker0', addresses: ['172.17.0.1'] },
   ],
-  gpus: [{ name: 'NVIDIA RTX A4000', memoryBytes: 16 * GB }],
+  gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -510,7 +510,7 @@ const linuxServer: DemoMachine = {
       memory: vary(t, step, 114, 30 + 35 * build, [[4, 600]]),
       swap: vary(t, step, 115, 3, [[2, 86400]]),
       'temperature:k10temp Tctl': 45 + cpu * 0.38,
-      'temperature:NVIDIA RTX A4000': 36 + gpu * 0.4,
+      'temperature:NVIDIA GeForce RTX 3090': 36 + gpu * 0.4,
       'temperature:nvme Composite': 41 + 8 * build,
       'disk:/': vary(t, step, 116, 44, [[0.5, 86400 * 3]]),
       'disk:/var/lib/docker': vary(t, step, 117, 61, [[4, 86400 * 2]]),
@@ -522,8 +522,8 @@ const linuxServer: DemoMachine = {
       'network.send:eno1': vary(t, step, 123, 500e3 + 8e6 * build, [[1e6, 30]], 0, 1.2e9),
       'network.receive:docker0': vary(t, step, 124, 50e3 + 3e6 * build, [[100e3, 60]], 0, 1e9),
       'network.send:docker0': vary(t, step, 125, 80e3 + 5e6 * build, [[100e3, 60]], 0, 1e9),
-      'gpu:NVIDIA RTX A4000': gpu,
-      'gpu.memory:NVIDIA RTX A4000': 6 + gpu * 0.6,
+      'gpu:NVIDIA GeForce RTX 3090': gpu,
+      'gpu.memory:NVIDIA GeForce RTX 3090': 6 + gpu * 0.6,
     };
   },
 };

@@ -16,6 +16,7 @@ import {
   TimeZone,
 } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
+import { FitLabels } from './fit-labels';
 
 /** How often the dashboard asks the backend for new values. */
 export const REFRESH_INTERVAL_MS = 2000;
@@ -41,7 +42,7 @@ type Problem = 'backend' | 'device';
 /** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe, NgTemplateOutlet],
+  imports: [BytesPipe, DecimalPipe, FitLabels, NgTemplateOutlet],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })
