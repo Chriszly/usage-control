@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-smart --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -55,6 +55,16 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
   echo "--addons= left the power add-on behind" >&2
   exit 1
 fi
+
+# The smart add-on runs and writes its report also where smartmontools or
+# disks with SMART values are missing, as they may be on a CI machine.
+"$folder/install.sh" --addons=smart
+systemctl is-active --quiet usage-control-smart || { journalctl -u usage-control-smart --no-pager | tail -20 >&2; echo "the smart add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/smart.json ]] && break
+  sleep 1
+done
+test -f /run/usage-control-addons/smart.json || { echo "the smart add-on wrote no report" >&2; exit 1; }
 "$folder/install.sh" --addons=power
 
 "$folder/install.sh" --uninstall --purge

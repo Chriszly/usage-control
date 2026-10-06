@@ -1,0 +1,53 @@
+# The smart add-on of usage-control: reads the health of the disks through
+# smartctl (smartmontools, installed separately) and writes it to
+# /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control smart add-on: reads the disks' health through smartctl (install smartmontools); runs as root with raw disk access only
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-smart
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Runs as root because only root may open the disks, with only the two
+# capabilities SMART commands need: CAP_SYS_RAWIO lets smartctl pass ATA and
+# SCSI commands to SATA, SAS and USB disks, CAP_SYS_ADMIN lets it send the
+# NVMe admin command that reads an NVMe disk's health log. smartctl only reads:
+# it opens the disks read-only, and only SATA/SCSI disks and NVMe controllers
+# are reachable at all. It writes nothing but its folder and needs no network.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=char-nvme r
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=usage-control.service

@@ -124,6 +124,77 @@ function powerAddOn(
   ];
 }
 
+/** The values the smart add-on reports for a disk, with their unit and labels as the add-on writes them. */
+const smartValues = {
+  temperature: {
+    label: 'Temperature',
+    labels: { de: 'Temperatur', fr: 'Température', es: 'Temperatura' },
+    unit: 'celsius',
+  },
+  'power-on-hours': {
+    label: 'Power-on hours',
+    labels: {
+      de: 'Betriebsstunden',
+      fr: 'Heures de fonctionnement',
+      es: 'Horas de funcionamiento',
+    },
+    unit: 'number',
+  },
+  reallocated: {
+    label: 'Reallocated sectors',
+    labels: { de: 'Ersetzte Sektoren', fr: 'Secteurs réalloués', es: 'Sectores reasignados' },
+    unit: 'number',
+  },
+  'media-errors': {
+    label: 'Media errors',
+    labels: { de: 'Medienfehler', fr: 'Erreurs de support', es: 'Errores de medio' },
+    unit: 'number',
+  },
+  used: {
+    label: 'Wear',
+    labels: { de: 'Verschleiß', fr: 'Usure', es: 'Desgaste' },
+    unit: 'percent',
+  },
+} as const;
+
+const healthLabels = { de: 'Zustand', fr: 'État', es: 'Estado' };
+
+/** Puts the disk before a label and each of its translations, as the smart add-on does. */
+function diskLabels(disk: string, label: string, labels: Record<string, string>) {
+  return {
+    label: `${disk}: ${label}`,
+    labels: Object.fromEntries(Object.entries(labels).map(([code, l]) => [code, `${disk}: ${l}`])),
+  };
+}
+
+/**
+ * What the smart add-on reports for the given disks: whether each one passes its own check, and
+ * the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>".
+ */
+function smartAddOn(
+  disks: { id: string; name: string; values: (keyof typeof smartValues)[] }[],
+): Extra {
+  return {
+    id: 'smart',
+    title: 'Disk health',
+    titles: { de: 'Laufwerkszustand', fr: 'Santé des disques', es: 'Salud de los discos' },
+    items: disks.flatMap((disk) => [
+      {
+        id: `${disk.id}-health`,
+        ...diskLabels(disk.name, 'Health', healthLabels),
+        unit: 'text' as const,
+        text: 'passed',
+      },
+      ...disk.values.map((value) => ({
+        id: `${disk.id}-${value}`,
+        ...diskLabels(disk.name, smartValues[value].label, smartValues[value].labels),
+        unit: smartValues[value].unit,
+        history: true,
+      })),
+    ]),
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -463,11 +534,29 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
+  extras: [
+    smartAddOn([
+      {
+        id: 'sda',
+        name: 'WDC WD120EFBX-68B0EN0 (sda)',
+        values: ['temperature', 'power-on-hours', 'reallocated'],
+      },
+      {
+        id: 'sdb',
+        name: 'ST12000VN0008-2YS101 (sdb)',
+        values: ['temperature', 'power-on-hours', 'reallocated'],
+      },
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
     // The backup runs at night and writes for a few hours.
     const backup = Math.max(0, 1 - workday(t) * 3) * Math.max(0, drift(t, 7200, 99));
+    const drives = {
+      sda: 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
+      sdb: 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
+    };
     const cpu = vary(
       t,
       step,
@@ -483,8 +572,15 @@ const linuxNas: DemoMachine = {
       cpu,
       memory: vary(t, step, 92, 27, [[3, 3600]]),
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
-      'temperature:drivetemp sda': 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
-      'temperature:drivetemp sdb': 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
+      'temperature:drivetemp sda': drives.sda,
+      'temperature:drivetemp sdb': drives.sdb,
+      // The smart add-on reads the disks every 10 minutes.
+      'extra:smart/sda-temperature': Math.round(drives.sda),
+      'extra:smart/sda-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_408,
+      'extra:smart/sda-reallocated': 0,
+      'extra:smart/sdb-temperature': Math.round(drives.sdb),
+      'extra:smart/sdb-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_395,
+      'extra:smart/sdb-reallocated': t < openedAt - 9 * 86400 ? 0 : 8,
       'disk:/': vary(t, step, 95, 31, [[0.3, 86400 * 5]]),
       'disk:/srv/data': vary(t, step, 96, 71, [[1.5, 86400 * 12]]),
       'disk:/srv/backup': vary(t, step, 97, 83, [[2, 86400 * 6]]),
@@ -545,11 +641,20 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: powerAddOn([
-    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
-    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
-    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  extras: [
+    ...powerAddOn([
+      { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+      { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+      { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+    ]),
+    smartAddOn([
+      {
+        id: 'nvme0',
+        name: 'Samsung SSD 980 PRO 2TB (nvme0)',
+        values: ['temperature', 'power-on-hours', 'media-errors', 'used'],
+      },
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +687,10 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      'extra:smart/nvme0-temperature': Math.round(41 + 8 * build),
+      'extra:smart/nvme0-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
+      'extra:smart/nvme0-media-errors': 0,
+      'extra:smart/nvme0-used': 4,
     };
   },
 };
