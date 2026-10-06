@@ -124,6 +124,134 @@ function powerAddOn(
   ];
 }
 
+/** What the memory add-on reports; its values come from memoryValues() as "extra:memory/<id>". */
+function memoryAddOn(): Extra[] {
+  const bytes = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'bytes' as const,
+    history: true,
+  });
+  return [
+    {
+      id: 'memory',
+      title: 'Memory details',
+      titles: { de: 'Speicherdetails', fr: 'Détails de la mémoire', es: 'Detalles de la memoria' },
+      items: [
+        bytes('dirty', 'Dirty (waiting to be written)', {
+          de: 'Ungeschrieben (Dirty)',
+          fr: 'Modifiée, pas encore écrite (Dirty)',
+          es: 'Modificada, sin escribir (Dirty)',
+        }),
+        bytes('writeback', 'Being written back', {
+          de: 'Wird geschrieben (Writeback)',
+          fr: "En cours d'écriture (Writeback)",
+          es: 'Escribiéndose (Writeback)',
+        }),
+        bytes('slab', 'Kernel caches (slab)', {
+          de: 'Kernel-Caches (Slab)',
+          fr: 'Caches du noyau (slab)',
+          es: 'Cachés del núcleo (slab)',
+        }),
+        bytes('shared', 'Shared memory', {
+          de: 'Gemeinsamer Speicher',
+          fr: 'Mémoire partagée',
+          es: 'Memoria compartida',
+        }),
+        bytes('page-tables', 'Page tables', {
+          de: 'Seitentabellen',
+          fr: 'Tables de pages',
+          es: 'Tablas de páginas',
+        }),
+        bytes('committed', 'Committed', {
+          de: 'Zugesagt (Committed)',
+          fr: 'Engagée (Committed)',
+          es: 'Comprometida (Committed)',
+        }),
+        {
+          id: 'page-faults',
+          label: 'Page faults',
+          labels: { de: 'Seitenfehler', fr: 'Défauts de page', es: 'Fallos de página' },
+          unit: 'perSecond',
+          history: true,
+        },
+        {
+          id: 'major-page-faults',
+          label: 'Major page faults (read from disk)',
+          labels: {
+            de: 'Schwere Seitenfehler (von der Platte)',
+            fr: 'Défauts de page majeurs (lus sur disque)',
+            es: 'Fallos de página mayores (leídos del disco)',
+          },
+          unit: 'perSecond',
+          history: true,
+        },
+        {
+          id: 'swap-in',
+          label: 'Swapped in',
+          labels: { de: 'Aus dem Swap gelesen', fr: 'Lu depuis le swap', es: 'Leído del swap' },
+          unit: 'bytesPerSecond',
+          history: true,
+        },
+        {
+          id: 'swap-out',
+          label: 'Swapped out',
+          labels: {
+            de: 'In den Swap geschrieben',
+            fr: 'Écrit dans le swap',
+            es: 'Escrito en el swap',
+          },
+          unit: 'bytesPerSecond',
+          history: true,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * The memory add-on's values for a machine with memoryBytes of memory, busy
+ * by load (0 to 1), from seeds seed to seed + 9.
+ */
+function memoryValues(
+  t: number,
+  step: number,
+  seed: number,
+  memoryBytes: number,
+  load: number,
+): Record<string, number> {
+  const m = memoryBytes;
+  return {
+    'extra:memory/dirty': vary(t, step, seed, m * (0.0005 + 0.004 * load), [[m * 0.001, 30]], 0, m),
+    'extra:memory/writeback': vary(t, step, seed + 1, m * 0.0002 * load, [[m * 0.0002, 20]], 0, m),
+    'extra:memory/slab': vary(t, step, seed + 2, m * 0.03, [[m * 0.005, 3600]], 0, m),
+    'extra:memory/shared': vary(t, step, seed + 3, m * 0.01, [[m * 0.003, 1800]], 0, m),
+    'extra:memory/page-tables': vary(
+      t,
+      step,
+      seed + 4,
+      m * 0.002 * (1 + load),
+      [[m * 0.0005, 600]],
+      0,
+      m,
+    ),
+    'extra:memory/committed': vary(
+      t,
+      step,
+      seed + 5,
+      m * (0.4 + 0.3 * load),
+      [[m * 0.05, 900]],
+      0,
+      2 * m,
+    ),
+    'extra:memory/page-faults': vary(t, step, seed + 6, 800 + 40e3 * load, [[600, 30]], 0, 1e7),
+    'extra:memory/major-page-faults': vary(t, step, seed + 7, 0.5 + 20 * load, [[1, 60]], 0, 1e5),
+    'extra:memory/swap-in': vary(t, step, seed + 8, 0, [[4e3, 300]], 0, 1e9),
+    'extra:memory/swap-out': vary(t, step, seed + 9, 0, [[6e3, 600]], 0, 1e9),
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -139,17 +267,20 @@ const piHub: DemoMachine = {
   gpus: [{ name: 'VideoCore VII' }],
   fans: ['pwmfan'],
   throttling: { now: [], sinceBoot: ['softTemperatureLimit'] },
-  extras: powerAddOn([
-    {
-      id: 'raspberry-pi',
-      label: 'Raspberry Pi (total)',
-      labels: {
-        de: 'Raspberry Pi (gesamt)',
-        fr: 'Raspberry Pi (total)',
-        es: 'Raspberry Pi (total)',
+  extras: [
+    ...powerAddOn([
+      {
+        id: 'raspberry-pi',
+        label: 'Raspberry Pi (total)',
+        labels: {
+          de: 'Raspberry Pi (gesamt)',
+          fr: 'Raspberry Pi (total)',
+          es: 'Raspberry Pi (total)',
+        },
       },
-    },
-  ]),
+    ]),
+    ...memoryAddOn(),
+  ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
     const cpu = vary(
@@ -193,6 +324,7 @@ const piHub: DemoMachine = {
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
+      ...memoryValues(t, step, 140, 8 * GB, cpu / 100),
     };
   },
 };
@@ -545,11 +677,14 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: powerAddOn([
-    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
-    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
-    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  extras: [
+    ...powerAddOn([
+      { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+      { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+      { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+    ]),
+    ...memoryAddOn(),
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +717,7 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      ...memoryValues(t, step, 160, 128 * GB, build),
     };
   },
 };

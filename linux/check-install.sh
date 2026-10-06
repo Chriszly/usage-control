@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-memory --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -55,12 +55,30 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
   echo "--addons= left the power add-on behind" >&2
   exit 1
 fi
-"$folder/install.sh" --addons=power
+
+# The memory add-on runs next to the power add-on, and both write to the
+# shared add-on folder.
+"$folder/install.sh" --addons=power,memory
+for addon in power memory; do
+  systemctl is-active --quiet "usage-control-$addon" || { journalctl -u "usage-control-$addon" --no-pager | tail -20 >&2; echo "the $addon add-on is not running" >&2; exit 1; }
+done
+for _ in $(seq 1 10); do
+  grep -q '"id":"committed"' /run/usage-control-addons/memory.json 2> /dev/null && break
+  sleep 1
+done
+grep -q '"id":"committed"' /run/usage-control-addons/memory.json || { echo "the memory add-on wrote no report" >&2; exit 1; }
+rm /run/usage-control-addons/power.json
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/power.json ]] && break
+  sleep 1
+done
+test -f /run/usage-control-addons/power.json || { echo "the power add-on can no longer write next to the memory add-on" >&2; exit 1; }
 
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
-  [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /etc/usage-control.env ]]; then
+  systemctl cat usage-control-memory > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control ||
+  -e /usr/local/bin/usage-control-power || -e /usr/local/bin/usage-control-memory || -e /etc/usage-control.env ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and memory add-ons and uninstall work."
