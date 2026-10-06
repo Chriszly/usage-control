@@ -10,6 +10,8 @@ archive="$(realpath "$1")"
 version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# A failing step shows what the services logged.
+trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 

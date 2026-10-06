@@ -115,9 +115,13 @@ for addon in "${!addon_descriptions[@]}"; do
   fi
 done
 systemctl daemon-reload
+# Several installs in a row would hit systemd's limit of starts in a short
+# time, which reset-failed clears.
+systemctl reset-failed usage-control.service 2> /dev/null || true
 systemctl enable usage-control.service > /dev/null
 systemctl restart usage-control.service
 for addon in "${!wanted[@]}"; do
+  systemctl reset-failed "usage-control-$addon.service" 2> /dev/null || true
   systemctl enable "usage-control-$addon.service" > /dev/null
   systemctl restart "usage-control-$addon.service"
 done
