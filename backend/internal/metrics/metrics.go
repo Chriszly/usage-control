@@ -44,6 +44,9 @@ type Snapshot struct {
 	// Fans is only reported where Linux knows the fans, such as on a
 	// Raspberry Pi 5 with its cooling fan.
 	Fans []Fan `json:"fans,omitempty"`
+	// Extras are values beyond the fields above, described well enough that
+	// a hub can show them without knowing them; see Extra.
+	Extras []Extra `json:"extras,omitempty"`
 }
 
 // CPU is the processor usage across all cores and of each core. The clock,

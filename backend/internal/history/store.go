@@ -77,7 +77,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	if _, err := db.ExecContext(ctx, schema+extraSchema); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -199,6 +199,7 @@ func (s *Store) cachedRange(ctx context.Context, device string, from, to time.Ti
 
 // DeleteBefore deletes every value measured before t and returns how many
 // were deleted. The hour t falls in keeps its average, as it still has values.
+// The descriptions of extras without values left go too.
 func (s *Store) DeleteBefore(ctx context.Context, t time.Time) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE time < ?`, t.Unix())
 	if err != nil {
@@ -207,16 +208,23 @@ func (s *Store) DeleteBefore(ctx context.Context, t time.Time) (int64, error) {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples_hourly WHERE time < ?`, t.Truncate(time.Hour).Unix()); err != nil {
 		return 0, err
 	}
+	if err := s.deleteUnusedExtraInfo(ctx, t); err != nil {
+		return 0, err
+	}
 	return result.RowsAffected()
 }
 
-// DeleteDevice deletes every value of one device.
+// DeleteDevice deletes every value of one device, and how its extras are
+// described.
 func (s *Store) DeleteDevice(ctx context.Context, device string) error {
 	s.cache.forget(device)
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE device = ?`, device); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM samples_hourly WHERE device = ?`, device)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples_hourly WHERE device = ?`, device); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM extra_info WHERE device = ?`, device)
 	return err
 }
 

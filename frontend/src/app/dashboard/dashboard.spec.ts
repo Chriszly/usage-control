@@ -207,6 +207,35 @@ describe('Dashboard', () => {
     expect(text()).toContain('Health 87 %');
   });
 
+  it('shows the extras as the device describes them, in the language of the page', () => {
+    respond({
+      ...snapshot,
+      extras: [
+        {
+          id: 'pressure',
+          title: 'Pressure',
+          titles: { de: 'Druck' },
+          items: [
+            { id: 'cpu', label: 'CPU waiting', unit: 'percent', value: 3.25, history: true },
+            { id: 'power', label: 'Package', unit: 'watts', value: 12.5 },
+            { id: 'kernel', label: 'Kernel', unit: 'text', text: '6.12.1' },
+          ],
+        },
+      ],
+    });
+
+    expect(text()).toContain('Pressure');
+    expect(text()).toContain('CPU waiting3.3 %');
+    expect(text()).toContain('Package12.5 W');
+    expect(text()).toContain('Kernel6.12.1');
+
+    TestBed.inject(I18n).use('de');
+    fixture.detectChanges();
+    expect(text()).toContain('Druck');
+    expect(text()).toContain('12,5 W');
+    localStorage.removeItem(LANGUAGE_STORAGE_KEY);
+  });
+
   it('leaves out what the device does not report', () => {
     respond(snapshot);
 

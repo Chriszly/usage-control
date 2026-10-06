@@ -1,4 +1,5 @@
 import { Device, LOCAL_DEVICE } from '../app/devices/devices';
+import { Extra, ExtraInfo } from '../app/metrics/extras';
 import { Snapshot, Throttling, TimeZone } from '../app/metrics/metrics';
 
 /**
@@ -26,6 +27,8 @@ export interface DemoMachine {
   network: { name: string; addresses?: string[]; linkMbps?: number }[];
   gpus?: { name: string; memoryBytes?: number }[];
   fans?: string[];
+  /** Values beyond the fixed ones; each value comes from values() as "extra:<group>/<value>", texts are fixed. */
+  extras?: Extra[];
   throttling?: Throttling;
   /** Linux laptops report the battery's power and health too. */
   batteryDetails?: boolean;
@@ -513,6 +516,51 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
+  extras: [
+    {
+      id: 'pressure',
+      title: 'Pressure',
+      titles: { de: 'Auslastungsdruck', fr: 'Pression', es: 'Presión' },
+      items: [
+        { id: 'cpu', label: 'CPU', unit: 'percent', history: true },
+        {
+          id: 'memory',
+          label: 'Memory',
+          labels: { de: 'Arbeitsspeicher', fr: 'Mémoire', es: 'Memoria' },
+          unit: 'percent',
+          history: true,
+        },
+        {
+          id: 'io',
+          label: 'Disks',
+          labels: { de: 'Datenträger', fr: 'Disques', es: 'Discos' },
+          unit: 'percent',
+          history: true,
+        },
+      ],
+    },
+    {
+      id: 'system',
+      title: 'System',
+      titles: { de: 'System', fr: 'Système', es: 'Sistema' },
+      items: [
+        {
+          id: 'power',
+          label: 'CPU power',
+          labels: { de: 'CPU-Leistung', fr: 'Puissance CPU', es: 'Potencia CPU' },
+          unit: 'watts',
+          history: true,
+        },
+        {
+          id: 'connections',
+          label: 'TCP connections',
+          labels: { de: 'TCP-Verbindungen', fr: 'Connexions TCP', es: 'Conexiones TCP' },
+          unit: 'number',
+        },
+        { id: 'kernel', label: 'Kernel', unit: 'text', text: '6.12.48' },
+      ],
+    },
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -542,6 +590,13 @@ const linuxServer: DemoMachine = {
       'network.send:docker0': vary(t, step, 125, 80e3 + 5e6 * build, [[100e3, 60]], 0, 1e9),
       'gpu:NVIDIA GeForce RTX 3090': gpu,
       'gpu.memory:NVIDIA GeForce RTX 3090': 6 + gpu * 0.6,
+      'extra:pressure/cpu': Math.max(0, cpu - 60) * 0.8,
+      'extra:pressure/memory': vary(t, step, 126, 0.5, [[0.5, 300]]),
+      'extra:pressure/io': vary(t, step, 127, 1 + 12 * build, [[1, 30]]),
+      'extra:system/power': 28 + cpu * 1.7,
+      'extra:system/connections': Math.round(
+        vary(t, step, 128, 140 + 260 * build, [[20, 60]], 0, 2000),
+      ),
     };
   },
 };
@@ -765,5 +820,32 @@ export function snapshotOf(machine: DemoMachine, t: number): Snapshot {
           })),
         }
       : {}),
+    ...(machine.extras
+      ? {
+          extras: machine.extras.map((group) => ({
+            ...group,
+            items: group.items.map((item) =>
+              item.unit === 'text' ? item : { ...item, value: v[`extra:${group.id}/${item.id}`] },
+            ),
+          })),
+        }
+      : {}),
   };
+}
+
+/** How the machine's extras that keep their history are described, by metric, as GET /api/history says. */
+export function extraInfoOf(machine: DemoMachine): Record<string, ExtraInfo> {
+  const info: Record<string, ExtraInfo> = {};
+  for (const group of machine.extras ?? []) {
+    for (const item of group.items.filter((i) => i.history)) {
+      info[`extra:${group.id}/${item.id}`] = {
+        title: group.title,
+        titles: group.titles,
+        label: item.label,
+        labels: item.labels,
+        unit: item.unit,
+      };
+    }
+  }
+  return info;
 }

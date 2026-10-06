@@ -1,12 +1,12 @@
-import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 
 import { I18n } from '../i18n/i18n';
-import { BytesPipe } from '../metrics/bytes.pipe';
+import { ExtraUnit, formatExtra } from '../metrics/extras';
 import { Point } from '../metrics/metrics';
 
-/** What the values of a chart are. */
-export type ChartUnit = 'percent' | 'celsius' | 'bytesPerSecond';
+/** What the values of a chart are: any unit an extra can have, but text. */
+export type ChartUnit = Exclude<ExtraUnit, 'text'>;
 
 /** One line of a chart, such as the CPU usage over time. */
 export interface ChartLine {
@@ -26,7 +26,7 @@ const HEIGHT = 100;
  */
 @Component({
   selector: 'app-line-chart',
-  imports: [BytesPipe, DatePipe, DecimalPipe, NgTemplateOutlet],
+  imports: [DatePipe, NgTemplateOutlet],
   templateUrl: './line-chart.html',
   styleUrl: './line-chart.css',
 })
@@ -89,6 +89,11 @@ export class LineChart {
     };
   });
 
+  /** A value with the chart's unit, in the page's language. */
+  protected format(value: number): string {
+    return formatExtra(value, this.unit(), this.i18n.language());
+  }
+
   protected onPointerMove(event: PointerEvent): void {
     const area = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - area.left) / area.width));
@@ -126,12 +131,20 @@ export class LineChart {
 
 /**
  * A round number at or above value for the top of the y axis: the next ten
- * degrees, or the next power of two bytes per second so the axis reads 1 MiB/s
- * instead of 0.95 MiB/s.
+ * percent or degrees; the next power of two bytes so the axis reads 1 MiB/s
+ * instead of 0.95 MiB/s; else the next 1, 2 or 5 times a power of ten.
  */
 export function niceCeiling(value: number, unit: ChartUnit): number {
-  if (unit === 'bytesPerSecond') {
+  if (unit === 'bytesPerSecond' || unit === 'bytes') {
     return 2 ** Math.ceil(Math.log2(Math.max(value, 1024)));
   }
-  return Math.max(10, Math.ceil(value / 10) * 10);
+  if (unit === 'percent' || unit === 'celsius') {
+    return Math.max(10, Math.ceil(value / 10) * 10);
+  }
+  if (value <= 0) {
+    return 1;
+  }
+  const power = 10 ** Math.floor(Math.log10(value));
+  const nice = [1, 2, 5, 10].find((n) => n * power >= value) ?? 10;
+  return nice * power;
 }

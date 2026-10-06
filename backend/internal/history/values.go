@@ -17,6 +17,9 @@ const (
 	MetricNetworkSend    = "network.send"
 	MetricGPU            = "gpu"
 	MetricGPUMemory      = "gpu.memory"
+	// MetricExtra is followed by the group and the value, such as
+	// "extra:pressure/cpu"; see metrics.Extra.
+	MetricExtra = "extra"
 )
 
 // DefaultMaxEntries is how many disks, temperature sensors, network cards and
@@ -27,7 +30,8 @@ const DefaultMaxEntries = 64
 
 // values returns the values of a snapshot that are kept in the history:
 // usage in percent (also of swap and GPU memory), battery charge in percent,
-// temperatures in °C and disk and network speeds in bytes per second. The load average, clock, each
+// temperatures in °C, disk and network speeds in bytes per second, and the
+// extras that ask for it in their own unit. The load average, clock, each
 // core's usage and throttling are only shown live. Of the disks, sensors,
 // network cards and GPUs, the first maxEntries each are kept; dropped tells
 // whether any were left out.
@@ -62,7 +66,47 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped b
 			v[MetricGPUMemory+":"+g.Name] = memory
 		}
 	}
+	for metric, value := range extraValues(s.Extras) {
+		v[metric] = value
+	}
 	return v, dropped
+}
+
+// extraValues returns the values of the extras that ask for their history.
+func extraValues(extras []metrics.Extra) map[string]float64 {
+	v := map[string]float64{}
+	for _, group := range extras {
+		for _, item := range group.Items {
+			if item.History && item.Value != nil {
+				v[extraMetric(group, item)] = *item.Value
+			}
+		}
+	}
+	return v
+}
+
+// extraInfo describes the extras that ask for their history, by the metric
+// they are stored under.
+func extraInfo(extras []metrics.Extra) map[string]ExtraInfo {
+	info := map[string]ExtraInfo{}
+	for _, group := range extras {
+		for _, item := range group.Items {
+			if item.History && item.Value != nil {
+				info[extraMetric(group, item)] = ExtraInfo{
+					Title:  group.Title,
+					Titles: group.Titles,
+					Label:  item.Label,
+					Labels: item.Labels,
+					Unit:   item.Unit,
+				}
+			}
+		}
+	}
+	return info
+}
+
+func extraMetric(group metrics.Extra, item metrics.ExtraItem) string {
+	return MetricExtra + ":" + group.ID + "/" + item.ID
 }
 
 // first returns the first n entries of list, and sets dropped when that
