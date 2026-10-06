@@ -134,11 +134,15 @@ jobs:
                 -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
                 -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
             CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
+              go build -trimpath -ldflags="-s -w" \
+                -o "../dist/$arch/usage-control-power.exe" ./cmd/usage-control-power
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
               go build -trimpath -ldflags="-s -w -H=windowsgui" \
                 -o "../dist/$arch/usage-control-tray.exe" ./cmd/usage-control-tray
           done
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/winservice-tests.exe ./internal/winservice
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -166,6 +170,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Only the GPU tests: the other metrics tests assume Linux paths.
           dist\tests\metrics-tests.exe '-test.v' '-test.run=GPU'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dist\tests\winservice-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
   installer:
@@ -202,7 +208,8 @@ jobs:
           foreach ($arch in @{ x64 = 'amd64'; arm64 = 'arm64' }.GetEnumerator()) {
             wix build windows\usage-control.wxs -arch $arch.Key `
               -d Version=$env:MSI_VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
-              -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d Icon=dist\usage-control.ico `
+              -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d PowerBinary=dist\$($arch.Value)\usage-control-power.exe `
+              -d Icon=dist\usage-control.ico `
               -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
               -o "msi\usage-control-$env:VERSION-$($arch.Key).msi"
             if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -219,7 +226,8 @@ jobs:
           $newer = "$($version.Major).$($version.Minor).$($version.Build).$([Math]::Max($version.Revision, 0) + 1)"
           wix build windows\usage-control.wxs -arch x64 `
             -d Version=$newer -d Binary=dist\amd64\usage-control.exe `
-            -d TrayBinary=dist\amd64\usage-control-tray.exe -d Icon=dist\usage-control.ico `
+            -d TrayBinary=dist\amd64\usage-control-tray.exe -d PowerBinary=dist\amd64\usage-control-power.exe `
+            -d Icon=dist\usage-control.ico `
             -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
             -o "check\usage-control-$newer-x64.msi"
           if ($LASTEXITCODE -ne 0) { exit 1 }

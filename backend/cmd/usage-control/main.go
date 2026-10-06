@@ -53,12 +53,13 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/update"
 	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/Chriszly/usage-control/backend/internal/web"
+	"github.com/Chriszly/usage-control/backend/internal/winservice"
 )
 
 func main() {
 	// Installed on Windows, the service manager starts the program and tells
 	// it when to stop; everywhere else it runs until it is interrupted.
-	ranAsService, err := runAsService(run)
+	ranAsService, err := winservice.Run("UsageControl", run)
 	if !ranAsService && err == nil {
 		err = run(context.Background())
 	}

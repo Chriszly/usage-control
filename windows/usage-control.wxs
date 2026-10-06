@@ -6,6 +6,11 @@
   the website and keeps the history itself. Double-clicking the installer
   asks which of the two this PC should do (the "Mode" page below).
 
+  With POWER=1, or the box on the Mode page ticked, it also installs the
+  power add-on, usage-control-power.exe, as the Windows service "Usage
+  Control power add-on". It writes the power NVIDIA GPUs draw to
+  C:\ProgramData\Usage Control\addons, which usage-control shows.
+
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
   someone logs in, and at the end of the setup wizard. Logged-in users may
@@ -13,7 +18,7 @@
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
-      -d TrayBinary=usage-control-tray.exe -d Icon=usage-control.ico
+      -d TrayBinary=usage-control-tray.exe -d PowerBinary=usage-control-power.exe -d Icon=usage-control.ico
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
       -o usage-control.msi
 
@@ -28,6 +33,7 @@
                     and GPUs each the history keeps per device (default 64)
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
+    POWER           1 to install the power add-on (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
 -->
@@ -55,7 +61,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -83,7 +89,10 @@
       <Directory Id="INSTALLFOLDER" Name="Usage Control" />
     </StandardDirectory>
     <StandardDirectory Id="CommonAppDataFolder">
-      <Directory Id="DATAFOLDER" Name="Usage Control" />
+      <Directory Id="DATAFOLDER" Name="Usage Control">
+        <!-- Where add-ons write what they read, for the service to show. -->
+        <Directory Id="ADDONSFOLDER" Name="addons" />
+      </Directory>
     </StandardDirectory>
 
     <Component Directory="INSTALLFOLDER">
@@ -120,10 +129,11 @@
         <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
         <MultiStringValue Value="HISTORY_MAX_ENTRIES=[HISTORY_MAX_ENTRIES]" />
         <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -147,6 +157,36 @@
     <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no" />
 
     <!--
+      The power add-on, with POWER=1: a service of its own, in the same
+      low-privilege account, that writes to the add-on folder. An update
+      checks the condition again, so it also adds or removes the add-on.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='POWER = "1"'>
+      <File Source="$(PowerBinary)" Name="usage-control-power.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlPower"
+                      DisplayName="Usage Control power add-on"
+                      Description="Reads the power this computer draws for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlPower" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlPower" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
       The history database, used with WEBSITE=1. Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
@@ -155,6 +195,10 @@
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;LS)" />
       </CreateFolder>
+    </Component>
+    <!-- The add-on folder, with the data folder's rights. -->
+    <Component Id="AddOnsFolder" Directory="ADDONSFOLDER" Guid="5E0F3C1B-7D52-4E4B-9C8E-2A6F1D93B4C7">
+      <CreateFolder />
     </Component>
   </Package>
 
@@ -191,6 +235,8 @@
         </Control>
         <Control Id="CollectorText" Type="Text" X="38" Y="77" Width="310" Height="24" NoPrefix="yes" Text="Another device, such as a Raspberry Pi, shows this PC and keeps its history. Nothing else runs here." />
         <Control Id="WebsiteText" Type="Text" X="38" Y="122" Width="310" Height="24" NoPrefix="yes" Text="This PC also shows the page and keeps its own history in C:\ProgramData\Usage Control." />
+        <Control Id="Power" Type="CheckBox" X="20" Y="172" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="Also install the &amp;power add-on" />
+        <Control Id="PowerText" Type="Text" X="38" Y="189" Width="310" Height="24" NoPrefix="yes" Text="Reads how much power the NVIDIA graphics card draws. Runs as a small service of its own." />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />

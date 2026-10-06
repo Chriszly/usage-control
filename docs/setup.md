@@ -95,7 +95,7 @@ Add-ons are optional programs that track more than usage-control itself does. Ea
 | --- | --- |
 | `power` | the power the machine draws, with its history: a Raspberry Pi 5 in total (through `vcgencmd`), Intel and AMD CPUs per package and memory (RAPL), sensors the kernel lists under hwmon (such as AMD GPUs) and NVIDIA GPUs (through `nvidia-smi`). It runs as root, since newer kernels let only root read the CPU's energy counters, but without any capability or network access |
 
-Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. Add-ons are not in the Docker image or the Windows installer yet.
+Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. On Windows, the installer offers them as boxes ([step 2](#2-add-a-windows-pc)) and they write to `C:\ProgramData\Usage Control\addons`. Add-ons are not in the Docker image yet.
 
 ## 2. Add a Windows PC
 
@@ -111,6 +111,8 @@ To switch later, run the installer again and pick the other one. Either way, the
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
 - opens port 9393 in the Windows firewall, for **private networks only**. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 - adds the tray icon described below, which starts for everyone who logs in
+
+The same page has a box for the **power add-on** (`POWER=1` when installing silently). Ticked, it installs `usage-control-power.exe` as the service *Usage Control power add-on*, in the same Local Service account, which reads how much power an NVIDIA graphics card draws (Windows offers no CPU power without a driver). Running the installer again with the box cleared removes it. See [Add-ons](#add-ons).
 
 ### The tray icon
 
