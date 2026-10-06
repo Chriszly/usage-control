@@ -1,0 +1,48 @@
+# The containers add-on of usage-control: reads the CPU and memory each
+# running container uses and writes it to /run/usage-control-addons, which
+# usage-control shows. install.sh puts it in /etc/systemd/system when the
+# add-on is picked.
+[Unit]
+Description=Usage Control containers add-on: reads the CPU and memory of each running Docker or Podman container from the kernel's cgroups (v2), without the Docker socket; runs as root without capabilities
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-containers
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Runs as root because only root may read the names of Docker's containers
+# in /var/lib/docker/containers, but without any capability: it only reads
+# the cgroups and those files, writes nothing but its folder, never talks to
+# Docker and needs no network.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=usage-control.service

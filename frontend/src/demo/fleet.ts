@@ -124,6 +124,32 @@ function powerAddOn(
   ];
 }
 
+/**
+ * What the containers add-on reports for the given containers, by short id and name; their
+ * values come from values() as "extra:containers-cpu/<id>" in percent and
+ * "extra:containers-memory/<id>" in bytes.
+ */
+function containersAddOn(containers: { id: string; name: string }[]): Extra[] {
+  return [
+    {
+      id: 'containers-cpu',
+      title: 'Containers: CPU',
+      titles: { de: 'Container: CPU', fr: 'Conteneurs : processeur', es: 'Contenedores: CPU' },
+      items: containers.map((c) => ({ id: c.id, label: c.name, unit: 'percent', history: true })),
+    },
+    {
+      id: 'containers-memory',
+      title: 'Containers: memory',
+      titles: {
+        de: 'Container: Arbeitsspeicher',
+        fr: 'Conteneurs : mémoire',
+        es: 'Contenedores: memoria',
+      },
+      items: containers.map((c) => ({ id: c.id, label: c.name, unit: 'bytes', history: true })),
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -463,6 +489,11 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
+  extras: containersAddOn([
+    { id: '3f9a1c27b8e4', name: 'jellyfin' },
+    { id: '8d02e6f4a1b9', name: 'nextcloud' },
+    { id: 'c41b7e93d05a', name: 'restic-backup' },
+  ]),
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
@@ -518,6 +549,28 @@ const linuxNas: DemoMachine = {
         0,
         3e8,
       ),
+      'extra:containers-cpu/3f9a1c27b8e4': vary(t, step, 106, 1.5, [[1.5, 300]]),
+      'extra:containers-cpu/8d02e6f4a1b9': vary(t, step, 107, 0.8, [[0.6, 120]]),
+      'extra:containers-cpu/c41b7e93d05a': 0.1 + 20 * backup,
+      'extra:containers-memory/3f9a1c27b8e4': vary(
+        t,
+        step,
+        108,
+        1.1 * GB,
+        [[0.2 * GB, 3600]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/8d02e6f4a1b9': vary(
+        t,
+        step,
+        109,
+        0.6 * GB,
+        [[0.1 * GB, 1800]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/c41b7e93d05a': 30e6 + 0.5 * GB * backup,
     };
   },
 };
@@ -545,11 +598,17 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: powerAddOn([
-    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
-    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
-    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  extras: [
+    ...powerAddOn([
+      { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+      { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+      { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+    ]),
+    ...containersAddOn([
+      { id: '5e7d20a9f3c1', name: 'gitea-runner' },
+      { id: 'a82c4f1e6b07', name: 'registry' },
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +641,19 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      // The runner does the builds.
+      'extra:containers-cpu/5e7d20a9f3c1': 0.2 + 70 * build,
+      'extra:containers-cpu/a82c4f1e6b07': vary(t, step, 126, 0.3, [[0.3, 60]]) + 2 * build,
+      'extra:containers-memory/5e7d20a9f3c1': 0.3 * GB + 30 * GB * build,
+      'extra:containers-memory/a82c4f1e6b07': vary(
+        t,
+        step,
+        127,
+        0.15 * GB,
+        [[0.05 * GB, 3600]],
+        0,
+        GB,
+      ),
     };
   },
 };

@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-containers --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -41,26 +41,49 @@ test -f /var/lib/usage-control/usage-control.db
 # The power add-on runs as a service of its own and writes to the add-on
 # folder; an update without --addons keeps it.
 "$folder/install.sh" --addons=power
-systemctl is-active --quiet usage-control-power || { journalctl -u usage-control-power --no-pager | tail -20 >&2; echo "the power add-on is not running" >&2; exit 1; }
+systemctl is-active --quiet usage-control-power || { journalctl -u usage-control-power -u usage-control-containers --no-pager | tail -20 >&2; echo "the power add-on is not running" >&2; exit 1; }
 for _ in $(seq 1 10); do
   [[ -f /run/usage-control-addons/power.json ]] && break
   sleep 1
 done
 test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote no report" >&2; exit 1; }
+
+# The containers add-on reports a running container by its name, which it
+# reads from Docker's settings, where the runner has Docker.
+"$folder/install.sh" --addons=power,containers
+systemctl is-active --quiet usage-control-containers || { journalctl -u usage-control-containers --no-pager | tail -20 >&2; echo "the containers add-on is not running" >&2; exit 1; }
+if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/fs/cgroup/cgroup.controllers ]]; then
+  docker run -d --rm --name usage-control-check busybox sleep 60 > /dev/null
+  for _ in $(seq 1 15); do
+    grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null && break
+    sleep 1
+  done
+  docker rm -f usage-control-check > /dev/null
+  grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json || { echo "the containers add-on did not report the running container" >&2; exit 1; }
+else
+  for _ in $(seq 1 10); do
+    [[ -f /run/usage-control-addons/containers.json ]] && break
+    sleep 1
+  done
+  test -f /run/usage-control-addons/containers.json || { echo "the containers add-on wrote no report" >&2; exit 1; }
+fi
 "$folder/install.sh" < /dev/null
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
+systemctl is-active --quiet usage-control-containers || { echo "the update removed the containers add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
 "$folder/install.sh" --addons=
-if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-power ]]; then
-  echo "--addons= left the power add-on behind" >&2
+if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-power ]] ||
+  systemctl cat usage-control-containers > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-containers ]]; then
+  echo "--addons= left an add-on behind" >&2
   exit 1
 fi
-"$folder/install.sh" --addons=power
+"$folder/install.sh" --addons=power,containers
 
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
+  systemctl cat usage-control-containers > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-containers ]] ||
   [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /etc/usage-control.env ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and containers add-ons and uninstall work."
