@@ -41,7 +41,7 @@ func main() {
 	slog.Info("writing the power to the add-on folder", "file", file)
 	run(ctx, reader, file)
 	// Gone with the add-on, so usage-control stops showing old values at once.
-	_ = os.Remove(file)
+	_ = os.Remove(file) //nolint:gosec // the add-on's own file, in the folder its setting names
 }
 
 // run writes a report every interval until ctx is done. A failed write is

@@ -68,7 +68,8 @@ func (a *AddOns) Read(now time.Time) []Extra {
 }
 
 func readAddOnReport(file string) (AddOnReport, error) {
-	f, err := os.Open(file)
+	// file is a .json file in the add-on folder, which the ADDONS_DIR setting names.
+	f, err := os.Open(file) //nolint:gosec // see above
 	if err != nil {
 		return AddOnReport{}, err
 	}

@@ -20,7 +20,7 @@ func (r *Reader) pmicTotal(ctx context.Context) []Reading {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	// r.pmic is the vcgencmd found on the PATH at start, and the argument is fixed.
-	out, err := exec.CommandContext(ctx, r.pmic, "pmic_read_adc").Output()
+	out, err := exec.CommandContext(ctx, r.pmic, "pmic_read_adc").Output() //nolint:gosec // see above
 	if err != nil {
 		return nil
 	}
