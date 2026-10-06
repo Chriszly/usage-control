@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-kernel --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -57,10 +57,20 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
 fi
 "$folder/install.sh" --addons=power
 
+# The kernel add-on reads /proc, which every runner has.
+"$folder/install.sh" --addons=kernel
+systemctl is-active --quiet usage-control-kernel || { journalctl -u usage-control-kernel --no-pager | tail -20 >&2; echo "the kernel add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  grep -qs '"tcp-connections"' /run/usage-control-addons/kernel.json && break
+  sleep 1
+done
+grep -qs '"tcp-connections"' /run/usage-control-addons/kernel.json || { echo "the kernel add-on wrote no report" >&2; exit 1; }
+
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
+  systemctl cat usage-control-kernel > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-kernel ]] ||
   [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /etc/usage-control.env ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and kernel add-ons and uninstall work."

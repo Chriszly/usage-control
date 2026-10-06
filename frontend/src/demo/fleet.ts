@@ -124,6 +124,83 @@ function powerAddOn(
   ];
 }
 
+/** What the kernel add-on reports; its values come from values() as "extra:kernel/<id>", from kernelValues(). */
+function kernelAddOn(): Extra[] {
+  const perSecond = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'perSecond' as const,
+    history: true,
+  });
+  const number = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'number' as const,
+    history: true,
+  });
+  return [
+    {
+      id: 'kernel',
+      title: 'Kernel',
+      titles: { de: 'Kernel', fr: 'Noyau', es: 'Núcleo' },
+      items: [
+        perSecond('context-switches', 'Context switches', {
+          de: 'Kontextwechsel',
+          fr: 'Changements de contexte',
+          es: 'Cambios de contexto',
+        }),
+        perSecond('interrupts', 'Interrupts', {
+          de: 'Interrupts',
+          fr: 'Interruptions',
+          es: 'Interrupciones',
+        }),
+        perSecond('new-processes', 'New processes', {
+          de: 'Neue Prozesse',
+          fr: 'Nouveaux processus',
+          es: 'Procesos nuevos',
+        }),
+        number('open-files', 'Open files', {
+          de: 'Offene Dateien',
+          fr: 'Fichiers ouverts',
+          es: 'Archivos abiertos',
+        }),
+        number('sockets', 'Sockets in use', {
+          de: 'Belegte Sockets',
+          fr: 'Sockets utilisés',
+          es: 'Sockets en uso',
+        }),
+        number('tcp-connections', 'TCP connections', {
+          de: 'TCP-Verbindungen',
+          fr: 'Connexions TCP',
+          es: 'Conexiones TCP',
+        }),
+        perSecond('tcp-retransmissions', 'TCP retransmissions', {
+          de: 'TCP-Neuübertragungen',
+          fr: 'Retransmissions TCP',
+          es: 'Retransmisiones TCP',
+        }),
+      ],
+    },
+  ];
+}
+
+/** The kernel add-on's values at t for a machine with the given CPU usage, scaled by size (1 for a Raspberry Pi). */
+function kernelValues(t: number, step: number, seed: number, cpu: number, size: number): Values {
+  const count = (base: number, swing: number, period: number, i: number) =>
+    Math.round(vary(t, step, seed + i, base * size, [[swing * size, period]], 0, 1e9));
+  return {
+    'extra:kernel/context-switches': (900 + cpu * 60) * size + count(0, 200, 30, 0),
+    'extra:kernel/interrupts': (700 + cpu * 35) * size + count(0, 150, 30, 1),
+    'extra:kernel/new-processes': vary(t, step, seed + 2, 1 + cpu * 0.08, [[1, 60]], 0, 1e6) * size,
+    'extra:kernel/open-files': count(1400, 150, 3600, 3),
+    'extra:kernel/sockets': count(160, 20, 1800, 4),
+    'extra:kernel/tcp-connections': count(30, 8, 900, 5),
+    'extra:kernel/tcp-retransmissions': vary(t, step, seed + 6, 0.2, [[0.3, 120]], 0, 1e6) * size,
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -149,7 +226,7 @@ const piHub: DemoMachine = {
         es: 'Raspberry Pi (total)',
       },
     },
-  ]),
+  ]).concat(kernelAddOn()),
   bootedDaysAgo: 12.3,
   values: (t, step) => {
     const cpu = vary(
@@ -193,6 +270,7 @@ const piHub: DemoMachine = {
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
+      ...kernelValues(t, step, 900, cpu, 1),
     };
   },
 };
@@ -549,7 +627,7 @@ const linuxServer: DemoMachine = {
     { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
     { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
     { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  ]).concat(kernelAddOn()),
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +660,7 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      ...kernelValues(t, step, 950, cpu, 8),
     };
   },
 };
