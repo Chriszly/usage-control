@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -50,9 +50,24 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote n
 "$folder/install.sh" < /dev/null
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
+# The pressure add-on reads /proc/pressure, which a kernel without pressure
+# stall information lacks; it then runs but reports nothing.
+"$folder/install.sh" --addons=pressure
+systemctl is-active --quiet usage-control-pressure || { journalctl -u usage-control-pressure --no-pager | tail -20 >&2; echo "the pressure add-on is not running" >&2; exit 1; }
+if [[ -f /proc/pressure/cpu ]]; then
+  for _ in $(seq 1 10); do
+    grep -qs '"cpu-some"' /run/usage-control-addons/pressure.json && break
+    sleep 1
+  done
+  grep -qs '"cpu-some"' /run/usage-control-addons/pressure.json || { echo "the pressure add-on reported no CPU pressure" >&2; exit 1; }
+fi
 "$folder/install.sh" --addons=
 if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-power ]]; then
   echo "--addons= left the power add-on behind" >&2
+  exit 1
+fi
+if systemctl cat usage-control-pressure > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-pressure ]]; then
+  echo "--addons= left the pressure add-on behind" >&2
   exit 1
 fi
 "$folder/install.sh" --addons=power
@@ -63,4 +78,4 @@ if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-p
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and pressure add-ons and uninstall work."
