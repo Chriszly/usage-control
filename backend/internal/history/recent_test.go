@@ -72,8 +72,7 @@ func TestReaderReadsShortRangesFromTheDatabaseUntilMemoryCoversThem(t *testing.T
 	}
 	// The readings started two minutes ago, as after a restart.
 	recent := &Recent{}
-	recent.Add(now.Add(-2*time.Minute), map[string]float64{MetricCPU: 20})
-	recent.Add(now.Add(-30*time.Second), map[string]float64{MetricCPU: 20})
+	fill(recent, now.Add(-2*time.Minute), now.Add(-30*time.Second), map[string]float64{MetricCPU: 20})
 	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
 	long, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
@@ -131,8 +130,7 @@ func TestReaderReadsShortRangesFromMemory(t *testing.T) {
 		t.Fatalf("Add() error = %v", err)
 	}
 	recent := &Recent{}
-	recent.Add(now.Add(-10*time.Minute), map[string]float64{MetricCPU: 20})
-	recent.Add(now.Add(-time.Minute), map[string]float64{MetricCPU: 20})
+	fill(recent, now.Add(-10*time.Minute), now.Add(-time.Minute), map[string]float64{MetricCPU: 20})
 	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
 	short, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
@@ -188,5 +186,39 @@ func TestReaderNewestComesFromMemoryAndElseFromTheDatabase(t *testing.T) {
 	recent.Add(read, map[string]float64{MetricCPU: 20})
 	if got, ok, err := reader.Newest(ctx); err != nil || !ok || !got.Equal(read) {
 		t.Errorf("Newest() = %v, %v, %v, want %v from memory", got, ok, err, read)
+	}
+}
+
+// fill adds the same values every RecentInterval from from up to and
+// including to, as the recorder does.
+func fill(recent *Recent, from, to time.Time, values map[string]float64) {
+	for at := from; !at.After(to); at = at.Add(RecentInterval) {
+		recent.Add(at, values)
+	}
+}
+
+func TestReaderReadsShortRangesWithAGapInMemoryFromTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now().Truncate(time.Minute)
+	// The hub could not reach the device for five minutes, and fetched the
+	// minutes it kept meanwhile into the database.
+	recent := &Recent{}
+	fill(recent, now.Add(-20*time.Minute), now.Add(-10*time.Minute), map[string]float64{MetricCPU: 20})
+	fill(recent, now.Add(-5*time.Minute), now, map[string]float64{MetricCPU: 20})
+	for at := now.Add(-20 * time.Minute); !at.After(now); at = at.Add(time.Minute) {
+		if err := store.Add(ctx, LocalDevice, at, map[string]float64{MetricCPU: 10}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
+
+	across, step, err := reader.Range(ctx, now.Add(-15*time.Minute), now)
+	if err != nil || step != SampleInterval || len(across) != 1 || len(across[0].Points) != 15 {
+		t.Errorf("Range(15 min) across the gap = %+v, %v, %v, want every minute from the database", across, step, err)
+	}
+	after, step, err := reader.Range(ctx, now.Add(-4*time.Minute), now)
+	if err != nil || step != RecentInterval || len(after) != 1 || after[0].Points[0].Value != 20 {
+		t.Errorf("Range(4 min) after the gap = %+v, %v, %v, want the readings from memory", after, step, err)
 	}
 }

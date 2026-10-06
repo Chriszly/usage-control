@@ -6,6 +6,7 @@ usage-control is one program. The same binary runs on every device, and settings
 - [Devices and connections](#devices-and-connections)
 - [Inside one device](#inside-one-device)
 - [How the hub collects from a device](#how-the-hub-collects-from-a-device)
+- [While the hub is away](#while-the-hub-is-away)
 - [Availability, usage and outages](#availability-usage-and-outages)
 - [Adding and removing devices](#adding-and-removing-devices)
 - [How often the page asks](#how-often-the-page-asks)
@@ -18,7 +19,7 @@ usage-control is one program. The same binary runs on every device, and settings
 | --- | --- | --- | --- | --- |
 | **Single device** | the default | yes, shows itself | its own, in SQLite | the whole [API](#http-api) |
 | **Hub** | a single device with other devices added on the page or in `HUB_DEVICES` | yes, shows itself and every other device | its own and every other device's | the whole API |
-| **Data only** | `DATA_ONLY=true`; the default of the Windows installer | no | none | only `GET /api/metrics`, and `GET /api/hub` on the machine itself |
+| **Data only** | `DATA_ONLY=true`; the default of the Windows installer | no | none, only the minutes the hub has not fetched yet ([while the hub is away](#while-the-hub-is-away)) | only `GET /api/metrics`, `GET /api/minutes`, and `GET /api/hub` on the machine itself |
 
 A hub is a single device that also collects from others. There is no separate hub program or image. Any device that has the website can become a hub by adding a device on its page. A data-only device cannot be a hub: it refuses to start when `HUB_DEVICES` is set as well.
 
@@ -102,7 +103,7 @@ flowchart TB
 
 - **Collector** reads the machine's usage: one call reads CPU, memory, disks, network, temperatures, GPUs, battery and so on. CPU usage and disk and network speeds are measured against the previous call. See [What is collected](data.md).
 - **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds.
-- **Recorder** takes a reading every 5 seconds into memory, and every minute stores the average of the last minute in the database. A hub runs one recorder for itself and one per other device.
+- **Recorder** takes a reading every 5 seconds into memory, and every minute stores the average of the last minute in the database. A reading a hub or page asked for less than 4 seconds before is taken instead of reading the machine again. A hub runs one recorder for itself and one per other device; a data-only device runs one that keeps its minutes for the hub (see [While the hub is away](#while-the-hub-is-away)).
 - **Pruner** deletes everything older than the retention, once at start and then once a day, for every device at once.
 
 The database is described in [Database and history](database.md).
@@ -114,7 +115,7 @@ For every other device, the hub runs an **agent** and a **recorder**:
 1. Every 5 seconds the recorder asks the agent, and the agent sends `GET http://<address>/api/metrics` to the device.
 2. The device answers with its newest reading from its own sampler, as JSON.
 3. The agent stamps the reading with the hub's own clock, so a device whose clock is off is still recorded at the right time, and keeps it as the device's newest reading.
-4. The recorder adds the reading to the device's recent readings in memory and, every minute, stores their average in the hub's database under the device's id.
+4. The recorder adds the reading to the device's recent readings in memory. Every minute it fetches the minutes the device keeps of its own usage (see [While the hub is away](#while-the-hub-is-away)) into the hub's database under the device's id. For a device on a version from before that, it stores the average of its recent readings instead.
 5. When a browser shows that device, the hub answers `GET /api/metrics?device=<id>` with the agent's newest reading. The device is never asked once more for each open page.
 
 ```mermaid
@@ -131,7 +132,11 @@ sequenceDiagram
         B->>H: GET /api/metrics?device=office-pc
         H-->>B: newest reading, or 503 when older than 20 s
     end
-    Note over H: every minute: store the average<br/>of the last minute in SQLite
+    loop every minute
+        H->>D: GET /api/minutes?after=<newest minute the hub has>
+        D-->>H: the minutes after it, 120 at most
+        Note over H: store them in SQLite
+    end
 ```
 
 Rules the agent follows:
@@ -145,6 +150,20 @@ Rules the agent follows:
 - Of each device's disks, temperature sensors, network cards and GPUs, the history keeps the first 64 (`HISTORY_MAX_ENTRIES`), so a misbehaving device cannot fill the hub's database. The live dashboard shows them all.
 
 Collecting uses no extra setting on the devices: retention, history and the charts all live on the hub.
+
+## While the hub is away
+
+When the hub cannot reach a device for a while, because the hub is updated or switched off or the network is down, the device keeps its usage, and the hub fetches it once it reaches the device again. The hub's history then has no gap for the time the device was running.
+
+- Every device keeps the average of each minute of its own usage. A device with a website has them in its history anyway. A data-only device keeps them in a `buffer` table in its database file, for `BUFFER_HOURS` (default 24, at most 168, a week), so they also survive a restart of the device.
+- Every minute the hub asks `GET /api/minutes?after=<t>`, with `t` the device's time of the newest minute the hub has. The device answers with the minutes after it, at most 120 per answer, and the hub asks again while more follow, up to 10 answers (20 hours) per minute, so a week is fetched within a few minutes while the live readings go on.
+- Asking with `t` tells the device that the hub has everything up to `t`, so a data-only device deletes those minutes then. Normally that leaves one minute in the buffer, the one the hub fetches next. A device with a website keeps its own history as it is.
+- The minutes are moved from the device's clock to the hub's by the difference between the two, measured with each reading. Minutes the hub has, ones less than half a minute apart, ones in the device's future, and values that are not numbers are left out.
+- A device new to the hub starts with its newest minute, not with what it kept before.
+- A device on a version from before this answers `404`. The hub then stores the average of its own readings as before, so that device's history still has a gap while the hub could not reach it, and asks again an hour later, in case the device was updated.
+- The 5 second readings of the last 30 minutes are only in the hub's memory and cannot be fetched. A short range with a gap in them is read from the database instead, in 1 minute steps, which has the fetched minutes.
+- The time the hub could not reach a device still counts as an outage, or as time not in use, on the [availability](#availability-usage-and-outages) card.
+- A device that two hubs collect from hands each minute to the first that asks, so the other gets a gap.
 
 ## Availability, usage and outages
 
@@ -236,4 +255,6 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 
 A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `address`, `unreachable`, `notFound`, `fixed`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
 
-A data-only device answers only `GET /api/metrics` and `GET /api/hub`.
+| `GET /api/minutes?after=<s>` | `{ now, minutes: [{ time, values: { <metric>: <value> } }], more }`: the device's own minutes after `after`, at most 120, on its clock; see [While the hub is away](#while-the-hub-is-away) | `400` when `after` is not Unix seconds |
+
+A data-only device answers only `GET /api/metrics`, `GET /api/minutes` and `GET /api/hub`.

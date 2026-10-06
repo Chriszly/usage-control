@@ -16,9 +16,17 @@ const (
 	RecentSpan     = 30 * time.Minute
 )
 
+// gapAfter is how far apart two readings may be before the time between them
+// counts as a gap in the readings: a few missed ones.
+const gapAfter = 4 * RecentInterval
+
 // Recent keeps the readings of the last RecentSpan in memory. It is empty
 // after a restart and fills up again within RecentSpan.
 type Recent struct {
+	// Span, when set, keeps less than RecentSpan, for a device that only
+	// needs the readings until it stores their average.
+	Span time.Duration
+
 	mu       sync.Mutex
 	readings []reading
 }
@@ -34,17 +42,33 @@ func (r *Recent) Add(at time.Time, values map[string]float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.readings = append(r.readings, reading{time: at.Unix(), values: values})
-	oldest := at.Add(-RecentSpan).Unix()
+	span := RecentSpan
+	if r.Span > 0 {
+		span = r.Span
+	}
+	oldest := at.Add(-span).Unix()
 	r.readings = slices.DeleteFunc(r.readings, func(x reading) bool { return x.time < oldest })
 }
 
-// Covers reports whether the readings reach back to from, so a range from
-// there on is complete. The oldest may be up to RecentInterval after from, as
-// the readings are that far apart and from falls between two of them.
+// Covers reports whether the readings reach back to from without a gap, so a
+// range from there on is complete. The oldest may be up to RecentInterval
+// after from, as the readings are that far apart and from falls between two
+// of them. A gap is a few readings missing in a row, as while a hub could
+// not reach the device: the database may have that time from the device
+// since.
 func (r *Recent) Covers(from time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.readings) > 0 && r.readings[0].time <= from.Add(RecentInterval).Unix()
+	if len(r.readings) == 0 || r.readings[0].time > from.Add(RecentInterval).Unix() {
+		return false
+	}
+	maxGap := int64(gapAfter / time.Second)
+	for i := 1; i < len(r.readings); i++ {
+		if r.readings[i].time >= from.Unix() && r.readings[i].time-r.readings[i-1].time > maxGap {
+			return false
+		}
+	}
+	return true
 }
 
 // Newest returns the time of the newest reading, or false when there is none.

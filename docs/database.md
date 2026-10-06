@@ -1,6 +1,6 @@
 # Database and history
 
-Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file; the other devices keep nothing. A data-only device has no database at all.
+Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file. A data-only device keeps no history, only the minutes the hub has not fetched yet, in a `buffer` table in the same kind of file (see [While the hub is away](architecture.md#while-the-hub-is-away)).
 
 - [Where the file is](#where-the-file-is)
 - [Tables](#tables)
@@ -16,7 +16,7 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | --- | --- |
 | Docker | `/data/usage-control.db` in the container, on the `data` volume, so it survives updates and recreated containers |
 | Linux service | `/var/lib/usage-control/usage-control.db` |
-| Windows with `WEBSITE=1` | `C:\ProgramData\Usage Control\usage-control.db`; uninstalling keeps it |
+| Windows | `C:\ProgramData\Usage Control\usage-control.db`; uninstalling keeps it |
 | From source | `usage-control.db` in the folder the program was started from |
 
 `DATABASE_PATH` moves it. The driver is a pure-Go SQLite, so the binary needs no C library. The file uses write-ahead logging (WAL), so the page can read while the recorders write; next to it you will see `usage-control.db-wal` and `usage-control.db-shm`, which belong to it.
@@ -28,6 +28,7 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | `samples` | one row per device, minute and metric: `device`, `time` (Unix seconds), `metric`, `value` | for the retention |
 | `samples_hourly` | the average of each hour per device and metric, with `count`, how many minute values it is over | for the retention |
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
+| `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until the hub has fetched it, at most `BUFFER_HOURS` |
 | `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from |
 | `hub_outages` | per other device, every time it did not answer: `started`, `ended` (Unix milliseconds) | as long as the device is collected from |
 | `hub_device_kinds` | per other device that is a PC or laptop: `device`, `kind` (`pc`); a device without a row is a server or IoT device | as long as the device is collected from |
@@ -54,7 +55,7 @@ flowchart LR
 - Ranges up to 30 minutes come from memory, in steps of 5 seconds or more.
 - Longer ranges come from `samples`, in steps of whole minutes.
 - As soon as a step is an hour or more (ranges over 15 days), they come from `samples_hourly`, weighted by `count`, which gives the same averages from 60 times fewer rows.
-- After a restart, memory is empty. Until it reaches back far enough, short ranges come from the database in 1-minute steps instead, so the chart is never empty.
+- After a restart, memory is empty. Until it reaches back far enough, short ranges come from the database in 1-minute steps instead, so the chart is never empty. The same goes for a short range with a gap of a few missed readings in memory, as after the hub could not reach a device: the database has the minutes the hub fetched from the device since.
 - Database answers are kept for up to a minute per device and step, so every open tab and every viewer of the hub share one query.
 
 A device that did not answer has no values for that time, which shows as a gap in its chart. While a device does not answer, a range that ends after its newest reading is moved back to end there, keeping its length, so its charts show the last data there is instead of an empty range. The newest reading comes from memory, or after a restart from `samples` (one row of the primary key's index).
@@ -76,7 +77,7 @@ Each kept value is one row per minute plus one per hour. As a guide, measured wi
 | 15 (a Raspberry Pi) | about 1.5 MB | about 45 MB | about 550 MB |
 | 30 (a PC with more disks and cards) | about 3 MB | about 90 MB | about 1.1 GB |
 
-A hub's file is the sum over its devices. `HISTORY_MAX_ENTRIES` (default 64) caps how many disks, sensors, network cards and GPUs each a device can add, so one device with hundreds of virtual network cards cannot fill the disk.
+A hub's file is the sum over its devices. A data-only device's buffer holds only minutes, no hours, and normally just one; while the hub cannot reach it, it grows by a little less than a history's day per day, up to `BUFFER_HOURS`: about 3 MB for a PC's 24 hours, about 20 MB for a week. `HISTORY_MAX_ENTRIES` (default 64) caps how many disks, sensors, network cards and GPUs each a device can add, so one device with hundreds of virtual network cards cannot fill the disk.
 
 Deleted rows leave free pages in the file, which SQLite reuses for new values; the file does not shrink on its own.
 

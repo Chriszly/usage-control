@@ -70,3 +70,49 @@ func TestRecorderStoresUnderItsDevice(t *testing.T) {
 		t.Errorf("the device's history = %+v, %v; want the CPU usage it read", got, err)
 	}
 }
+
+func TestRecorderLeavesStoringToFetchWhenItCan(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	for _, fetched := range []bool{true, false} {
+		store := openTestStore(t)
+		calls := 0
+		recorder := &Recorder{
+			Store:     store,
+			Recent:    &Recent{},
+			Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+			Device:    "living-room-pi",
+			Fetch:     func(context.Context) bool { calls++; return fetched },
+		}
+
+		recorder.read(ctx)
+		recorder.store(ctx, now.Add(-time.Minute), now)
+
+		got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Second), time.Second)
+		if err != nil || calls != 1 || (len(got) == 0) != fetched {
+			t.Errorf("with Fetch returning %v: %d calls, stored %+v, %v; want the average stored only when Fetch cannot", fetched, calls, got, err)
+		}
+	}
+}
+
+func TestRecorderTakesAReadingOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	reading := metrics.Snapshot{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}
+	later := metrics.Snapshot{Time: now, CPU: metrics.CPU{UsagePercent: 60}}
+	recent := &Recent{}
+	recorder := &Recorder{
+		Store:     openTestStore(t),
+		Recent:    recent,
+		Collector: &sequenceCollector{[]metrics.Snapshot{reading, reading, later}},
+		Device:    LocalDevice,
+	}
+
+	for range 3 {
+		recorder.read(ctx)
+	}
+
+	if got := recent.Average(now.Add(-time.Minute), now.Add(time.Second)); got[MetricCPU] != 45 {
+		t.Errorf("average CPU = %v, want 45 from two readings, the shared one counted once", got[MetricCPU])
+	}
+}

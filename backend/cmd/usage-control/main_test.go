@@ -168,3 +168,30 @@ func TestOwnName(t *testing.T) {
 		}
 	}
 }
+
+func TestBufferHours(t *testing.T) {
+	tests := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 24 * time.Hour},
+		{"1", time.Hour},
+		{" 168 ", 7 * 24 * time.Hour},
+	}
+	for _, tt := range tests {
+		t.Setenv("BUFFER_HOURS", tt.value)
+		got, err := bufferHours()
+		if err != nil || got != tt.want {
+			t.Errorf("bufferHours() with BUFFER_HOURS=%q = %v, %v, want %v", tt.value, got, err, tt.want)
+		}
+	}
+}
+
+func TestBufferHoursRefusesInvalidValues(t *testing.T) {
+	for _, value := range []string{"0", "-1", "24h", "1.5", "169"} {
+		t.Setenv("BUFFER_HOURS", value)
+		if _, err := bufferHours(); err == nil {
+			t.Errorf("bufferHours() with BUFFER_HOURS=%q error = nil, want an error", value)
+		}
+	}
+}

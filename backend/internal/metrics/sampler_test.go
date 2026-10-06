@@ -52,3 +52,20 @@ func TestSamplerReportsAFailedReading(t *testing.T) {
 		}
 	}
 }
+
+func TestReusingSamplerTakesAYoungEnoughReading(t *testing.T) {
+	src := &countingSource{}
+	sampler := &Sampler{source: src, interval: time.Millisecond}
+	ctx := context.Background()
+
+	if _, err := sampler.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := sampler.Reusing(time.Minute).Collect(ctx); err != nil || src.readings.Load() != 1 {
+		t.Errorf("Reusing(1 min).Collect() read %d times, %v; want the reading of a moment ago taken", src.readings.Load(), err)
+	}
+	if _, err := sampler.Reusing(time.Millisecond).Collect(ctx); err != nil || src.readings.Load() != 2 {
+		t.Errorf("Reusing(1 ms).Collect() read %d times, %v; want a new reading", src.readings.Load(), err)
+	}
+}

@@ -96,7 +96,7 @@ func TestMetricsReportsCollectorError(t *testing.T) {
 
 func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 	want := metrics.Snapshot{CPU: metrics.CPU{UsagePercent: 12.5, Cores: 4}}
-	handler := NewDataOnly(fakeCollector{snapshot: want}, nil)
+	handler := NewDataOnly(fakeCollector{snapshot: want}, nil, nil)
 
 	rec := get(handler, "/api/metrics", "192.168.1.20:5000")
 	var got metrics.Snapshot

@@ -17,11 +17,17 @@ type Collector interface {
 	Collect(ctx context.Context) (metrics.Snapshot, error)
 }
 
+// Saver keeps the averages a Recorder stores: a Store, or the Buffer of a
+// device without a history of its own.
+type Saver interface {
+	Add(ctx context.Context, device string, at time.Time, values map[string]float64) error
+}
+
 // Recorder reads the machine's usage every RecentInterval into Recent, and
 // every SampleInterval stores the average of those readings in Store. A
 // Pruner deletes what is older than the retention.
 type Recorder struct {
-	Store     *Store
+	Store     Saver
 	Recent    *Recent
 	Collector Collector
 	// Device is the name the readings are stored under, such as LocalDevice.
@@ -29,6 +35,12 @@ type Recorder struct {
 	// MaxEntries is how many disks, sensors, network cards and GPUs each are
 	// kept.
 	MaxEntries int
+	// Fetch, when set, takes the place of storing the average every
+	// SampleInterval: a hub fetches the averages the device keeps itself,
+	// which also cover the time the hub could not reach it. It returns false
+	// for a device too old to keep them, whose average is then stored as
+	// before.
+	Fetch func(ctx context.Context) bool
 
 	// failing is set while readings fail, so an unreachable device is logged
 	// once and not every few seconds.
@@ -75,6 +87,10 @@ func (r *Recorder) read(ctx context.Context) {
 		r.failing = false
 		slog.Info("reading usage for the history works again", "device", r.Device)
 	}
+	// A reading shared with a hub or a page may come round twice.
+	if newest, ok := r.Recent.Newest(); ok && snapshot.Time.Unix() <= newest.Unix() {
+		return
+	}
 	v, dropped := values(snapshot, r.MaxEntries)
 	if dropped && !r.dropped {
 		r.dropped = true
@@ -94,6 +110,9 @@ func (r *Recorder) failed(err error) {
 
 // store saves the average of the readings from from up to to, at time to.
 func (r *Recorder) store(ctx context.Context, from, to time.Time) {
+	if r.Fetch != nil && r.Fetch(ctx) {
+		return
+	}
 	averages := r.Recent.Average(from, to)
 	if averages == nil {
 		return

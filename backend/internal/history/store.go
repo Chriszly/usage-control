@@ -93,6 +93,12 @@ func (s *Store) Close() error {
 // into the averages of their hour. Each time is stored once; stored again, its
 // values would count twice in the hour.
 func (s *Store) Add(ctx context.Context, device string, at time.Time, values map[string]float64) error {
+	return s.AddMinutes(ctx, device, []Minute{{Time: at.Unix(), Values: values}})
+}
+
+// AddMinutes stores several minutes of one device in one go, as Add does
+// each, as when a hub fetches what a device kept while it could not reach it.
+func (s *Store) AddMinutes(ctx context.Context, device string, minutes []Minute) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -113,13 +119,15 @@ func (s *Store) Add(ctx context.Context, device string, at time.Time, values map
 		return err
 	}
 	defer func() { _ = average.Close() }()
-	hour := at.Truncate(time.Hour).Unix()
-	for metric, value := range values {
-		if _, err := insert.ExecContext(ctx, device, at.Unix(), metric, value); err != nil {
-			return fmt.Errorf("store %s: %w", metric, err)
-		}
-		if _, err := average.ExecContext(ctx, device, hour, metric, value); err != nil {
-			return fmt.Errorf("average %s: %w", metric, err)
+	for _, minute := range minutes {
+		hour := minute.Time / 3600 * 3600
+		for metric, value := range minute.Values {
+			if _, err := insert.ExecContext(ctx, device, minute.Time, metric, value); err != nil {
+				return fmt.Errorf("store %s: %w", metric, err)
+			}
+			if _, err := average.ExecContext(ctx, device, hour, metric, value); err != nil {
+				return fmt.Errorf("average %s: %w", metric, err)
+			}
 		}
 	}
 	return tx.Commit()

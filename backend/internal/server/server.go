@@ -79,6 +79,9 @@ type Site struct {
 	// AllowedHosts are names besides its own that this machine answers to,
 	// from ALLOWED_HOSTS; see knownHosts.
 	AllowedHosts []string
+	// Minutes are this machine's own, for a hub that collects from it; nil
+	// leaves out GET /api/minutes.
+	Minutes MinuteSource
 }
 
 // New returns the handler for the whole site: the JSON API under /api/ and
@@ -102,6 +105,9 @@ func New(site Site) http.Handler {
 		return historyHandler(d, site.Retention)
 	}))
 	mux.HandleFunc("GET /api/availability", forDevice(site.Devices, availabilityHandler))
+	if site.Minutes != nil {
+		mux.HandleFunc("GET "+hub.MinutesPath, minutesHandler(site.Minutes))
+	}
 	if site.Update != nil {
 		mux.HandleFunc("GET /api/update", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusOK, site.Update())
@@ -113,12 +119,15 @@ func New(site Site) http.Handler {
 
 // NewDataOnly returns the handler for a device that a hub collects from
 // without a website of its own: only GET /api/metrics, with the usage of the
-// machine it runs on, and GET /api/hub, where that hub's page is. Requests from outside the local network, and requests
-// that address the machine by a name it does not know, are refused.
-func NewDataOnly(collector Collector, allowedHosts []string) http.Handler {
+// machine it runs on, GET /api/minutes, with the minutes it kept for the hub,
+// and GET /api/hub, where that hub's page is. Requests from outside the local
+// network, and requests that address the machine by a name it does not know,
+// are refused.
+func NewDataOnly(collector Collector, minutes MinuteSource, allowedHosts []string) http.Handler {
 	mux := http.NewServeMux()
 	link := &hubLink{}
 	mux.HandleFunc("GET /api/metrics", link.remember(metricsHandler(Device{ID: hub.LocalID, Metrics: collector})))
+	mux.HandleFunc("GET "+hub.MinutesPath, minutesHandler(minutes))
 	mux.HandleFunc("GET /api/hub", link.handler)
 	return withHeaders(localNetworkOnly(knownHostsOnly(newKnownHosts(allowedHosts), mux)))
 }
