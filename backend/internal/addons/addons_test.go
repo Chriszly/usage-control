@@ -26,7 +26,7 @@ func TestServeWritesTheReportAndRemovesItAtTheEnd(t *testing.T) {
 
 	var report metrics.AddOnReport
 	for deadline := time.Now().Add(5 * time.Second); ; {
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file) //nolint:gosec // a file in the test's own temporary folder
 		if err == nil && json.Unmarshal(data, &report) == nil {
 			break
 		}
