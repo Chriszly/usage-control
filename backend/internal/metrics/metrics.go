@@ -86,6 +86,8 @@ type Temperature struct {
 type Collector struct {
 	// Name is reported as the Snapshot's Name.
 	Name string
+	// AddOns are read for the Snapshot's Extras; nil reads none.
+	AddOns *AddOns
 
 	diskPaths      []string
 	gpus           *gpuReader
@@ -178,6 +180,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Throttling:   readThrottling(c.throttlingFile),
 		Battery:      c.batteries.read(),
 		Fans:         readFans(c.fans),
+		Extras:       c.AddOns.Read(now),
 	}, nil
 }
 

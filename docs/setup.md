@@ -87,6 +87,16 @@ The service starts right away and at every boot, on port 9393. Settings go in `/
 
 To update, unpack the newer archive and run its `install.sh` again; settings and history are kept. `sudo ./install.sh --uninstall` removes it, and `--uninstall --purge` also deletes its settings and history.
 
+### Add-ons
+
+Add-ons are optional programs that track more than usage-control itself does. Each one runs as a service of its own, so a device only runs the ones picked for it. In a terminal, `install.sh` asks for each add-on; `--addons=power` picks them without asking, `--addons=` installs none, and an update without the option keeps the add-ons installed before.
+
+| Add-on | What it adds |
+| --- | --- |
+| `power` | the power the machine draws, with its history: a Raspberry Pi 5 in total (through `vcgencmd`), Intel and AMD CPUs per package and memory (RAPL), sensors the kernel lists under hwmon (such as AMD GPUs) and NVIDIA GPUs (through `nvidia-smi`). It runs as root, since newer kernels let only root read the CPU's energy counters, but without any capability or network access |
+
+Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. Add-ons are not in the Docker image or the Windows installer yet.
+
 ## 2. Add a Windows PC
 
 Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer. From the [releases page](https://github.com/Chriszly/usage-control/releases), download `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM, and run it. The installers are not code-signed, so SmartScreen warns before it runs.
@@ -217,6 +227,7 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `RESET_PASSWORD` | `false` | `true` deletes the password for changing devices at start; unset it again right after |
 | `UPDATE_CHECK` | `true` | `false` stops the daily check for a newer release |
 | `ALLOWED_HOSTS` | none | other names this device answers to, comma-separated, besides IP addresses, `localhost`, its hostname and `.local` names |
+| `ADDONS_DIR` | `/run/usage-control-addons` for the Linux service; else none | the folder add-ons write their values to, which are shown as extras |
 | `HOST_PROC`, `HOST_SYS` | set by `compose.yaml` | where the host's `/proc` and `/sys` are mounted in a container |
 
 ## Updating

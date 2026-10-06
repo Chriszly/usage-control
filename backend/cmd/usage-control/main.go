@@ -22,6 +22,8 @@
 //	UPDATE_CHECK    false to stop asking GitHub once a day whether a newer
 //	                release exists, which the page then tells (default true;
 //	                only releases check, and never with DATA_ONLY)
+//	ADDONS_DIR      folder the installed add-ons write their reports to, which
+//	                are shown as extras (default none: no add-ons)
 //	ALLOWED_HOSTS   comma-separated names this device answers to besides its
 //	                IP addresses, localhost, its hostname and .local names,
 //	                such as a name from the router's DNS (default none)
@@ -107,6 +109,10 @@ func run(parent context.Context) error {
 	defer stop()
 
 	collector.Name = ownName()
+	if dir := os.Getenv("ADDONS_DIR"); dir != "" {
+		collector.AddOns = &metrics.AddOns{Dir: dir, MaxEntries: historyEntries}
+		slog.Info("showing the values of the add-ons", "folder", dir)
+	}
 
 	// One sampler reads the usage for every page, hub and the recorder.
 	sampler := metrics.NewSampler(collector)

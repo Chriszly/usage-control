@@ -2,7 +2,7 @@ name: Linux archives
 
 # Builds the archives for installing without Docker on Linux
 # (usage-control-<version>-linux-amd64.tar.gz and -arm64.tar.gz: the program,
-# a systemd service and install.sh) and checks on a machine with systemd that
+# a systemd service, the add-ons with their services, and install.sh) and checks on a machine with systemd that
 # the amd64 one installs, keeps its settings across an update and uninstalls
 # (linux/check-install.sh). Pull requests and main keep the archives as a
 # workflow artifact; a version tag (v1.2.3 or 1.2.3) also attaches them to
@@ -79,7 +79,10 @@ jobs:
             (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
               -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
               -o "../dist/$folder/usage-control" ./cmd/usage-control)
-            cp linux/install.sh linux/usage-control.service linux/usage-control.env.example "dist/$folder/"
+            (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
+              -o "../dist/$folder/usage-control-power" ./cmd/usage-control-power)
+            cp linux/install.sh linux/usage-control.service linux/usage-control.env.example \
+              linux/usage-control-power.service "dist/$folder/"
             tar -czf "dist/$folder.tar.gz" -C dist "$folder"
           done
           ls -l dist/*.tar.gz

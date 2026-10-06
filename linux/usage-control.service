@@ -12,6 +12,8 @@ EnvironmentFile=-/etc/usage-control.env
 # The history database, kept in /var/lib/usage-control across updates.
 Environment=DATABASE_PATH=/var/lib/usage-control/usage-control.db
 StateDirectory=usage-control
+# Where installed add-ons, such as the power add-on, write what they read.
+Environment=ADDONS_DIR=/run/usage-control-addons
 Restart=on-failure
 RestartSec=5
 

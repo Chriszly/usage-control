@@ -107,6 +107,23 @@ function charging(t: number): boolean {
   return batteryPercent(t + 60) > batteryPercent(t);
 }
 
+const cpuPackageLabels = { de: 'CPU-Paket 0', fr: 'Processeur 0', es: 'Procesador 0' };
+const memoryLabels = { de: 'Arbeitsspeicher', fr: 'Mémoire', es: 'Memoria' };
+
+/** What the power add-on reports, with the given values; their watts come from values() as "extra:power/<id>". */
+function powerAddOn(
+  items: { id: string; label: string; labels?: Record<string, string> }[],
+): Extra[] {
+  return [
+    {
+      id: 'power',
+      title: 'Power',
+      titles: { de: 'Leistungsaufnahme', fr: 'Consommation', es: 'Consumo' },
+      items: items.map((item) => ({ ...item, unit: 'watts', history: true })),
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -122,6 +139,17 @@ const piHub: DemoMachine = {
   gpus: [{ name: 'VideoCore VII' }],
   fans: ['pwmfan'],
   throttling: { now: [], sinceBoot: ['softTemperatureLimit'] },
+  extras: powerAddOn([
+    {
+      id: 'raspberry-pi',
+      label: 'Raspberry Pi (total)',
+      labels: {
+        de: 'Raspberry Pi (gesamt)',
+        fr: 'Raspberry Pi (total)',
+        es: 'Raspberry Pi (total)',
+      },
+    },
+  ]),
   bootedDaysAgo: 12.3,
   values: (t, step) => {
     const cpu = vary(
@@ -164,6 +192,7 @@ const piHub: DemoMachine = {
       ),
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
+      'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
     };
   },
 };
@@ -516,51 +545,11 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: [
-    {
-      id: 'pressure',
-      title: 'Pressure',
-      titles: { de: 'Auslastungsdruck', fr: 'Pression', es: 'Presión' },
-      items: [
-        { id: 'cpu', label: 'CPU', unit: 'percent', history: true },
-        {
-          id: 'memory',
-          label: 'Memory',
-          labels: { de: 'Arbeitsspeicher', fr: 'Mémoire', es: 'Memoria' },
-          unit: 'percent',
-          history: true,
-        },
-        {
-          id: 'io',
-          label: 'Disks',
-          labels: { de: 'Datenträger', fr: 'Disques', es: 'Discos' },
-          unit: 'percent',
-          history: true,
-        },
-      ],
-    },
-    {
-      id: 'system',
-      title: 'System',
-      titles: { de: 'System', fr: 'Système', es: 'Sistema' },
-      items: [
-        {
-          id: 'power',
-          label: 'CPU power',
-          labels: { de: 'CPU-Leistung', fr: 'Puissance CPU', es: 'Potencia CPU' },
-          unit: 'watts',
-          history: true,
-        },
-        {
-          id: 'connections',
-          label: 'TCP connections',
-          labels: { de: 'TCP-Verbindungen', fr: 'Connexions TCP', es: 'Conexiones TCP' },
-          unit: 'number',
-        },
-        { id: 'kernel', label: 'Kernel', unit: 'text', text: '6.12.48' },
-      ],
-    },
-  ],
+  extras: powerAddOn([
+    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+  ]),
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -590,13 +579,9 @@ const linuxServer: DemoMachine = {
       'network.send:docker0': vary(t, step, 125, 80e3 + 5e6 * build, [[100e3, 60]], 0, 1e9),
       'gpu:NVIDIA GeForce RTX 3090': gpu,
       'gpu.memory:NVIDIA GeForce RTX 3090': 6 + gpu * 0.6,
-      'extra:pressure/cpu': Math.max(0, cpu - 60) * 0.8,
-      'extra:pressure/memory': vary(t, step, 126, 0.5, [[0.5, 300]]),
-      'extra:pressure/io': vary(t, step, 127, 1 + 12 * build, [[1, 30]]),
-      'extra:system/power': 28 + cpu * 1.7,
-      'extra:system/connections': Math.round(
-        vary(t, step, 128, 140 + 260 * build, [[20, 60]], 0, 2000),
-      ),
+      'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
+      'extra:power/rapl-0-2-dram': 6 + 4 * build,
+      'extra:power/nvidia-0': 32 + gpu * 3.1,
     };
   },
 };
