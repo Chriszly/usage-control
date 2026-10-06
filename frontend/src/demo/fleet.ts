@@ -124,6 +124,41 @@ function powerAddOn(
   ];
 }
 
+/** What the Wi-Fi add-on reports for the interface name; its values come from values() as "extra:wifi/<name>-quality" and "-signal". */
+function wifiAddOn(name: string): Extra[] {
+  return [
+    {
+      id: 'wifi',
+      title: 'Wi-Fi',
+      titles: { de: 'WLAN', fr: 'Wi-Fi', es: 'Wi-Fi' },
+      items: [
+        {
+          id: `${name}-quality`,
+          label: `${name} link quality`,
+          labels: {
+            de: `${name} Verbindungsqualität`,
+            fr: `${name} qualité du lien`,
+            es: `${name} calidad del enlace`,
+          },
+          unit: 'percent',
+          history: true,
+        },
+        {
+          id: `${name}-signal`,
+          label: `${name} signal (dBm)`,
+          labels: {
+            de: `${name} Signal (dBm)`,
+            fr: `${name} signal (dBm)`,
+            es: `${name} señal (dBm)`,
+          },
+          unit: 'number',
+          history: true,
+        },
+      ],
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -598,6 +633,14 @@ export function offlineSince(online: (t: number) => boolean, now: number): numbe
   return t;
 }
 
+/** The Wi-Fi add-on's values of wlp1s0 at a signal level, with the link quality cfg80211 derives from it. */
+function wifiValues(signal: number): Values {
+  return {
+    'extra:wifi/wlp1s0-signal': Math.round(signal),
+    'extra:wifi/wlp1s0-quality': (Math.min(70, Math.max(0, Math.round(signal) + 110)) / 70) * 100,
+  };
+}
+
 const linuxLaptop: DemoMachine = {
   device: {
     id: 'linux-laptop',
@@ -615,6 +658,7 @@ const linuxLaptop: DemoMachine = {
   swapBytes: 16 * GB,
   disks: [{ path: '/', totalBytes: 476 * GB }],
   network: [{ name: 'wlp1s0', addresses: ['192.168.1.38'] }],
+  extras: wifiAddOn('wlp1s0'),
   batteryDetails: true,
   bootedDaysAgo: 0.3,
   online: laptopOnline,
@@ -641,6 +685,20 @@ const linuxLaptop: DemoMachine = {
       'disk.write:/': vary(t, step, 136, 250e3, [[200e3, 25]], 0, 2e9),
       'network.receive:wlp1s0': vary(t, step, 137, 300e3, [[250e3, 60]], 0, 1e9),
       'network.send:wlp1s0': vary(t, step, 138, 50e3, [[40e3, 60]], 0, 1e9),
+      ...wifiValues(
+        vary(
+          t,
+          step,
+          139,
+          -58,
+          [
+            [6, 120],
+            [5, 3600],
+          ],
+          -85,
+          -35,
+        ),
+      ),
     };
   },
 };
