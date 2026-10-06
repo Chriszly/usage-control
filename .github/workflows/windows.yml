@@ -133,9 +133,13 @@ jobs:
               go build -trimpath \
                 -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
                 -o "../dist/$arch/usage-control.exe" ./cmd/usage-control
-            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-              go build -trimpath -ldflags="-s -w" \
-                -o "../dist/$arch/usage-control-power.exe" ./cmd/usage-control-power
+            # Every add-on; the installer picks the ones that work on Windows.
+            for cmd in cmd/usage-control-*/; do
+              name="$(basename "$cmd")"
+              [[ $name == usage-control-tray ]] && continue
+              CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
+                go build -trimpath -ldflags="-s -w" -o "../dist/$arch/addons/$name.exe" "./$cmd"
+            done
             CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
               go build -trimpath -ldflags="-s -w -H=windowsgui" \
                 -o "../dist/$arch/usage-control-tray.exe" ./cmd/usage-control-tray
@@ -208,7 +212,7 @@ jobs:
           foreach ($arch in @{ x64 = 'amd64'; arm64 = 'arm64' }.GetEnumerator()) {
             wix build windows\usage-control.wxs -arch $arch.Key `
               -d Version=$env:MSI_VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
-              -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d PowerBinary=dist\$($arch.Value)\usage-control-power.exe `
+              -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d AddOns=dist\$($arch.Value)\addons `
               -d Icon=dist\usage-control.ico `
               -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
               -o "msi\usage-control-$env:VERSION-$($arch.Key).msi"
@@ -226,7 +230,7 @@ jobs:
           $newer = "$($version.Major).$($version.Minor).$($version.Build).$([Math]::Max($version.Revision, 0) + 1)"
           wix build windows\usage-control.wxs -arch x64 `
             -d Version=$newer -d Binary=dist\amd64\usage-control.exe `
-            -d TrayBinary=dist\amd64\usage-control-tray.exe -d PowerBinary=dist\amd64\usage-control-power.exe `
+            -d TrayBinary=dist\amd64\usage-control-tray.exe -d AddOns=dist\amd64\addons `
             -d Icon=dist\usage-control.ico `
             -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
             -o "check\usage-control-$newer-x64.msi"

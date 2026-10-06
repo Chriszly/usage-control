@@ -6,10 +6,12 @@
   the website and keeps the history itself. Double-clicking the installer
   asks which of the two this PC should do (the "Mode" page below).
 
-  With POWER=1, or the box on the Mode page ticked, it also installs the
-  power add-on, usage-control-power.exe, as the Windows service "Usage
-  Control power add-on". It writes the power NVIDIA GPUs draw to
-  C:\ProgramData\Usage Control\addons, which usage-control shows.
+  Add-ons are optional programs that track more, each a service of its own
+  that writes to C:\ProgramData\Usage Control\addons, which usage-control
+  shows. The Add-ons page offers each one as a box, and each has an install
+  option. POWER=1 installs the power add-on, usage-control-power.exe, as the
+  Windows service "Usage Control power add-on", which reads the power NVIDIA
+  GPUs draw.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -18,7 +20,7 @@
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
-      -d TrayBinary=usage-control-tray.exe -d PowerBinary=usage-control-power.exe -d Icon=usage-control.ico
+      -d TrayBinary=usage-control-tray.exe -d AddOns=. -d Icon=usage-control.ico
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
       -o usage-control.msi
 
@@ -162,7 +164,7 @@
       checks the condition again, so it also adds or removes the add-on.
     -->
     <Component Directory="INSTALLFOLDER" Condition='POWER = "1"'>
-      <File Source="$(PowerBinary)" Name="usage-control-power.exe" KeyPath="yes" />
+      <File Source="$(AddOns)\usage-control-power.exe" Name="usage-control-power.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlPower"
                       DisplayName="Usage Control power add-on"
                       Description="Reads the power this computer draws for Usage Control."
@@ -235,8 +237,26 @@
         </Control>
         <Control Id="CollectorText" Type="Text" X="38" Y="77" Width="310" Height="24" NoPrefix="yes" Text="Another device, such as a Raspberry Pi, shows this PC and keeps its history. Nothing else runs here." />
         <Control Id="WebsiteText" Type="Text" X="38" Y="122" Width="310" Height="24" NoPrefix="yes" Text="This PC also shows the page and keeps its own history in C:\ProgramData\Usage Control." />
-        <Control Id="Power" Type="CheckBox" X="20" Y="172" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="Also install the &amp;power add-on" />
-        <Control Id="PowerText" Type="Text" X="38" Y="189" Width="310" Height="24" NoPrefix="yes" Text="Reads how much power the NVIDIA graphics card draws. Runs as a small service of its own." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!--
+        Which add-ons to install. Each add-on has a slot of its own, 34 high,
+        starting at Y 55: a box and one line of text below it. Slots: 0 power,
+        1 gpu, 2 processes, 3 ports, 4 free.
+      -->
+      <Dialog Id="AddOnsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
+        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power" />
+        <Control Id="PowerText" Type="Text" X="38" Y="71" Width="310" Height="12" NoPrefix="yes" Text="How much power the NVIDIA graphics card draws." />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -250,8 +270,10 @@
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
-      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ModeDlg" Condition="NOT Installed" />
+      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
+      <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
+      <Publish Dialog="AddOnsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AddOnsDlg" Condition="NOT Installed" />
 
       <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />

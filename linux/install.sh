@@ -20,10 +20,17 @@ binary=/usr/local/bin/usage-control
 unit=/etc/systemd/system/usage-control.service
 settings=/etc/usage-control.env
 
-# Every add-on there is, with what it does for the question at install.
-declare -A addon_descriptions=(
-  [power]="reads the power the machine draws (Raspberry Pi 5, Intel and AMD CPUs, NVIDIA GPUs); runs as root without capabilities"
-)
+# Every add-on there is: those in this archive and those installed before,
+# each with what it does for the question at install, from the
+# "Description=Usage Control <name> add-on: <what it does>" of its service.
+declare -A addon_descriptions=()
+for service in "$here"/usage-control-*.service /etc/systemd/system/usage-control-*.service; do
+  [[ -f "$service" ]] || continue
+  addon="$(basename "$service" .service)"
+  addon="${addon#usage-control-}"
+  [[ -n "${addon_descriptions[$addon]+set}" ]] && continue
+  addon_descriptions[$addon]="$(sed -n 's/^Description=Usage Control [^:]* add-on: //p' "$service")"
+done
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run this as root, for example: sudo $0 $*" >&2
@@ -62,7 +69,7 @@ declare -A wanted=()
 if [[ "${1:-}" == --addons=* ]]; then
   IFS=, read -r -a picked <<< "${1#--addons=}"
   for addon in "${picked[@]}"; do
-    if [[ -z "${addon_descriptions[$addon]+set}" ]]; then
+    if [[ -z "${addon_descriptions[$addon]+set}" || ! -f "$here/usage-control-$addon.service" ]]; then
       echo "There is no add-on called '$addon'. Add-ons: ${!addon_descriptions[*]}" >&2
       exit 1
     fi
@@ -73,6 +80,8 @@ elif [[ -n "${1:-}" ]]; then
   exit 1
 else
   for addon in "${!addon_descriptions[@]}"; do
+    # One that is no longer in this archive is removed below.
+    [[ -f "$here/usage-control-$addon.service" ]] || continue
     installed=no
     [[ -f "/etc/systemd/system/usage-control-$addon.service" ]] && installed=yes
     if [[ -t 0 ]]; then

@@ -79,10 +79,14 @@ jobs:
             (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
               -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
               -o "../dist/$folder/usage-control" ./cmd/usage-control)
-            (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
-              -o "../dist/$folder/usage-control-power" ./cmd/usage-control-power)
-            cp linux/install.sh linux/usage-control.service linux/usage-control.env.example \
-              linux/usage-control-power.service "dist/$folder/"
+            # Every add-on, each with its service file in linux/.
+            for addon in linux/usage-control-*.service; do
+              name="$(basename "$addon" .service)"
+              (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
+                -o "../dist/$folder/$name" "./cmd/$name")
+              cp "$addon" "dist/$folder/"
+            done
+            cp linux/install.sh linux/usage-control.service linux/usage-control.env.example "dist/$folder/"
             tar -czf "dist/$folder.tar.gz" -C dist "$folder"
           done
           ls -l dist/*.tar.gz

@@ -112,7 +112,7 @@ To switch later, run the installer again and pick the other one. Either way, the
 - opens port 9393 in the Windows firewall, for **private networks only**. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 - adds the tray icon described below, which starts for everyone who logs in
 
-The same page has a box for the **power add-on** (`POWER=1` when installing silently). Ticked, it installs `usage-control-power.exe` as the service *Usage Control power add-on*, in the same Local Service account, which reads how much power an NVIDIA graphics card draws (Windows offers no CPU power without a driver). Running the installer again with the box cleared removes it. See [Add-ons](#add-ons).
+The next page, **Add-ons**, has a box for each add-on that works on Windows, all cleared by default. The **power add-on** (`POWER=1` when installing silently), ticked, installs `usage-control-power.exe` as the service *Usage Control power add-on*, in the same Local Service account, which reads how much power an NVIDIA graphics card draws (Windows offers no CPU power without a driver). Running the installer again with the box cleared removes it. See [Add-ons](#add-ons).
 
 ### The tray icon
 

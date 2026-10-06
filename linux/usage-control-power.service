@@ -2,7 +2,7 @@
 # and writes it to /run/usage-control-addons, which usage-control shows.
 # install.sh puts it in /etc/systemd/system when the add-on is picked.
 [Unit]
-Description=Usage Control power add-on: reads the power the machine draws
+Description=Usage Control power add-on: reads the power the machine draws (Raspberry Pi 5, Intel and AMD CPUs, NVIDIA GPUs); runs as root without capabilities
 Documentation=https://github.com/Chriszly/usage-control
 PartOf=usage-control.service
 After=usage-control.service
@@ -13,6 +13,8 @@ Environment=ADDONS_DIR=/run/usage-control-addons
 # The add-on folder usage-control reads; others may read it, only root writes.
 RuntimeDirectory=usage-control-addons
 RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
 Restart=on-failure
 RestartSec=5
 
