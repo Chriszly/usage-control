@@ -1,0 +1,48 @@
+# The gpu add-on of usage-control: reads the fan, clocks, video encoder and
+# decoder, performance state and power limit of NVIDIA GPUs through nvidia-smi
+# and writes them to /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control gpu add-on: reads the fan, clocks, video encoder and decoder and power limit of NVIDIA GPUs through nvidia-smi; runs as root without capabilities
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-gpu
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Runs as root only because the add-on folder is root's and shared with the
+# other add-ons (a DynamicUser would take it over), but without any
+# capability: nvidia-smi needs none, it writes nothing but its folder and
+# needs no network. nvidia-smi may need memory that is written and run, so
+# that stays allowed.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=usage-control.service

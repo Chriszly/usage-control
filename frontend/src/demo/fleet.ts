@@ -1,5 +1,5 @@
 import { Device, LOCAL_DEVICE } from '../app/devices/devices';
-import { Extra, ExtraInfo } from '../app/metrics/extras';
+import { Extra, ExtraInfo, ExtraUnit } from '../app/metrics/extras';
 import { Snapshot, Throttling, TimeZone } from '../app/metrics/metrics';
 
 /**
@@ -124,6 +124,98 @@ function powerAddOn(
   ];
 }
 
+/** What the gpu add-on reports of one NVIDIA GPU; its values come from gpuAddOnValues(). */
+function gpuAddOn(performanceState: string): Extra[] {
+  const item = (
+    id: string,
+    label: string,
+    labels: Record<string, string>,
+    unit: ExtraUnit,
+    history: boolean,
+  ) => ({ id: `0-${id}`, label, labels, unit, history });
+  return [
+    {
+      id: 'gpu',
+      title: 'Graphics card',
+      titles: { de: 'Grafikkarte', fr: 'Carte graphique', es: 'Tarjeta gráfica' },
+      items: [
+        item('fan', 'Fan', { de: 'Lüfter', fr: 'Ventilateur', es: 'Ventilador' }, 'percent', true),
+        item(
+          'graphics-clock',
+          'Graphics clock (MHz)',
+          {
+            de: 'Grafiktakt (MHz)',
+            fr: 'Fréquence graphique (MHz)',
+            es: 'Frecuencia gráfica (MHz)',
+          },
+          'number',
+          true,
+        ),
+        item(
+          'memory-clock',
+          'Memory clock (MHz)',
+          {
+            de: 'Speichertakt (MHz)',
+            fr: 'Fréquence mémoire (MHz)',
+            es: 'Frecuencia de memoria (MHz)',
+          },
+          'number',
+          true,
+        ),
+        item(
+          'encoder',
+          'Video encoder',
+          { de: 'Video-Encoder', fr: 'Encodeur vidéo', es: 'Codificador de vídeo' },
+          'percent',
+          true,
+        ),
+        item(
+          'decoder',
+          'Video decoder',
+          { de: 'Video-Decoder', fr: 'Décodeur vidéo', es: 'Decodificador de vídeo' },
+          'percent',
+          true,
+        ),
+        {
+          ...item(
+            'performance-state',
+            'Performance state',
+            { de: 'Leistungszustand', fr: 'État de performance', es: 'Estado de rendimiento' },
+            'text',
+            false,
+          ),
+          text: performanceState,
+        },
+        item(
+          'power-limit',
+          'Power limit',
+          { de: 'Leistungsgrenze', fr: 'Limite de puissance', es: 'Límite de potencia' },
+          'watts',
+          false,
+        ),
+      ],
+    },
+  ];
+}
+
+/** The values of gpuAddOn() at a GPU usage of gpu percent. */
+function gpuAddOnValues(
+  gpu: number,
+  maxClockMHz: number,
+  memoryClockMHz: number,
+  powerLimitWatts: number,
+  video: number,
+): Record<string, number> {
+  return {
+    'extra:gpu/0-fan': gpu < 15 ? 0 : 30 + gpu * 0.4,
+    'extra:gpu/0-graphics-clock': Math.round(210 + (maxClockMHz - 210) * Math.min(1, gpu / 40)),
+    'extra:gpu/0-memory-clock': gpu < 5 ? 405 : memoryClockMHz,
+    'extra:gpu/0-encoder': video,
+    'extra:gpu/0-decoder': video * 0.6,
+    'extra:gpu/0-power-limit': powerLimitWatts,
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -222,6 +314,7 @@ const windowsPc: DemoMachine = {
     { name: 'OpenVPN Data Channel Offload' },
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 4070', memoryBytes: 12 * GB }],
+  extras: gpuAddOn('P2'),
   bootedDaysAgo: 0.4,
   values: (t, step) => {
     const busy = workday(t);
@@ -266,6 +359,7 @@ const windowsPc: DemoMachine = {
       'network.send:vEthernet (WSL)': vary(t, step, 34, 2e3, [[2e3, 300]], 0, 1e9),
       'gpu:NVIDIA GeForce RTX 4070': gpu,
       'gpu.memory:NVIDIA GeForce RTX 4070': 18 + gpu * 0.5,
+      ...gpuAddOnValues(gpu, 2475, 10501, 200, vary(t, step, 35, 4 * busy, [[6, 900]], 0, 100)),
     };
   },
 };
@@ -549,7 +643,7 @@ const linuxServer: DemoMachine = {
     { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
     { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
     { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  ]).concat(gpuAddOn('P2')),
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +676,7 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      ...gpuAddOnValues(gpu, 1695, 9751, 350, 0),
     };
   },
 };
