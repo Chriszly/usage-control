@@ -25,12 +25,16 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath \
       -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
       -o /out/usage-control ./cmd/usage-control
+# The power add-on, run as a service of its own when compose.yaml's power
+# profile is picked.
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/usage-control-power ./cmd/usage-control-power
 # The folder the history database is kept in, mounted as a volume at run time.
 RUN mkdir /out/data
 
 # A minimal image without a shell or package manager, running as a non-root user.
 FROM gcr.io/distroless/static-debian13:nonroot
-COPY --from=backend /out/usage-control /usage-control
+COPY --from=backend /out/usage-control /out/usage-control-power /
 # Owned by the nonroot user (65532), so a new volume mounted here is writable.
 COPY --from=backend --chown=65532:65532 /out/data /data
 ENV DATABASE_PATH=/data/usage-control.db

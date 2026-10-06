@@ -95,7 +95,7 @@ Add-ons are optional programs that track more than usage-control itself does. Ea
 | --- | --- |
 | `power` | the power the machine draws, with its history: a Raspberry Pi 5 in total (through `vcgencmd`), Intel and AMD CPUs per package and memory (RAPL), sensors the kernel lists under hwmon (such as AMD GPUs) and NVIDIA GPUs (through `nvidia-smi`). It runs as root, since newer kernels let only root read the CPU's energy counters, but without any capability or network access |
 
-Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. On Windows, the installer offers them as boxes ([step 2](#2-add-a-windows-pc)) and they write to `C:\ProgramData\Usage Control\addons`. Add-ons are not in the Docker image yet.
+Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. On Windows, the installer offers them as boxes ([step 2](#2-add-a-windows-pc)) and they write to `C:\ProgramData\Usage Control\addons`. In Docker, the image carries them too, and `COMPOSE_PROFILES=power` in `.env` starts the power add-on as a container of its own next to usage-control. It runs as root without capabilities or network and writes to an in-memory volume. In a container it reads only RAPL and hwmon: a Raspberry Pi 5's total and NVIDIA GPUs need `vcgencmd` and `nvidia-smi` from the host, so for those, use the Linux archive.
 
 ## 2. Add a Windows PC
 
