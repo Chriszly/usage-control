@@ -67,6 +67,11 @@ for _ in $(seq 1 10); do
   sleep 1
 done
 grep -q '"id":"committed"' /run/usage-control-addons/memory.json || { echo "the memory add-on wrote no report" >&2; exit 1; }
+# Once power has written its report, it must be able to write it again.
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/power.json ]] && break
+  sleep 1
+done
 rm /run/usage-control-addons/power.json
 for _ in $(seq 1 10); do
   [[ -f /run/usage-control-addons/power.json ]] && break
