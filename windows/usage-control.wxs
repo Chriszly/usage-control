@@ -12,6 +12,9 @@
   option. POWER=1 installs the power add-on, usage-control-power.exe, as the
   Windows service "Usage Control power add-on", which reads the power NVIDIA
   GPUs draw.
+  PROCESSES=1 installs the processes add-on, usage-control-processes.exe, as
+  "Usage Control processes add-on", which lists the processes using the most
+  CPU and memory.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -36,6 +39,7 @@
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
     POWER           1 to install the power add-on (default: not installed)
+    PROCESSES       1 to install the processes add-on (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
 -->
@@ -63,7 +67,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;PROCESSES ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -135,7 +139,7 @@
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;PROCESSES ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -185,6 +189,36 @@
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
                      Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
+      The processes add-on, with PROCESSES=1, like the power add-on. Local
+      Service sees every process: it asks Windows for all of them in one call
+      instead of opening each one.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='PROCESSES = "1"'>
+      <File Source="$(AddOns)\usage-control-processes.exe" Name="usage-control-processes.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlProcesses"
+                      DisplayName="Usage Control processes add-on"
+                      Description="Lists the processes using the most CPU and memory for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlProcesses" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlProcesses" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlProcesses"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlProcesses"
                      Name="TypesSupported" Type="integer" Value="7" />
     </Component>
 
@@ -257,6 +291,8 @@
         <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
         <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power" />
         <Control Id="PowerText" Type="Text" X="38" Y="71" Width="310" Height="12" NoPrefix="yes" Text="How much power the NVIDIA graphics card draws." />
+        <Control Id="Processes" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="PROCESSES" CheckBoxValue="1" Text="P&amp;rocesses" />
+        <Control Id="ProcessesText" Type="Text" X="38" Y="139" Width="310" Height="12" NoPrefix="yes" Text="The ten processes using the most CPU and memory." />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />

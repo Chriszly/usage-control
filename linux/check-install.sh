@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-processes --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -41,7 +41,7 @@ test -f /var/lib/usage-control/usage-control.db
 # The power add-on runs as a service of its own and writes to the add-on
 # folder; an update without --addons keeps it.
 "$folder/install.sh" --addons=power
-systemctl is-active --quiet usage-control-power || { journalctl -u usage-control-power --no-pager | tail -20 >&2; echo "the power add-on is not running" >&2; exit 1; }
+systemctl is-active --quiet usage-control-power || { journalctl -u usage-control-power -u usage-control-processes --no-pager | tail -20 >&2; echo "the power add-on is not running" >&2; exit 1; }
 for _ in $(seq 1 10); do
   [[ -f /run/usage-control-addons/power.json ]] && break
   sleep 1
@@ -57,10 +57,24 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
 fi
 "$folder/install.sh" --addons=power
 
+# The processes add-on lists the busiest processes, the CPU ones from its
+# second read on.
+"$folder/install.sh" --addons=power,processes
+systemctl is-active --quiet usage-control-processes || { journalctl -u usage-control-processes --no-pager | tail -20 >&2; echo "the processes add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 15); do
+  grep -qs '"id":"processes-cpu"' /run/usage-control-addons/processes.json && break
+  sleep 1
+done
+grep -q '"id":"processes-memory"' /run/usage-control-addons/processes.json || { echo "the processes add-on reported no processes by memory" >&2; exit 1; }
+grep -q '"id":"processes-cpu"' /run/usage-control-addons/processes.json || { echo "the processes add-on reported no processes by CPU" >&2; exit 1; }
+systemctl is-active --quiet usage-control-power || { echo "the processes add-on stopped the power add-on" >&2; exit 1; }
+
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
-  [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /etc/usage-control.env ]]; then
+  systemctl cat usage-control-processes > /dev/null 2>&1 ||
+  [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /usr/local/bin/usage-control-processes ||
+  -e /etc/usage-control.env ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and processes add-ons and uninstall work."
