@@ -124,6 +124,37 @@ function powerAddOn(
   ];
 }
 
+const portsLabels = { de: 'Offene Ports', fr: 'Ports en écoute', es: 'Puertos en escucha' };
+
+/**
+ * What the ports add-on reports for the given ports, each as protocol, number
+ * and addresses; their count comes from values() as "extra:ports/count".
+ */
+function portsAddOn(ports: ['tcp' | 'udp', number, string][]): Extra[] {
+  return [
+    {
+      id: 'ports',
+      title: 'Listening ports',
+      titles: portsLabels,
+      items: [
+        {
+          id: 'count',
+          label: 'Listening ports',
+          labels: portsLabels,
+          unit: 'number',
+          history: true,
+        },
+        ...ports.map(([protocol, port, addresses]) => ({
+          id: `${protocol}-${port}`,
+          label: `${protocol.toUpperCase()} ${port}`,
+          unit: 'text' as const,
+          text: addresses,
+        })),
+      ],
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -139,17 +170,25 @@ const piHub: DemoMachine = {
   gpus: [{ name: 'VideoCore VII' }],
   fans: ['pwmfan'],
   throttling: { now: [], sinceBoot: ['softTemperatureLimit'] },
-  extras: powerAddOn([
-    {
-      id: 'raspberry-pi',
-      label: 'Raspberry Pi (total)',
-      labels: {
-        de: 'Raspberry Pi (gesamt)',
-        fr: 'Raspberry Pi (total)',
-        es: 'Raspberry Pi (total)',
+  extras: [
+    ...powerAddOn([
+      {
+        id: 'raspberry-pi',
+        label: 'Raspberry Pi (total)',
+        labels: {
+          de: 'Raspberry Pi (gesamt)',
+          fr: 'Raspberry Pi (total)',
+          es: 'Raspberry Pi (total)',
+        },
       },
-    },
-  ]),
+    ]),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 9393, '0.0.0.0'],
+      ['udp', 68, '0.0.0.0'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
+  ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
     const cpu = vary(
@@ -193,6 +232,7 @@ const piHub: DemoMachine = {
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
+      'extra:ports/count': 4,
     };
   },
 };
@@ -545,11 +585,23 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: powerAddOn([
-    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
-    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
-    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  extras: [
+    ...powerAddOn([
+      { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+      { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+      { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+    ]),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 53, '127.0.0.53, 127.0.0.54'],
+      ['tcp', 443, '0.0.0.0, ::'],
+      ['tcp', 5000, '0.0.0.0, ::'],
+      ['tcp', 9100, '::'],
+      ['tcp', 9393, '0.0.0.0, ::'],
+      ['udp', 53, '127.0.0.53, 127.0.0.54'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +634,7 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      'extra:ports/count': 8,
     };
   },
 };

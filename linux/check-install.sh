@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-ports --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -55,6 +55,15 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
   echo "--addons= left the power add-on behind" >&2
   exit 1
 fi
+
+# The ports add-on reads the host's socket tables, which every runner has.
+"$folder/install.sh" --addons=ports
+systemctl is-active --quiet usage-control-ports || { echo "the ports add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/ports.json ]] && break
+  sleep 1
+done
+grep -q '"id":"ports"' /run/usage-control-addons/ports.json || { echo "the ports add-on wrote no ports" >&2; exit 1; }
 "$folder/install.sh" --addons=power
 
 "$folder/install.sh" --uninstall --purge
