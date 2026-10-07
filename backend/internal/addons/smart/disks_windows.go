@@ -92,6 +92,13 @@ func (windowsSource) list() ([]device, error) {
 }
 
 func (windowsSource) read(d device) (Disk, error) {
+	// Opening a SATA disk to read and write may spin it up when Windows has
+	// switched it off, as its power plan does after a while without use, so
+	// that is first asked through a handle that may only ask, as smartctl
+	// does.
+	if !d.nvme && switchedOff(d.path) {
+		return Disk{}, errAsleep
+	}
 	h, err := open(d.path, windows.GENERIC_READ|windows.GENERIC_WRITE)
 	if err != nil {
 		return Disk{}, err
@@ -154,6 +161,22 @@ var getDevicePowerState = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetD
 
 // errNoPowerMode is returned when neither way tells whether a disk sleeps.
 var errNoPowerMode = errors.New("neither ATA pass through nor GetDevicePowerState tells whether the disk sleeps")
+
+// switchedOff reports whether Windows has switched the disk at path off,
+// asked with GetDevicePowerState through a handle without access to the
+// disk's data, which does not wake it.
+//
+//nolint:gosec // kernel32 takes a pointer, which needs unsafe.
+func switchedOff(path string) bool {
+	h, err := open(path, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(h) //nolint:errcheck // only asked
+	var on int32
+	ret, _, _ := getDevicePowerState.Call(uintptr(h), uintptr(unsafe.Pointer(&on)))
+	return ret != 0 && on == 0
+}
 
 // checkPowerMode asks a SATA disk whether it sleeps with CHECK POWER MODE as
 // ATA pass through, or where the driver does not pass ATA commands, asks

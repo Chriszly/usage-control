@@ -54,9 +54,10 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 # Only the system calls a service needs, without those of @privileged (which
 # holds @clock, @swap, @reboot, @module, @raw-io and setuid and the like),
-# @mount and others no reader needs; not ProtectClock=yes, which would also
-# keep it from the disks' devices. The disk commands are plain ioctl calls, which stay
-# allowed. A call that is not allowed fails instead of ending the program.
+# @mount and others no reader needs, so ProtectClock=yes would add nothing:
+# the clock calls are left out, and the clock's capability is not granted.
+# The disk commands are plain ioctl calls, which stay allowed. A call that is
+# not allowed fails instead of ending the program.
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @mount @obsolete @debug @cpu-emulation
 SystemCallErrorNumber=EPERM
