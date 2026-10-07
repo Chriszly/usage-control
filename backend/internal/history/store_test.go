@@ -178,6 +178,80 @@ func TestDeleteDeviceDeletesItsValuesAndHourlyAverages(t *testing.T) {
 	}
 }
 
+// addMany stores count values of device, one minute apart from start on, a
+// few metrics per minute, in one go.
+func addMany(t *testing.T, store *Store, device string, start time.Time, count int) {
+	t.Helper()
+	metricNames := []string{MetricCPU, MetricMemory, MetricSwap, MetricBattery}
+	var minutes []Minute
+	for i := 0; i < count; i += len(metricNames) {
+		values := map[string]float64{}
+		for _, metric := range metricNames[:min(len(metricNames), count-i)] {
+			values[metric] = 1
+		}
+		minutes = append(minutes, Minute{Time: start.Unix() + int64(i/len(metricNames))*60, Values: values})
+	}
+	if err := store.AddMinutes(context.Background(), device, minutes); err != nil {
+		t.Fatalf("AddMinutes() error = %v", err)
+	}
+}
+
+func countRows(t *testing.T, store *Store, table, device string) int {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE device = ?`, device).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return count
+}
+
+func TestDeleteBeforeDeletesMoreThanAChunk(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	start := time.Unix(1_800_000_000, 0)
+	old := 2*deleteChunkRows + 10
+	addMany(t, store, LocalDevice, start, old)
+	cutoff := start.Add(time.Duration(old/4+1) * time.Minute)
+	addMany(t, store, LocalDevice, cutoff, 8)
+
+	deleted, err := store.DeleteBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("DeleteBefore() error = %v", err)
+	}
+
+	if deleted != int64(old) {
+		t.Errorf("DeleteBefore() deleted %d values, want %d", deleted, old)
+	}
+	if got := countRows(t, store, "samples", LocalDevice); got != 8 {
+		t.Errorf("after DeleteBefore, %d values are left, want the 8 newer ones", got)
+	}
+	var older int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM samples_hourly WHERE time < ?`, cutoff.Truncate(time.Hour).Unix()).Scan(&older); err != nil || older != 0 {
+		t.Errorf("hourly averages before the cutoff = %d, %v; want none", older, err)
+	}
+}
+
+func TestDeleteDeviceDeletesMoreThanAChunk(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	start := time.Unix(1_800_000_000, 0)
+	addMany(t, store, "other", start, deleteChunkRows+10)
+	addMany(t, store, LocalDevice, start, 8)
+
+	if err := store.DeleteDevice(ctx, "other"); err != nil {
+		t.Fatalf("DeleteDevice() error = %v", err)
+	}
+
+	for _, table := range []string{"samples", "samples_hourly"} {
+		if got := countRows(t, store, table, "other"); got != 0 {
+			t.Errorf("%s of the deleted device = %d rows, want none", table, got)
+		}
+	}
+	if got := countRows(t, store, "samples", LocalDevice); got != 8 {
+		t.Errorf("values of the other device = %d, want its 8 kept", got)
+	}
+}
+
 func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 	read, write := 4096.0, 512.0
 	snapshot := metrics.Snapshot{
