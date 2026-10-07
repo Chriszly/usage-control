@@ -37,7 +37,7 @@ When the network counters cannot be read, as when Windows loses an adapter durin
 | `memory` | `totalBytes`, `usedBytes`, `usedPercent`, `availableBytes`, `cachedBytes`, `swap` (total, used, percent) |
 | `temperatures` | per sensor: `sensor`, `celsius` |
 | `disks` | per path in `DISK_PATHS`: size, used, percent, read and write bytes per second, operations per second, busy percent, time per operation |
-| `network` | per network card, without loopback: bytes received and sent in total and per second, errors, dropped packets, link speed, IPv4 addresses |
+| `network` | per network card, without loopback and virtual interfaces such as Docker bridges, VPNs and Hyper-V adapters: bytes received and sent in total and per second, errors, dropped packets, link speed, IPv4 addresses |
 | `gpus` | per GPU: `name`, `usagePercent`, memory total and used, `celsius` |
 | `throttling` | Raspberry Pi only: undervoltage, frequency capping and throttling, now and since boot |
 | `battery` | `percent`, `pluggedIn`, `watts`, `healthPercent` |

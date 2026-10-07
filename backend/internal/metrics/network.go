@@ -98,21 +98,23 @@ func readLinuxInterfaceStats(ctx context.Context, procDir string, inContainer bo
 var ownNetworkOnce sync.Once
 
 // virtualInterfaceCheck returns a function that reports whether an interface
-// is not a network card. Linux tells from /sys; other systems only from the
-// loopback flag, which also hides Windows' "Loopback Pseudo-Interface 1".
+// is not a network card. Linux tells from /sys; other systems from the
+// loopback flag, which also hides Windows' "Loopback Pseudo-Interface 1", and
+// Windows also from whether the adapter is hardware, which hides the virtual
+// adapters of Hyper-V, VPNs and the like.
 func virtualInterfaceCheck() func(name string) bool {
 	if runtime.GOOS == "linux" {
 		sysDir := hostPath("HOST_SYS", "/sys")
 		return func(name string) bool { return isVirtualInterface(sysDir, name) }
 	}
-	loopbacks := loopbacks.get(time.Now())
-	return func(name string) bool { return loopbacks[name] }
+	virtual := virtualInterfaces.get(time.Now())
+	return func(name string) bool { return virtual[name] }
 }
 
-// loopbackList lists the loopback interfaces at most once a minute: listing
-// the interfaces is a system call per reading otherwise, and loopback
+// interfaceList lists the virtual interfaces at most once a minute: listing
+// the interfaces is a system call per reading otherwise, and virtual
 // interfaces hardly ever change.
-type loopbackList struct {
+type interfaceList struct {
 	read func() map[string]bool
 
 	mu     sync.Mutex
@@ -120,11 +122,11 @@ type loopbackList struct {
 	readAt time.Time
 }
 
-var loopbacks = &loopbackList{read: readLoopbackInterfaces}
+var virtualInterfaces = &interfaceList{read: readVirtualInterfaces}
 
-// get returns the loopback interfaces, listed again when the list is a
-// minute old or could not be read last time.
-func (l *loopbackList) get(now time.Time) map[string]bool {
+// get returns the virtual interfaces, listed again when the list is a minute
+// old or could not be read last time.
+func (l *interfaceList) get(now time.Time) map[string]bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.names == nil || now.Sub(l.readAt) >= time.Minute {
@@ -133,20 +135,21 @@ func (l *loopbackList) get(now time.Time) map[string]bool {
 	return l.names
 }
 
-// readLoopbackInterfaces returns the names of the interfaces the OS flags as
-// loopback. If the OS cannot list them, none are left out.
-func readLoopbackInterfaces() map[string]bool {
+// readVirtualInterfaces returns the names of the interfaces the OS flags as
+// loopback and, on Windows, of the adapters that are not hardware. If the OS
+// cannot list them, none are left out.
+func readVirtualInterfaces() map[string]bool {
 	interfaces, err := stdnet.Interfaces()
 	if err != nil {
 		return nil
 	}
-	loopbacks := make(map[string]bool)
+	virtual := make(map[string]bool)
 	for _, iface := range interfaces {
-		if iface.Flags&stdnet.FlagLoopback != 0 {
-			loopbacks[iface.Name] = true
+		if iface.Flags&stdnet.FlagLoopback != 0 || isVirtualAdapter(iface) {
+			virtual[iface.Name] = true
 		}
 	}
-	return loopbacks
+	return virtual
 }
 
 // isVirtualInterface reports whether an interface is not a network card:
