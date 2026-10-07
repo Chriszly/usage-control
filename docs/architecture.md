@@ -102,7 +102,7 @@ flowchart TB
 ```
 
 - **Collector** reads the machine's usage: one call reads CPU, memory, disks, network, temperatures, GPUs, battery and so on. CPU usage and disk and network speeds are measured against the previous call. See [What is collected](data.md).
-- **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds.
+- **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds. A reading does not stop when the request that started it ends, such as a page being closed, since others share it; it has 10 seconds of its own.
 - **Recorder** takes a reading every 5 seconds into memory, and every minute, at its 55th second, stores the average of the minute up to then in the database under that minute, as it does for the minute it stops in when the program stops (unless that one is stored already). A hub's recorder of another device instead fetches the device's minutes at second 5 of the next minute, once the device has kept its own, and when it stores its own average, stores it under the minute before. A reading a hub or page asked for less than 4 seconds before is taken instead of reading the machine again. A hub runs one recorder for itself and one per other device; a data-only device runs one that keeps its minutes for the hub (see [While the hub is away](#while-the-hub-is-away)).
 - **Pruner** deletes everything older than the retention, once at start and then once a day, for every device at once.
 
@@ -141,11 +141,11 @@ sequenceDiagram
 
 Rules the agent follows:
 
-- A device has 4 seconds to answer. Answers larger than 1 MiB are not read; a reading is a few kilobytes.
+- A device has 4 seconds to answer. Answers larger than 1 MiB are not read, and the log says so; a reading is a few kilobytes, and about 150 KB on a host with 64 disks, sensors and network cards and 500 values of extras.
 - The agent connects directly, never through a proxy, and does not follow redirects.
 - It only connects to addresses on the local network, checked on the address it actually dials, so a host name that resolves to an address outside the network is refused too.
 - A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap. While it stays unreachable, its charts show the chosen range up to its last reading instead of up to now, with a notice that they are not live; once it answers again, they are live again.
-- When the hub itself does not answer the page (no answer at all, or 502/504 from a proxy in front of it), nothing on the page is live, since all values come through the hub. A red banner across the page says so, the hub's button gets a red dot and the other devices a hollow one, as nothing is known about them. The page's usual polls keep asking; the first answer clears the banner.
+- When the hub itself does not answer the page (no answer at all, none within 15 seconds, or 502/504 from a proxy in front of it), nothing on the page is live, since all values come through the hub. A red banner across the page says so, the hub's button gets a red dot and the other devices a hollow one, as nothing is known about them. The page's usual polls keep asking; the first answer clears the banner.
 - The device's id is its name in lower case with dashes, such as `living-room-pi` for *Living room Pi*. The hub's own device is `local`. The history is stored under the id, so renaming a device starts a new history.
 - Of each device's disks, temperature sensors, network cards and GPUs, the history keeps the first 64 by name (`HISTORY_MAX_ENTRIES`), so a misbehaving device cannot fill the hub's database. The live dashboard shows them all.
 
@@ -193,7 +193,7 @@ What a time without an answer means depends on the device's kind, picked in the 
 
 The hub records both kinds the same way, so changing the kind later only changes how the times already recorded are shown.
 
-Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
+Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. The device leaves the list at once; its data is deleted afterwards in the background, in chunks, so the page is not held up by a long history. Adding a device with the same name meanwhile waits up to 2 seconds for that, then is refused with the problem `removing` (*still being removed; try again in a moment*), so the request never runs into the time limit. If the hub stops meanwhile, the rest of the history ages out with the retention. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
 
 ## Adding and removing devices
 
@@ -263,6 +263,6 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |
 | `GET /api/minutes?after=<s>[&values=<n>]` | `{ now, minutes: [{ time, values: { <metric>: <value> } }], more, extras? }`: the device's own minutes after `after`, at most 120 and `n` values in all (10,000 at most, one minute at least), on its clock; `extras` describes the extras among them by metric; see [While the hub is away](#while-the-hub-is-away) | `400` when `after` is not Unix seconds or is later than the device's time, or `values` is not a whole number of at least 1 |
 
-A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `address`, `unreachable`, `notFound`, `fixed`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
+A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `addressTaken`, `address`, `kind`, `unreachable`, `notFound`, `fixed`, `removing`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
 
 A data-only device answers only `GET /api/metrics`, `GET /api/minutes` and `GET /api/hub`.

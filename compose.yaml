@@ -266,7 +266,10 @@ services:
 
 volumes:
   data:
-  # In memory only: the add-ons' newest values.
+  # In memory only: the add-ons' newest values. The add-ons that run as the
+  # image's user can write here because a new tmpfs is open to everyone
+  # (mode 1777, like /tmp); setting o: mode=... here would make Compose refuse
+  # the volume that already exists on machines set up before.
   addons:
     driver_opts:
       type: tmpfs

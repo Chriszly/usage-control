@@ -275,7 +275,8 @@ func TestRecorderWritesHowTheExtrasAreDescribedToABuffer(t *testing.T) {
 			ID: "power", Title: "Power",
 			Items: []metrics.ExtraItem{{ID: "cpu", Label: "CPU", Unit: metrics.UnitWatts, Value: &value, History: true}},
 		}}}}},
-		Device: LocalDevice,
+		Device:     LocalDevice,
+		MaxEntries: DefaultMaxEntries,
 	}
 	recorder.read(ctx)
 	if got, err := buffer.ExtraInfo(ctx); err != nil || got["extra:power/cpu"].Label != "CPU" {

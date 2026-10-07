@@ -63,6 +63,9 @@ type Recorder struct {
 	// dropped is set once a reading had more entries than are kept, so that
 	// is logged once too.
 	dropped bool
+	// tooLong is set once a reading had entries with names too long to keep,
+	// so that is logged once too.
+	tooLong bool
 	// extraInfo writes how the device's extras are described.
 	extraInfo extraInfoWriter
 }
@@ -141,16 +144,21 @@ func (r *Recorder) read(ctx context.Context) {
 	if newest, ok := r.Recent.Newest(); ok && snapshot.Time.Unix() == newest.Unix() {
 		return
 	}
-	v, dropped := values(snapshot, r.MaxEntries)
+	v, dropped, tooLong := values(snapshot, r.MaxEntries)
 	if dropped && !r.dropped {
 		r.dropped = true
-		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
+		slog.Warn("the device reports more disks, sensors, network cards, GPUs or values of extras than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
 			"device", r.Device, "kept", r.MaxEntries)
+	}
+	if tooLong && !r.tooLong {
+		r.tooLong = true
+		slog.Warn("the device reports disks, sensors, network cards or GPUs with names too long for the history; they are only shown live",
+			"device", r.Device, "maxMetricLength", MaxMetricLength)
 	}
 	// A history keeps how the extras are described, and so does a data-only
 	// device's buffer, for the hub to fetch with the minutes.
 	if store, ok := r.Store.(extraInfoSetter); ok {
-		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras), snapshot.Time); err != nil {
+		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras, r.MaxEntries), snapshot.Time); err != nil {
 			slog.Error("store how the extras are described", "device", r.Device, "error", err)
 		}
 	}

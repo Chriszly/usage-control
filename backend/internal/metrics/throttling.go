@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // Throttling is what the firmware of a Raspberry Pi reports about its power
@@ -39,7 +41,7 @@ func readThrottling(file string) *Throttling {
 	if file == "" {
 		return nil
 	}
-	text, err := readFile(file)
+	text, err := sysfile.Read(file)
 	if err != nil {
 		return nil
 	}

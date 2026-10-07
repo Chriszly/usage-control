@@ -139,6 +139,8 @@ export const fr: Messages = {
   'devices.problem.fixed':
     'Cet appareil est défini dans le fichier .env du hub. Retirez-le là-bas.',
   'devices.problem.notFound': 'Cet appareil a déjà été retiré.',
+  'devices.problem.removing':
+    'Un appareil portant ce nom est encore en cours de retrait. Réessayez dans un instant.',
   'devices.problem.demo':
     'Ceci est une démo : les appareils ne peuvent être ni ajoutés, ni supprimés, ni modifiés.',
   'devices.problem.other': 'Les appareils n’ont pas pu être modifiés. Réessayez.',

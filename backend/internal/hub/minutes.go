@@ -62,7 +62,7 @@ const (
 	// stored the hub's way before it is asked again, as it may be updated.
 	recheckAfter = time.Hour
 	// maxMetricLength is the longest metric name stored.
-	maxMetricLength = 256
+	maxMetricLength = history.MaxMetricLength
 	// maxClockJitter is how far the difference between the hub's clock and the
 	// device's may move before the minutes are moved by the new one. Measured
 	// with each reading, it varies by a second or two, which would now and
@@ -395,7 +395,7 @@ func (f *fetcher) describe(ctx context.Context, extras map[string]history.ExtraI
 			ID: item, Label: info.Label, Labels: info.Labels, Unit: info.Unit, Value: &value, History: true,
 		})
 	}
-	described := history.DescribeExtras(metrics.CleanExtras(groups, f.maxEntries))
+	described := history.DescribeExtras(metrics.CleanExtras(groups, f.maxEntries), f.maxEntries)
 	if len(described) == 0 {
 		return nil
 	}

@@ -131,6 +131,11 @@ func TestRemoveForgetsTheDeviceAndItsHistory(t *testing.T) {
 	if err := h.Remove(ctx, "laptop", true); err != nil {
 		t.Fatalf("Remove(keepHistory) error = %v", err)
 	}
+	for _, id := range []string{"office-pc", "laptop"} {
+		if err := h.waitRemoved(ctx, id, time.Minute); err != nil {
+			t.Fatalf("waitRemoved(%q) error = %v", id, err)
+		}
+	}
 
 	if got := ids(h.Remotes()); len(got) != 1 || got[0] != "pi" {
 		t.Errorf("devices = %q, want only the fixed [pi]", got)
@@ -166,6 +171,9 @@ func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
 	if err := h.Remove(cancelled, "office-pc", false); err != nil {
 		t.Fatalf("Remove() with a cancelled request error = %v", err)
 	}
+	if err := h.waitRemoved(ctx, "office-pc", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
 
 	if got := ids(h.Remotes()); len(got) != 0 {
 		t.Errorf("devices = %q, want none", got)
@@ -176,6 +184,89 @@ func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
 	}
 	if series, err := store.Range(ctx, "office-pc", now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 0 {
 		t.Errorf("history = %+v, %v; want it deleted", series, err)
+	}
+}
+
+func TestRemoveDeletesTheDataWithoutHoldingUpThePage(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	now := time.Now()
+	if err := store.Add(ctx, "office-pc", now, map[string]float64{history.MetricCPU: 1}); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+	deleting, release := make(chan struct{}), make(chan struct{})
+	h.beforeDelete = func(string) {
+		close(deleting)
+		<-release
+	}
+
+	if err := h.Remove(ctx, "office-pc", false); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	<-deleting
+
+	// While the data is being deleted, the page is served and other devices
+	// can be added, but not one with the same name yet.
+	if got := ids(h.Remotes()); len(got) != 0 {
+		t.Errorf("devices while deleting = %q, want none", got)
+	}
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); err != nil {
+		t.Errorf("Add(Laptop) while deleting error = %v", err)
+	}
+	// Adding it again waits a moment, then is refused rather than holding up
+	// the request until the delete is done.
+	started := time.Now()
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); problemOf(err) != ProblemRemoving {
+		t.Errorf("Add(Office PC) while deleting error = %v, want problem %q", err, ProblemRemoving)
+	}
+	if waited := time.Since(started); waited < removingWait || waited > removingWait+time.Second {
+		t.Errorf("Add(Office PC) while deleting took %v, want about %v", waited, removingWait)
+	}
+	h.mu.Lock()
+	err := h.taken(Device{ID: "office-pc", Address: "192.168.1.99:9393"})
+	h.mu.Unlock()
+	if problemOf(err) != ProblemRemoving {
+		t.Errorf("taken(office-pc) while deleting = %v, want problem %q", err, ProblemRemoving)
+	}
+
+	close(release)
+	if err := h.waitRemoved(ctx, "office-pc", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
+	if series, err := store.Range(ctx, "office-pc", now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 0 {
+		t.Errorf("history = %+v, %v; want it deleted", series, err)
+	}
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
+		t.Errorf("Add(Office PC) after deleting error = %v", err)
+	}
+}
+
+func TestNoChangesOnceTheHubStops(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	running, stop := context.WithCancel(ctx)
+	h, err := New(running, store, nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393")
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	stop()
+	h.Wait()
+
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, errStopping) {
+		t.Errorf("Add() once stopped error = %v, want errStopping", err)
+	}
+	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, errStopping) {
+		t.Errorf("Remove() once stopped error = %v, want errStopping", err)
+	}
+	if got := ids(h.Remotes()); len(got) != 1 {
+		t.Errorf("devices once stopped = %q, want the one added before", got)
 	}
 }
 
@@ -265,6 +356,9 @@ func TestRemoveForgetsTheKind(t *testing.T) {
 	}
 	if err := h.Remove(ctx, "laptop", false); err != nil {
 		t.Fatalf("Remove() error = %v", err)
+	}
+	if err := h.waitRemoved(ctx, "laptop", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
 	}
 	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindServer {
 		t.Errorf("kind after removing = %q, %v; want none stored", kind, err)

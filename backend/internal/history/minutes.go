@@ -58,6 +58,8 @@ type Buffer struct {
 	// mu lets one Since run at a time, as each moves a hub's place and
 	// deletes up to the place of the hub furthest behind.
 	mu sync.Mutex
+	// brokenInfo is Store.brokenInfo for the buffer's descriptions.
+	brokenInfo sync.Map
 }
 
 // OpenBuffer opens the buffer in the database at path, creating the file and
@@ -122,7 +124,7 @@ func (b *Buffer) SetExtraInfo(ctx context.Context, _ string, info map[string]Ext
 // ExtraInfo returns how the extras among the minutes are described, by the
 // metric they are stored under.
 func (b *Buffer) ExtraInfo(ctx context.Context) (map[string]ExtraInfo, error) {
-	return readExtraInfo(ctx, b.db, `SELECT metric, info FROM buffer_extra_info`)
+	return readExtraInfo(ctx, b.db, &b.brokenInfo, LocalDevice, `SELECT metric, info FROM buffer_extra_info`)
 }
 
 // maxBufferHubs is how many hubs a buffer keeps apart: the ones that asked
@@ -257,6 +259,6 @@ func readMinutes(ctx context.Context, db *sql.DB, times, values string, after ti
 // DescribeExtras describes the extras that ask for their history, by the
 // metric they are stored under, as a recorder does: for a hub that fetched
 // the minutes of a device with how their extras are described.
-func DescribeExtras(extras []metrics.Extra) map[string]ExtraInfo {
-	return extraInfo(extras)
+func DescribeExtras(extras []metrics.Extra, maxEntries int) map[string]ExtraInfo {
+	return extraInfo(extras, maxEntries)
 }

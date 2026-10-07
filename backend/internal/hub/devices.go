@@ -144,6 +144,9 @@ const (
 	ProblemNotFound     Problem = "notFound"
 	ProblemFixed        Problem = "fixed"
 	ProblemKind         Problem = "kind"
+	// ProblemRemoving is a device with the same name whose data is still
+	// being deleted after it was removed.
+	ProblemRemoving Problem = "removing"
 )
 
 // InputError is a device that cannot be added or removed as asked.

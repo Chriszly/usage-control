@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -42,9 +43,16 @@ type Hub struct {
 	ctx       context.Context
 	recording sync.WaitGroup
 
-	// mu guards remotes.
+	// beforeDelete, when set, is called before a removed device's data is
+	// deleted, for tests.
+	beforeDelete func(id string)
+
+	// mu guards remotes and removing.
 	mu      sync.Mutex
 	remotes []*Remote
+	// removing has a channel for each removed device whose recorder may still
+	// run or whose data is still being deleted, closed once that is done.
+	removing map[string]chan struct{}
 }
 
 // Remote is another device the hub collects from.
@@ -131,6 +139,12 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	if err != nil {
 		return Device{}, err
 	}
+	// A device with the same name that was just removed may still have its
+	// data deleted, which would delete this one's too. A short delete is
+	// waited for; a long one is not, so the request does not time out.
+	if err := h.waitRemoved(ctx, device.ID, removingWait); err != nil {
+		return Device{}, err
+	}
 	// Checked before asking the device, so a device added already is refused
 	// at once, and again below, in case another change came in meanwhile.
 	h.mu.Lock()
@@ -147,6 +161,9 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if err := h.stopping(); err != nil {
+		return Device{}, err
+	}
 	if err := h.taken(device); err != nil {
 		return Device{}, err
 	}
@@ -203,9 +220,17 @@ func (h *Hub) SetKind(ctx context.Context, id string, kind Kind) error {
 // Remove stops collecting from a device added on the page and forgets it.
 // Its history and availability are deleted too, unless keepHistory is set;
 // adding a device with the same name later continues them.
+//
+// Only taking the device off the list waits for mu; its recorder is stopped
+// and its data deleted afterwards, in the background, as deleting a long
+// history takes a while and every page request needs mu. Adding a device
+// with the same name waits until that is done.
 func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if err := h.stopping(); err != nil {
+		return err
+	}
 	remote := h.find(id)
 	if remote == nil {
 		return &InputError{Problem: ProblemNotFound, Message: "there is no device with this id"}
@@ -216,21 +241,93 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 
 	// Once the device is deleted from the database, the rest follows even
 	// when the page that asked has gone away, so nothing is left half removed.
-	ctx = context.WithoutCancel(ctx)
-	if _, err := h.store.DB().ExecContext(ctx, `DELETE FROM hub_devices WHERE id = ?`, id); err != nil {
+	if _, err := h.store.DB().ExecContext(context.WithoutCancel(ctx), `DELETE FROM hub_devices WHERE id = ?`, id); err != nil {
 		return err
 	}
 	h.remotes = slices.DeleteFunc(h.remotes, func(r *Remote) bool { return r == remote })
 	remote.stop()
-	<-remote.recorded
-	slog.Info("stopped collecting from another device", "name", remote.Name, "historyKept", keepHistory)
-	if keepHistory {
+	removed := make(chan struct{})
+	if h.removing == nil {
+		h.removing = map[string]chan struct{}{}
+	}
+	h.removing[id] = removed
+	h.recording.Go(func() {
+		defer func() {
+			h.mu.Lock()
+			delete(h.removing, id)
+			h.mu.Unlock()
+			close(removed)
+		}()
+		<-remote.recorded
+		slog.Info("stopped collecting from another device", "name", remote.Name, "historyKept", keepHistory)
+		if !keepHistory {
+			h.deleteData(remote)
+		}
+	})
+	return nil
+}
+
+// deleteData deletes the availability, kind and history of a removed device.
+// When the program stops meanwhile, what is left of its history ages out
+// with the retention.
+func (h *Hub) deleteData(remote *Remote) {
+	if h.beforeDelete != nil {
+		h.beforeDelete(remote.ID)
+	}
+	err := forget(h.ctx, h.store.DB(), remote.ID)
+	if err == nil {
+		err = h.store.DeleteDevice(h.ctx, remote.ID)
+	}
+	switch {
+	case err == nil:
+		slog.Info("deleted the data of a removed device", "name", remote.Name)
+	case h.ctx.Err() != nil:
+		slog.Warn("stopped deleting the history of a removed device, as the program stops; the rest is deleted with the retention", "name", remote.Name)
+	default:
+		slog.Error("delete the data of a removed device; its history is deleted with the retention", "name", remote.Name, "error", err)
+	}
+}
+
+// removingWait is how long adding a device waits for one with the same
+// name to be removed, before it is refused with ProblemRemoving.
+const removingWait = 2 * time.Second
+
+// waitRemoved waits until the data of a removed device with id is deleted,
+// if one is being removed, for at most limit. It returns errRemoving when
+// that takes longer, or ctx's error when ctx is done first.
+func (h *Hub) waitRemoved(ctx context.Context, id string, limit time.Duration) error {
+	h.mu.Lock()
+	removed := h.removing[id]
+	h.mu.Unlock()
+	if removed == nil {
 		return nil
 	}
-	if err := forget(ctx, h.store.DB(), id); err != nil {
-		return err
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-removed:
+		return nil
+	case <-timer.C:
+		return errRemoving
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return h.store.DeleteDevice(ctx, id)
+}
+
+// errRemoving refuses a device whose name a device still being removed has.
+var errRemoving = &InputError{Problem: ProblemRemoving, Message: "a device with the same name is still being removed; try again in a moment"}
+
+// errStopping refuses changes once the program stops, so no recorder starts
+// while the others are waited for and the database is closed.
+var errStopping = errors.New("the hub is stopping")
+
+// stopping returns errStopping once the ctx given to New is done. The caller
+// holds mu.
+func (h *Hub) stopping() error {
+	if h.ctx.Err() != nil {
+		return errStopping
+	}
+	return nil
 }
 
 // Unreachable reports whether the device has not answered recently, and since
@@ -315,6 +412,9 @@ func (h *Hub) start(device Device, fixed bool) {
 func (h *Hub) taken(device Device) error {
 	if h.find(device.ID) != nil {
 		return &InputError{Problem: ProblemNameTaken, Message: "another device has the same name; give each device its own name"}
+	}
+	if h.removing[device.ID] != nil {
+		return errRemoving
 	}
 	if other := h.findAddress(device.Address); other != nil {
 		return &InputError{Problem: ProblemAddressTaken, Message: fmt.Sprintf("%s is already collected from at this address and port", other.Name)}

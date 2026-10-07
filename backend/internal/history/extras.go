@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
@@ -70,11 +71,13 @@ func writeExtraInfo(ctx context.Context, db *sql.DB, query, device string, info 
 // ExtraInfo returns how the extras in a device's history are described, by
 // the metric they are stored under.
 func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraInfo, error) {
-	return readExtraInfo(ctx, s.db, `SELECT metric, info FROM extra_info WHERE device = ?`, device)
+	return readExtraInfo(ctx, s.db, &s.brokenInfo, device, `SELECT metric, info FROM extra_info WHERE device = ?`, device)
 }
 
-// readExtraInfo reads the descriptions query lists, as metric and info.
-func readExtraInfo(ctx context.Context, db *sql.DB, query string, args ...any) (map[string]ExtraInfo, error) {
+// readExtraInfo reads the descriptions of device's extras query lists, as
+// metric and info. broken has a brokenInfoKey for each that could not be
+// read, so that is logged once.
+func readExtraInfo(ctx context.Context, db *sql.DB, broken *sync.Map, device, query string, args ...any) (map[string]ExtraInfo, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -89,12 +92,23 @@ func readExtraInfo(ctx context.Context, db *sql.DB, query string, args ...any) (
 		var description ExtraInfo
 		if err := json.Unmarshal([]byte(text), &description); err != nil {
 			// One broken description leaves out its chart, not every chart.
-			slog.Warn("read the description of an extra", "metric", metric, "error", err)
+			// It is logged once, not at every read of the history.
+			if _, logged := broken.LoadOrStore(brokenInfoKey{device, metric}, true); !logged {
+				slog.Warn("read the description of an extra", "device", device, "metric", metric, "error", err)
+			}
 			continue
 		}
+		// One that was broken is logged again should it break once more.
+		broken.Delete(brokenInfoKey{device, metric})
 		info[metric] = description
 	}
 	return info, rows.Err()
+}
+
+// brokenInfoKey names a description that could not be read; see
+// Store.brokenInfo.
+type brokenInfoKey struct {
+	device, metric string
 }
 
 // deleteUnusedExtraInfo deletes the descriptions of extras that have no

@@ -21,6 +21,8 @@ Readings are cheap: single file reads rather than scanning every process. Values
 
 CPU usage and disk and network speeds are measured between two readings, so they are averages over the last 2 seconds.
 
+When the network counters cannot be read, as when Windows loses an adapter during the reading or Linux hides the host's first process (`/proc/1`, with `hidepid`), the reading goes on without network cards, and this is logged once; outside a container, Linux then reads the program's own `/proc/net/dev`, which is the same network. On Windows, where reading the temperature sensors is a costly WMI query that usually finds none for the Local Service account, a reading that finds none is tried again only after 10 minutes.
+
 ## The snapshot
 
 `GET /api/metrics` answers with one snapshot. A hub receives the same JSON from each device.
@@ -77,8 +79,8 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 
 The GPU card appears when usage-control finds a GPU whose usage the system reports to programs without extra rights:
 
-- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs; the temperature of NVIDIA GPUs comes from `nvidia-smi`, which the NVIDIA driver installs, and is shown in the Temperature card under the GPU's name.
-- **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it; then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image; its answer is reused for 4 seconds. Intel GPUs report their usage only to programs with extra rights, so they are not shown.
+- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs; the temperature of NVIDIA GPUs comes from `nvidia-smi`, which the NVIDIA driver installs, and is shown in the Temperature card under the GPU's name. `nvidia-smi` runs at most every 10 seconds, and a reading waits for it at most 1 second, as on Linux (below).
+- **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it; then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image; its answer is reused for 10 seconds. nvidia-smi may take up to 5 seconds, as it can on headless servers without the driver's persistence mode; a reading waits for it at most 1 second and otherwise shows the last answer, while nvidia-smi finishes in the background for the next reading. Intel GPUs report their usage only to programs with extra rights, so they are not shown.
 - **macOS:** not shown.
 
 ## Extras
@@ -129,6 +131,6 @@ The charts and the database keep a subset of the snapshot: the values that make 
 
 Examples: `disk:/`, `network.receive:eth0`, `temperature:cpu_thermal`. Adding a metric needs no change to the database: every value is a row with its name.
 
-Per device, the first 64 sensors, disks, network cards and GPUs each by name are kept (`HISTORY_MAX_ENTRIES`); a device that reports more is logged once, and the dashboard still shows them all.
+Per device, the first 64 sensors, disks, network cards and GPUs each by name are kept (`HISTORY_MAX_ENTRIES`), and the first 512 values of extras with `history: true` (8 × `HISTORY_MAX_ENTRIES`); a device that reports more is logged once, and the dashboard still shows them all. A sensor, disk, network card or GPU whose name would make a metric name longer than 256 bytes is left out of the history, which is logged once.
 
 How these values are stored, averaged and deleted is described in [Database and history](database.md).

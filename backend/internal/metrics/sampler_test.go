@@ -53,6 +53,25 @@ func TestSamplerReportsAFailedReading(t *testing.T) {
 	}
 }
 
+// contextSource reports the error of the context it reads with.
+type contextSource struct{}
+
+func (contextSource) Collect(ctx context.Context) (Snapshot, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return Snapshot{}, errors.New("no time limit")
+	}
+	return Snapshot{}, ctx.Err()
+}
+
+func TestSamplerReadingOutlivesTheRequest(t *testing.T) {
+	sampler := &Sampler{source: contextSource{}, interval: time.Minute}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := sampler.Collect(ctx); err != nil {
+		t.Errorf("Collect() for a closed request error = %v, want a reading with its own time limit", err)
+	}
+}
+
 func TestReusingSamplerTakesAYoungEnoughReading(t *testing.T) {
 	src := &countingSource{}
 	sampler := &Sampler{source: src, interval: time.Millisecond}

@@ -1,8 +1,11 @@
 package history
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +26,7 @@ var pressure = metrics.Extra{
 }
 
 func TestValuesKeepsTheExtrasThatAskForHistory(t *testing.T) {
-	got, _ := values(metrics.Snapshot{Extras: []metrics.Extra{pressure}}, DefaultMaxEntries)
+	got, _, _ := values(metrics.Snapshot{Extras: []metrics.Extra{pressure}}, DefaultMaxEntries)
 
 	want := map[string]float64{MetricCPU: 0, MetricMemory: 0, "extra:pressure/cpu": 4}
 	if !reflect.DeepEqual(got, want) {
@@ -36,10 +39,11 @@ func TestRecorderStoresHowTheExtrasAreDescribed(t *testing.T) {
 	store := openTestStore(t)
 	now := time.Now().Truncate(time.Second)
 	recorder := &Recorder{
-		Store:     store,
-		Recent:    &Recent{},
-		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now, Extras: []metrics.Extra{pressure}}}},
-		Device:    "nas",
+		Store:      store,
+		Recent:     &Recent{},
+		Collector:  &sequenceCollector{[]metrics.Snapshot{{Time: now, Extras: []metrics.Extra{pressure}}}},
+		Device:     "nas",
+		MaxEntries: DefaultMaxEntries,
 	}
 
 	recorder.read(ctx)
@@ -131,4 +135,48 @@ func TestDeleteBeforeDeletesTheDescriptionsOfExtrasWithoutValues(t *testing.T) {
 	if _, ok := got["extra:a/gone"]; ok || len(got) != 2 {
 		t.Errorf("ExtraInfo() = %v, want kept (has values) and new (written recently)", got)
 	}
+}
+
+func TestABrokenDescriptionIsLoggedOnce(t *testing.T) {
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	ctx := context.Background()
+	store := openTestStore(t)
+	for _, metric := range []string{"extra:a/broken", "extra:a/also-broken"} {
+		if _, err := store.db.Exec(`INSERT INTO extra_info (device, metric, info, written) VALUES ('nas', ?, '{', 0)`, metric); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for range 3 {
+		if got, err := store.ExtraInfo(ctx, "nas"); err != nil || len(got) != 0 {
+			t.Fatalf("ExtraInfo() = %v, %v; want nothing", got, err)
+		}
+	}
+
+	if got := strings.Count(logged.String(), "read the description of an extra"); got != 2 {
+		t.Errorf("logged %d times, want once per broken description:\n%s", got, logged.String())
+	}
+
+	// One that is fixed and breaks again is logged again.
+	for _, info := range []string{`{"title":"A"}`, `{`} {
+		if _, err := store.db.Exec(`UPDATE extra_info SET info = ? WHERE metric = 'extra:a/broken'`, info); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ExtraInfo(ctx, "nas"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Count(logged.String(), "read the description of an extra"); got != 3 {
+		t.Errorf("logged %d times, want once more after the description was fixed and broke again", got)
+	}
+
+	if err := store.DeleteDevice(ctx, "nas"); err != nil {
+		t.Fatal(err)
+	}
+	store.brokenInfo.Range(func(key, _ any) bool {
+		t.Errorf("broken description %v kept after its device was deleted", key)
+		return true
+	})
 }
