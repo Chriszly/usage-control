@@ -129,6 +129,29 @@ func TestGuessesInParallelGetOneAnswerASecond(t *testing.T) {
 	}
 }
 
+func TestACancelledWaitLeavesNoClientBehind(t *testing.T) {
+	p := openTestPassword(t)
+	done, err := p.wait(context.Background(), client(office))
+	if err != nil {
+		t.Fatalf("wait() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	waited := make(chan error)
+	go func() { waited <- p.Check(ctx, office, "wrong guess") }()
+	cancel()
+	if err := <-waited; !errors.Is(err, context.Canceled) {
+		t.Errorf("Check() cancelled while waiting: error = %v, want context.Canceled", err)
+	}
+
+	done()
+	p.clientsMu.Lock()
+	defer p.clientsMu.Unlock()
+	if len(p.clients) != 0 {
+		t.Errorf("clients after the checks = %d, want none kept", len(p.clients))
+	}
+}
+
 func TestClientsAreAddressesOrIPv6Networks(t *testing.T) {
 	for from, want := range map[string]string{
 		"192.168.1.20":         "192.168.1.20",

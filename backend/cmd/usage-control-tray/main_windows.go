@@ -50,10 +50,8 @@ type tray struct {
 
 	mu sync.Mutex
 	// paused is set when the service was stopped with Pause.
-	paused bool
-	hub    string
-	// shownHub is the hub's page the menu names, which a click opens.
-	shownHub string
+	paused   bool
+	hub      string
 	settings settings
 	state    state
 	shown    string
@@ -141,8 +139,7 @@ func (t *tray) refresh() {
 	t.status.SetTitle("Usage Control: " + text)
 	t.address.SetTitle(t.text.addressText(addr, found, t.settings.port))
 	if t.hub != "" {
-		t.shownHub = t.hub
-		t.openHub.SetTitle(t.text.hubText(t.shownHub))
+		t.openHub.SetTitle(t.text.hubText(t.hub))
 		t.openHub.Enable()
 	} else {
 		t.openHub.SetTitle(t.text.noHub)
@@ -174,7 +171,7 @@ func (t *tray) handleClicks() {
 		select {
 		case <-t.openHub.ClickedCh:
 			t.mu.Lock()
-			link := t.shownHub
+			link := t.hub
 			t.mu.Unlock()
 			if link != "" {
 				openInBrowser(link)

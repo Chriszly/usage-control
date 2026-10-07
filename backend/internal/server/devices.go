@@ -237,6 +237,9 @@ func writeProblem(w http.ResponseWriter, err error) {
 	case errors.Is(err, hub.ErrStopping):
 		// The program is about to stop; nothing went wrong.
 		http.Error(w, "the hub is stopping; try again once it runs", http.StatusServiceUnavailable)
+	case errors.Is(err, context.Canceled):
+		// The page went away before the change was made.
+		http.Error(w, "the request was cancelled", http.StatusServiceUnavailable)
 	default:
 		slog.Error("change devices", "error", err)
 		http.Error(w, "could not change the devices", http.StatusInternalServerError)

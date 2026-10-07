@@ -70,7 +70,7 @@ A device that did not answer has no values for that time, which shows as a gap i
 
 Changing `RETENTION_DAYS` takes effect at the next start. Shortening it deletes the older values then; lengthening it cannot bring back what was already deleted.
 
-Outages and the list of devices are not bound to the retention: they are kept as long as the device is.
+Outages and the list of devices are not bound to the retention: they are kept as long as the device is. The one exception is a device removed with its history kept: its availability and kind are kept with it, and deleted once it was removed longer than the retention ago, unless a device with the same name was added again, on the page or in `HUB_DEVICES`.
 
 ## Size
 

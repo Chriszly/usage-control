@@ -101,6 +101,13 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 	// A device dropped from HUB_DEVICES without being added on the page is
 	// gone for good: its availability is deleted, as when it is removed on the
 	// page, while its history ages out with the retention.
+	// A device removed with its history kept and now in HUB_DEVICES is
+	// collected from again.
+	for _, device := range fixed {
+		if err := continueKept(ctx, store.DB(), device.ID); err != nil {
+			return nil, err
+		}
+	}
 	if err := h.forgetExpired(ctx, time.Now()); err != nil {
 		return nil, err
 	}
@@ -218,22 +225,28 @@ func (h *Hub) save(ctx context.Context, device Device, kind Kind) error {
 	if err != nil {
 		return err
 	}
-	// A device removed with its history kept continues its availability. The
-	// time it was removed was not watched, so since moves on by that much,
-	// and the share of time it answered counts only the time it was watched.
-	_, err = tx.ExecContext(ctx, `
-		UPDATE hub_watched SET since = since + MAX(0, ?2 - (SELECT removed FROM hub_kept WHERE device = ?1))
-		WHERE device = ?1 AND EXISTS (SELECT 1 FROM hub_kept WHERE device = ?1)`, device.ID, time.Now().Unix())
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM hub_kept WHERE device = ?`, device.ID); err != nil {
+	if err := continueKept(ctx, tx, device.ID); err != nil {
 		return err
 	}
 	if err := storeKind(ctx, tx, device.ID, kind); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// continueKept lets a device removed with its history kept, if device is
+// one, continue its availability, as it is collected from again. The time it
+// was removed was not watched, so since moves on by that much, and the share
+// of time it answered counts only the time it was watched.
+func continueKept(ctx context.Context, db execer, device string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE hub_watched SET since = since + MAX(0, ?2 - (SELECT removed FROM hub_kept WHERE device = ?1))
+		WHERE device = ?1 AND EXISTS (SELECT 1 FROM hub_kept WHERE device = ?1)`, device, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `DELETE FROM hub_kept WHERE device = ?`, device)
+	return err
 }
 
 // SetKind changes what a device is used as, a device from HUB_DEVICES too.
@@ -360,6 +373,13 @@ func (h *Hub) forgetExpired(ctx context.Context, now time.Time) error {
 		return err
 	}
 	for _, device := range expired {
+		if h.find(device) != nil {
+			// Collected from again; only the note that it was removed goes.
+			if err := continueKept(ctx, h.store.DB(), device); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := forget(ctx, h.store.DB(), device); err != nil {
 			return err
 		}

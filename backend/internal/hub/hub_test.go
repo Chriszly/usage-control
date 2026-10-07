@@ -418,6 +418,48 @@ func TestKeepingTheHistoryKeepsAvailabilityAndKindAcrossRestarts(t *testing.T) {
 	}
 }
 
+func TestAKeptDeviceInHubDevicesIsCollectedFromAgain(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := h.Remove(ctx, "laptop", true); err != nil {
+		t.Fatalf("Remove(keepHistory) error = %v", err)
+	}
+	if err := h.waitRemoved(ctx, "laptop", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
+	// Removed longer than the retention ago, then set in HUB_DEVICES.
+	if _, err := store.DB().Exec(`UPDATE hub_kept SET removed = removed - 31*86400`); err != nil {
+		t.Fatal(err)
+	}
+	var sinceBefore int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&sinceBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	again := openTestHub(t, store, []Device{{ID: "laptop", Name: "Laptop", Address: startDevice(t)}})
+	if err := again.forgetExpired(ctx, time.Now()); err != nil {
+		t.Fatalf("forgetExpired() error = %v", err)
+	}
+
+	if kept, err := again.keptHistory(ctx); err != nil || len(kept) != 0 {
+		t.Errorf("kept devices = %q, %v; want none once in HUB_DEVICES", kept, err)
+	}
+	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindPC {
+		t.Errorf("kind = %q, %v; want %q kept", kind, err, KindPC)
+	}
+	var since int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&since); err != nil {
+		t.Fatalf("the device's availability is gone: %v", err)
+	}
+	if gap := since - sinceBefore; gap < 31*86400 || gap > 31*86400+5 {
+		t.Errorf("since moved on by %d s, want the 31 days it was removed", gap)
+	}
+}
+
 func TestKeptDevicesAreForgottenAfterTheRetention(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
