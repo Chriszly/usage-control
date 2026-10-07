@@ -203,6 +203,7 @@ export const es: Messages = {
   'history.diskActivity': 'Actividad de discos',
   'history.diskRead': '{path} leído',
   'history.diskWritten': '{path} escrito',
+  'history.chartSummary': 'Gráfico de {title} del {from} al {to}: {lines}',
   'languageSwitcher.label': 'Idioma',
   'bytes.unit.b': 'B',
   'bytes.unit.kib': 'KiB',

@@ -5,11 +5,12 @@ import {
   HttpRequest,
   HttpResponse,
 } from '@angular/common/http';
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable, delay, mergeMap, of, throwError, timer } from 'rxjs';
 
 import { Availability, DeviceList, LOCAL_DEVICE, Suggestion } from '../app/devices/devices';
 import { History, Series } from '../app/metrics/metrics';
+import { DEMO_BUILD, demoVersion } from './demo-build';
 import { DemoMachine, FLEET, extraInfoOf, offlineSince, snapshotOf } from './fleet';
 
 /** How many days of history the demo hub keeps; more than 30 shows the "All" range. */
@@ -37,6 +38,8 @@ const LATENCY_MS = 60;
  */
 @Injectable()
 export class DemoBackend implements HttpBackend {
+  private readonly version = demoVersion(inject(DEMO_BUILD));
+
   handle(request: HttpRequest<unknown>): Observable<HttpEvent<unknown>> {
     const url = new URL(request.urlWithParams, 'http://demo');
     const device = url.searchParams.get('device') ?? LOCAL_DEVICE.id;
@@ -58,7 +61,7 @@ export class DemoBackend implements HttpBackend {
     switch (url.pathname) {
       case '/api/metrics':
         return isOnline(machine, now)
-          ? respond(request, snapshotOf(machine, Math.floor(now)))
+          ? respond(request, snapshotOf(machine, Math.floor(now), this.version))
           : fail(request, 503, 'the device has not answered recently');
       case '/api/history':
         return respond(

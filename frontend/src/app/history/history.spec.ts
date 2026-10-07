@@ -171,6 +171,18 @@ describe('HistoryCharts', () => {
     expect(respond(10).from).toBe(NOW_SECONDS - 10 * 86400);
   });
 
+  it('shows the longest range offered when the picked one is longer than the retention', () => {
+    respond();
+    click(UNIT, 'Days');
+    // The 30 days were picked before the backend said it keeps 10.
+    expect(respond(10).from).toBe(NOW_SECONDS - 30 * 86400);
+
+    expect(respond(10).from).toBe(NOW_SECONDS - 10 * 86400);
+    expect(element().querySelector('.units button[aria-pressed=true]')?.textContent?.trim()).toBe(
+      'All',
+    );
+  });
+
   it('shows another device as loading, not with the error of the previous one', () => {
     respond();
     vi.advanceTimersByTime(5_000);

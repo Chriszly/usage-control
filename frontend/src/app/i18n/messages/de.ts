@@ -203,6 +203,7 @@ export const de: Messages = {
   'history.diskActivity': 'Datenträgeraktivität',
   'history.diskRead': '{path} gelesen',
   'history.diskWritten': '{path} geschrieben',
+  'history.chartSummary': 'Diagramm {title} von {from} bis {to}: {lines}',
   'languageSwitcher.label': 'Sprache',
   'bytes.unit.b': 'B',
   'bytes.unit.kib': 'KiB',
@@ -214,7 +215,7 @@ export const de: Messages = {
   'format.time': 'HH:mm',
   'format.timeSeconds': 'HH:mm:ss',
   'format.weekdayTime': 'EEE HH:mm',
-  'format.dayMonth': 'd MMM',
-  'format.dateTime': 'EEE d MMM, HH:mm',
-  'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  'format.dayMonth': 'd. MMM',
+  'format.dateTime': 'EEE d. MMM, HH:mm',
+  'format.dateTimeSeconds': 'EEE d. MMM, HH:mm:ss',
 };
