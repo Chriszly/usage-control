@@ -35,8 +35,8 @@ var (
 // without its Wireless LAN feature), with the WLAN AutoConfig service
 // stopped or without a Wi-Fi adapter it reads nothing; why is logged once,
 // and again when it changes, not every few seconds. While nothing is
-// connected, the problem logged last stands: it shows again at the next
-// connection, so a disconnect is not reported as reading in full again.
+// connected, a problem with reading a connection stands (see
+// standingProblem), so a disconnect is not reported as reading in full again.
 //
 // It keeps one WLAN handle open, opened at the first read and again after
 // the API failed, and closes it when ctx of the first read is done.
@@ -48,6 +48,8 @@ func NewReader() func(ctx context.Context) []Reading {
 		open     bool
 		closed   bool
 		logged   string
+		// loggedOfConnection is whether logged came from reading a connection.
+		loggedOfConnection bool
 	)
 	closeHandle := func() {
 		if open {
@@ -85,13 +87,13 @@ func NewReader() func(ctx context.Context) []Reading {
 				closeHandle()
 			}
 		}
-		if problem = standingProblem(logged, problem, connected); problem != logged {
+		if problem = standingProblem(logged, loggedOfConnection, problem, connected); problem != logged {
 			if problem != "" {
 				slog.Info("Wi-Fi is read only in part or not at all", "reason", problem)
 			} else {
 				slog.Info("Wi-Fi is read in full again")
 			}
-			logged = problem
+			logged, loggedOfConnection = problem, connected > 0
 		}
 		return readings
 	}

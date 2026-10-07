@@ -3,6 +3,7 @@ package wifi
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // The machine may have no Wi-Fi, as a CI runner has none; the reader must
@@ -28,11 +29,11 @@ func TestNewReaderReadsThisMachine(t *testing.T) {
 
 	cancel()
 	// The handle is closed after ctx is done, in a goroutine of its own;
-	// a read waits for it and then finds the reader closed.
-	for range 100 {
-		if read(context.Background()) == nil {
-			return
+	// a read after that finds the reader closed.
+	for deadline := time.Now().Add(5 * time.Second); read(context.Background()) != nil; {
+		if time.Now().After(deadline) {
+			t.Fatal("the reader still reads after its context is done")
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Error("the reader still reads after its context is done")
 }
