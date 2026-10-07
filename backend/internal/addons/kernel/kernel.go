@@ -228,8 +228,8 @@ func parseSockstat(text string) counters {
 
 // parseSNMP reads CurrEstab and RetransSegs of /proc/net/snmp, where each
 // protocol has a line of names followed by a line of numbers. CurrEstab is
-// the TCP connections in the states ESTABLISHED and CLOSE-WAIT, as Windows
-// counts them, over IPv4 and IPv6.
+// the TCP connections in the state ESTABLISHED, and since Linux 6.10 also
+// CLOSE-WAIT, as Windows counts them, over IPv4 and IPv6.
 func parseSNMP(text string) counters {
 	ids := map[string]string{"CurrEstab": tcpEstablished, "RetransSegs": retransmissions}
 	var names []string
