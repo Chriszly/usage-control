@@ -109,7 +109,7 @@ Example:
 }]
 ```
 
-Before showing or storing another device's extras, the hub keeps at most `HISTORY_MAX_ENTRIES` groups and as many values per group, cuts titles, labels and texts to 80 characters, and leaves out groups and values with an invalid or repeated `id` and values without a value. The page draws one chart per group and unit of the values with `history: true`.
+Before showing or storing another device's extras, the hub keeps at most `HISTORY_MAX_ENTRIES` groups and as many values per group (where there are more, the ones with `history: true` first, then the others, each by `id`, shown in the order the device lists them), cuts titles, labels and texts to 80 characters, and leaves out groups and values with an invalid or repeated `id` and values without a value. The page draws one chart per group and unit of the values with `history: true`.
 
 ## What is kept in the history
 

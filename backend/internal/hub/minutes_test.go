@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -280,6 +280,28 @@ func TestFetcherCleansTheMinutesOfTheDevice(t *testing.T) {
 	}
 	if after != 1180 || f.after != 1000 {
 		t.Errorf("after = %d, fetcher's after %d; want 1180, the last minute taken, and the fetcher's unchanged until they are stored", after, f.after)
+	}
+}
+
+func TestFetcherLogsLeftOutValuesOnce(t *testing.T) {
+	var logged strings.Builder
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	f := &fetcher{after: 1000, maxEntries: 2}
+	for i := range 3 {
+		at := int64(1060 + 60*i)
+		f.clean(MinutesAnswer{Now: at, Minutes: []history.Minute{{Time: at, Values: map[string]float64{
+			"disk:/" + strings.Repeat("x", 300): 1,              // a name too long
+			"disk:/a": 1, "disk:/b": 2, "disk:/c": 3, "cpu": 4, // too many disks
+		}}}})
+		f.after = at
+	}
+
+	if n := strings.Count(logged.String(), "names too long"); n != 1 {
+		t.Errorf("names too long logged %d times, want once:\n%s", n, logged.String())
+	}
+	if n := strings.Count(logged.String(), "raise HISTORY_MAX_ENTRIES"); n != 1 {
+		t.Errorf("too many entries logged %d times, want once:\n%s", n, logged.String())
 	}
 }
 
@@ -722,80 +744,5 @@ func TestFetcherDescribesTheExtrasItFetches(t *testing.T) {
 	// Cut down as the extras of a reading are.
 	if gpu := got["extra:power/gpu"]; len(gpu.Label) != 80 || gpu.Unit != metrics.UnitNumber {
 		t.Errorf("the fetched description = %+v, want its label cut to 80 characters and an unknown unit a number", gpu)
-	}
-}
-
-func TestKeepKeepsWhatTheRecorderKeeps(t *testing.T) {
-	values := map[string]float64{
-		"cpu": 1, "memory": 2, "swap": 3, "battery": 4,
-		"temperature:b": 5, "temperature:a": 6, "temperature:c": 7,
-		"disk:/b": 8, "disk.read:/b": 9, "disk.write:/b": 10, "disk:/a": 11, "disk.read:/c": 12,
-		"network.receive:eth0": 13, "network.send:eth0": 14, "network.send:eth1": 15, "network.send:wlan0": 16,
-		"gpu:one": 17, "gpu.memory:one": 18,
-		"extra:power/cpu": 19, "extra:power/gpu": 20, "extra:power/soc": 21,
-		"extra:alpha/one": 22, "extra:zeta/one": 23, "extra:Bad/one": 24,
-		"unknown": 25, "fan:one": 26,
-	}
-	want := map[string]float64{
-		"cpu": 1, "memory": 2, "swap": 3, "battery": 4,
-		"temperature:a": 6, "temperature:b": 5,
-		"disk:/b": 8, "disk.read:/b": 9, "disk.write:/b": 10, "disk:/a": 11,
-		"network.receive:eth0": 13, "network.send:eth0": 14, "network.send:eth1": 15,
-		"gpu:one": 17, "gpu.memory:one": 18,
-		"extra:alpha/one": 22, "extra:power/cpu": 19, "extra:power/gpu": 20,
-	}
-	// The same every time, not whichever the order of a map picks.
-	for range 20 {
-		got, dropped, tooLong := keep(values, 2)
-		if !reflect.DeepEqual(got, want) || !dropped || tooLong {
-			t.Fatalf("keep() = %v, %v, %v; want %v, true, false", got, dropped, tooLong, want)
-		}
-	}
-	if _, dropped, _ := keep(map[string]float64{"cpu": 1, "disk:/a": 2}, 2); dropped {
-		t.Error("keep() of fewer entries than kept dropped some")
-	}
-}
-
-func TestKeepKeepsAsManyExtrasAsTheRecorder(t *testing.T) {
-	// 30 groups of 30 values each: within the groups and values per group
-	// kept, but more values than the history keeps of extras in all.
-	values := map[string]float64{}
-	var all []string
-	for group := range 30 {
-		for item := range 30 {
-			metric := fmt.Sprintf("extra:g%02d/v%02d", group, item)
-			values[metric] = 1
-			all = append(all, metric)
-		}
-	}
-	got, dropped, _ := keep(values, 30)
-
-	slices.Sort(all)
-	want := map[string]float64{}
-	for _, metric := range all[:history.MaxExtras(30)] {
-		want[metric] = 1
-	}
-	if !reflect.DeepEqual(got, want) || !dropped {
-		t.Errorf("keep() kept %d extras, dropped %v; want the first %d by name, as the recorder keeps", len(got), dropped, history.MaxExtras(30))
-	}
-	if len(values) <= history.MaxExtras(history.DefaultMaxEntries) {
-		t.Fatalf("only %d extras, want more than the %d kept by default", len(values), history.MaxExtras(history.DefaultMaxEntries))
-	}
-	if got, _, _ := keep(values, history.DefaultMaxEntries); len(got) != history.MaxExtras(history.DefaultMaxEntries) {
-		t.Errorf("keep() with the default kept %d extras, want %d", len(got), history.MaxExtras(history.DefaultMaxEntries))
-	}
-}
-
-func TestKeepLeavesOutAnEntryWhoseLongestMetricIsTooLong(t *testing.T) {
-	// "disk:" and this path fit, "disk.write:" and it do not: the recorder
-	// leaves out the whole disk, so the hub does too.
-	path := "/" + strings.Repeat("x", maxMetricLength-len("disk:")-1)
-	values := map[string]float64{"cpu": 1, "disk:" + path: 2, "disk.read:/a": 3, "temperature:" + path: 4}
-
-	got, dropped, tooLong := keep(values, 10)
-
-	want := map[string]float64{"cpu": 1, "disk.read:/a": 3}
-	if !reflect.DeepEqual(got, want) || dropped || !tooLong {
-		t.Errorf("keep() = %v, %v, %v; want %v, false, true", got, dropped, tooLong, want)
 	}
 }

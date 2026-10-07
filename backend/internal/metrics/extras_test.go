@@ -67,6 +67,36 @@ func TestCleanExtrasKeepsAtMostMaxEntries(t *testing.T) {
 	}
 }
 
+func TestCleanExtrasKeepsTheOnesWithAHistoryFirstByID(t *testing.T) {
+	text := ExtraItem{ID: "a", Unit: UnitText, Text: "hi"}
+	extras := []Extra{
+		{ID: "z", Items: []ExtraItem{text}},
+		{ID: "y", Items: []ExtraItem{
+			text,
+			{ID: "d", Unit: UnitNumber, Value: number(1), History: true},
+			{ID: "b", Unit: UnitNumber, Value: number(2)},
+			{ID: "c", Unit: UnitNumber, Value: number(3), History: true},
+		}},
+		{ID: "x", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(4)}}},
+		{ID: "w", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(5), History: true}}},
+		{ID: "v", Items: []ExtraItem{text}},
+	}
+
+	got := CleanExtras(extras, 2)
+
+	// In the order the device listed them.
+	want := []Extra{
+		{ID: "y", Items: []ExtraItem{
+			{ID: "d", Unit: UnitNumber, Value: number(1), History: true},
+			{ID: "c", Unit: UnitNumber, Value: number(3), History: true},
+		}},
+		{ID: "w", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(5), History: true}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CleanExtras() = %+v, want %+v", got, want)
+	}
+}
+
 func TestCleanTranslationsKeepsTheSameLanguagesEveryTime(t *testing.T) {
 	texts := map[string]string{"af": ""}
 	for _, language := range []string{"zu", "de", "fr", "es", "it", "nl", "pl", "pt", "sv", "da", "fi"} {

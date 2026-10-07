@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -268,7 +267,7 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 			break
 		}
 		after = minute.Time
-		values, dropped, tooLong := keep(minute.Values, f.maxEntries)
+		values, dropped, tooLong := history.Keep(minute.Values, f.maxEntries)
 		if dropped && !f.dropped {
 			f.dropped = true
 			slog.Warn("the device kept more disks, sensors, network cards, GPUs or extras than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
@@ -284,118 +283,6 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 		}
 	}
 	return minutes, after
-}
-
-// single are the metrics a device has once.
-var single = map[string]bool{
-	history.MetricCPU: true, history.MetricMemory: true, history.MetricSwap: true, history.MetricBattery: true,
-}
-
-// perEntry names, for the metrics that exist once per disk, sensor, network
-// card or GPU, what they exist once per, by the longest of its kind's metrics:
-// one whose name makes that longer than maxMetricLength is left out with all
-// its metrics, as the recorder leaves it out.
-var perEntry = map[string]string{
-	history.MetricTemperature:    history.MetricTemperature,
-	history.MetricDisk:           history.MetricDiskWrite,
-	history.MetricDiskRead:       history.MetricDiskWrite,
-	history.MetricDiskWrite:      history.MetricDiskWrite,
-	history.MetricNetworkReceive: history.MetricNetworkReceive,
-	history.MetricNetworkSend:    history.MetricNetworkReceive,
-	history.MetricGPU:            history.MetricGPUMemory,
-	history.MetricGPUMemory:      history.MetricGPUMemory,
-}
-
-// entry is one disk, sensor, network card, GPU, group of extras or extra:
-// kind says which (for an extra, its group), name which one.
-type entry struct{ kind, name string }
-
-// keep returns the values of one minute the history keeps of a device, as
-// the recorder keeps of its readings: the ones it knows, with values that
-// can be stored, of at most maxEntries disks, sensors, network cards and GPUs
-// each whose names fit in maxMetricLength, and of the extras at most
-// history.MaxExtras, of at most maxEntries groups of maxEntries extras each.
-// Where there are more, the first by name are kept, so every minute keeps the
-// same ones; dropped tells whether any were left out for those limits, and
-// tooLong whether any were for their names.
-func keep(values map[string]float64, maxEntries int) (kept map[string]float64, dropped, tooLong bool) {
-	entries := map[string][]entry{}
-	names := map[string]map[string]bool{}
-	for metric, value := range values {
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			continue
-		}
-		of, ok, long := entriesOf(metric)
-		tooLong = tooLong || long
-		if !ok {
-			continue
-		}
-		entries[metric] = of
-		for _, e := range of {
-			if names[e.kind] == nil {
-				names[e.kind] = map[string]bool{}
-			}
-			names[e.kind][e.name] = true
-		}
-	}
-	keptEntries := map[entry]bool{}
-	for kind, set := range names {
-		sorted := slices.Sorted(maps.Keys(set))
-		if len(sorted) > maxEntries {
-			sorted, dropped = sorted[:maxEntries], true
-		}
-		for _, name := range sorted {
-			keptEntries[entry{kind, name}] = true
-		}
-	}
-	kept = map[string]float64{}
-	var extras []string
-	for metric, of := range entries {
-		if slices.ContainsFunc(of, func(e entry) bool { return !keptEntries[e] }) {
-			continue
-		}
-		if strings.HasPrefix(metric, history.MetricExtra+":") {
-			extras = append(extras, metric)
-		} else {
-			kept[metric] = values[metric]
-		}
-	}
-	if len(extras) > history.MaxExtras(maxEntries) {
-		slices.Sort(extras)
-		extras, dropped = extras[:history.MaxExtras(maxEntries)], true
-	}
-	for _, metric := range extras {
-		kept[metric] = values[metric]
-	}
-	return kept, dropped, tooLong
-}
-
-// entriesOf returns what a metric belongs to, and false for one the history
-// does not keep; tooLong tells that is for the name of its disk, sensor,
-// network card or GPU.
-func entriesOf(metric string) (of []entry, ok, tooLong bool) {
-	if single[metric] {
-		return nil, true, false
-	}
-	kind, name, ok := strings.Cut(metric, ":")
-	if !ok || name == "" {
-		return nil, false, false
-	}
-	if kind == history.MetricExtra {
-		group, item, ok := strings.Cut(name, "/")
-		if !ok || !metrics.ValidID(group) || !metrics.ValidID(item) {
-			return nil, false, false
-		}
-		return []entry{{kind, group}, {kind + ":" + group, item}}, true, false
-	}
-	longest, ok := perEntry[kind]
-	if !ok {
-		return nil, false, false
-	}
-	if len(longest)+1+len(name) > maxMetricLength {
-		return nil, false, true
-	}
-	return []entry{{longest, name}}, true, false
 }
 
 // describe stores how the extras among minutes are described, as far as the
