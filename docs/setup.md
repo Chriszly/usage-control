@@ -163,8 +163,11 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `HISTORY_MAX_ENTRIES` | with `WEBSITE=1`, how many disks, sensors, network cards and GPUs each the history keeps per device (default 64) |
 | `BUFFER_HOURS` | without `WEBSITE=1`, hours of usage kept for a hub that cannot reach this PC, from 1 to 168 (default 24) |
 | `ALLOWED_HOSTS` | other names this PC answers to, such as a name from the router's DNS the hub uses for it |
+| `DISK_PATHS` | drives or folders whose disks are shown, comma-separated, such as `C:\,D:\` (default: the system drive) |
+| `UPDATE_CHECK` | with `WEBSITE=1`, `false` stops the daily check for a newer release (default `true`) |
+| `RESET_PASSWORD` | with `WEBSITE=1`, `true` deletes the password for changing devices when the service starts; the one option that is not remembered, see [the password](#4-add-the-devices-on-the-hub) |
 
-An update closes the tray icon while it replaces it; it comes back at the next login, or right away when the update ran through the wizard. An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
+An update closes the tray icon while it replaces it; it comes back at the next login, or right away when the update ran through the wizard. An update keeps the options it was installed with, except `RESET_PASSWORD`, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
 
 The service writes errors to the Windows event log (*Application*, source *UsageControl*); each add-on writes its warnings and errors there too, under its service's name, such as *UsageControlSmart*. When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
 
@@ -193,7 +196,12 @@ The kind can be changed later in the list, for devices from `HUB_DEVICES` too; t
 
 Opened from a device that is not added yet, the dialog fills in that device's address with port 9393, its kind (a PC when it has a battery or runs Windows), and its name when the hub can find it out: the `DEVICE_NAME` or hostname that its usage-control reports, or else the name the router gives it in the local DNS. So the quickest way to add a PC is to open the hub's page on that PC. Change the port if the device listens on another one.
 
-The first device you add asks you to choose a password, at least 8 characters, typed twice. From then on, adding or removing a device or changing its kind asks for it; it cannot be changed on the page. If it is forgotten, set `RESET_PASSWORD=true` on the hub, restart it, and unset it again right away: while it is set, every restart deletes the password, and whoever next adds or removes a device chooses the new one.
+The first device you add asks you to choose a password, at least 8 characters, typed twice. From then on, adding or removing a device or changing its kind asks for it; it cannot be changed on the page. If it is forgotten, set `RESET_PASSWORD=true` on the hub, restart it, and unset it again right away: while it is set, every restart deletes the password, and whoever next adds or removes a device chooses the new one. On a Windows hub, repair the installed version with its installer and the option, from a command prompt run as administrator, then repair it once more without the option; each repair keeps the other options and restarts the service:
+
+```bat
+msiexec /fm usage-control-<version>-x64.msi RESET_PASSWORD=true
+msiexec /fm usage-control-<version>-x64.msi
+```
 
 Removing a device deletes its history too, unless *Keep its history* is ticked. The history is kept under the device's name, so renaming a device (removing it and adding it under a new name) starts a new history.
 

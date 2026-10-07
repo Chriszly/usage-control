@@ -62,6 +62,13 @@
                     cannot reach this PC, from 1 to 168 (default 24)
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
+    DISK_PATHS      drives or folders whose disks are shown, comma-separated
+                    (default: the system drive)
+    UPDATE_CHECK    with WEBSITE=1, false to stop the daily check for a newer
+                    release (default true)
+    RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
+                    devices when the service starts; not remembered, so the
+                    next install, update or repair without it turns it off
     POWER           1 to install the power add-on, 0 to remove it in an update
                     (default: not installed)
     GPU             1 to install the gpu add-on, 0 to remove it in an update
@@ -73,8 +80,8 @@
     SMART           1 to install the smart add-on, 0 to remove it in an update
     PROCESSES       1 to install the processes add-on, 0 to remove it in an update
                     (default: not installed)
-  An update keeps the options of the installed version; options given to the
-  update replace them.
+  An update keeps the options of the installed version, except RESET_PASSWORD;
+  options given to the update replace them.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
@@ -100,24 +107,33 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;DISK_PATHS;UPDATE_CHECK;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
     <SetProperty Action="Save$(Setting)" Id="CMDLINE_$(Setting)" Value="[$(Setting)]" Before="AppSearch" Sequence="both" Condition="$(Setting)" />
     <SetProperty Action="Restore$(Setting)" Id="$(Setting)" Value="[CMDLINE_$(Setting)]" After="AppSearch" Sequence="both" Condition="CMDLINE_$(Setting)" />
     <?endforeach?>
+    <!--
+      RESET_PASSWORD is the one option that is not remembered: while it is set,
+      every start of the service deletes the password, so it applies only to
+      the install, update or repair it is given to.
+    -->
+    <Property Id="RESET_PASSWORD" Secure="yes" />
 
     <!--
       Derived from the options, once all of them are known. Without WEBSITE=1
       the service only serves the usage to a hub, and ignores HUB_DEVICES.
+      DataOnly and ServiceHubDevices are private (mixed case), so the setup
+      wizard does not pass them on to the install: they are worked out there
+      from WEBSITE as the wizard left it, also when the wizard switched it
+      from the remembered 1 to 0.
     -->
     <SetProperty Action="DefaultPORT" Id="PORT" Value="9393" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
     <SetProperty Action="DefaultWEBSITE" Id="WEBSITE" Value="0" After="LaunchConditions" Sequence="both" Condition="NOT WEBSITE" />
-    <Property Id="DATA_ONLY" Value="true" Secure="yes" />
-    <Property Id="SERVICE_HUB_DEVICES" Secure="yes" />
-    <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
-    <SetProperty Action="WebsiteHubDevices" Id="SERVICE_HUB_DEVICES" Value="[HUB_DEVICES]" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
+    <Property Id="DataOnly" Value="true" />
+    <SetProperty Action="WebsiteOn" Id="DataOnly" Value="false" After="DefaultWEBSITE" Sequence="execute" Condition='WEBSITE = "1"' />
+    <SetProperty Action="WebsiteHubDevices" Id="ServiceHubDevices" Value="[HUB_DEVICES]" After="DefaultWEBSITE" Sequence="execute" Condition='WEBSITE = "1"' />
 
     <!--
       Each add-on's box on the Add-ons page has a property of its own, ticked
@@ -171,19 +187,22 @@
       <!-- The service's settings, read by the program as environment variables. -->
       <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControl" Name="Environment" Type="multiString">
         <MultiStringValue Value="LISTEN_ADDR=:[PORT]" />
-        <MultiStringValue Value="DATA_ONLY=[DATA_ONLY]" />
+        <MultiStringValue Value="DATA_ONLY=[DataOnly]" />
         <MultiStringValue Value="DATABASE_PATH=[DATAFOLDER]usage-control.db" />
         <MultiStringValue Value="DEVICE_NAME=[DEVICE_NAME]" />
-        <MultiStringValue Value="HUB_DEVICES=[SERVICE_HUB_DEVICES]" />
+        <MultiStringValue Value="HUB_DEVICES=[ServiceHubDevices]" />
         <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
         <MultiStringValue Value="HISTORY_MAX_ENTRIES=[HISTORY_MAX_ENTRIES]" />
         <MultiStringValue Value="BUFFER_HOURS=[BUFFER_HOURS]" />
         <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
+        <MultiStringValue Value="DISK_PATHS=[DISK_PATHS]" />
+        <MultiStringValue Value="UPDATE_CHECK=[UPDATE_CHECK]" />
+        <MultiStringValue Value="RESET_PASSWORD=[RESET_PASSWORD]" />
         <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;DISK_PATHS;UPDATE_CHECK;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
