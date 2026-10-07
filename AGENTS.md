@@ -38,7 +38,7 @@ Temperature is not available on every platform; where the OS does not expose it,
 - Validate all user input
 - Read hardware data read-only; the website never changes the machine it monitors
 - When the site runs in a container, drop unnecessary capabilities and don't run it privileged
-- An add-on container whose files only root can read (the power add-on, for the RAPL counters) is the one exception to the non-root rule: it runs as root, but still with every capability dropped, a read-only file system, `no-new-privileges` and no network
+- An add-on container that reads files only root can read is the exception to the non-root rule (the power add-on, for the RAPL counters): it runs as root, but still with every capability dropped, a read-only file system, `no-new-privileges` and no network. Every other add-on container runs as the image's non-root user
 
 ## Testing Requirements
 

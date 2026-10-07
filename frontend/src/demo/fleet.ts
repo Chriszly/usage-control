@@ -1,5 +1,5 @@
 import { Device, LOCAL_DEVICE } from '../app/devices/devices';
-import { Extra, ExtraInfo } from '../app/metrics/extras';
+import { Extra, ExtraInfo, ExtraUnit } from '../app/metrics/extras';
 import { Snapshot, Throttling, TimeZone } from '../app/metrics/metrics';
 
 /**
@@ -120,6 +120,298 @@ function powerAddOn(
       title: 'Power',
       titles: { de: 'Leistungsaufnahme', fr: 'Consommation', es: 'Consumo' },
       items: items.map((item) => ({ ...item, unit: 'watts', history: true })),
+    },
+  ];
+}
+
+/** What the pressure add-on reports; its percentages come from values() as "extra:pressure/<id>". */
+function pressureAddOn(): Extra[] {
+  const items: { id: string; label: string; labels: Record<string, string> }[] = [
+    {
+      id: 'cpu-some',
+      label: 'CPU: tasks waiting',
+      labels: {
+        de: 'CPU: Prozesse warten',
+        fr: 'Processeur : tâches en attente',
+        es: 'CPU: tareas en espera',
+      },
+    },
+    {
+      id: 'memory-some',
+      label: 'Memory: tasks waiting',
+      labels: {
+        de: 'Arbeitsspeicher: Prozesse warten',
+        fr: 'Mémoire : tâches en attente',
+        es: 'Memoria: tareas en espera',
+      },
+    },
+    {
+      id: 'memory-full',
+      label: 'Memory: all tasks stalled',
+      labels: {
+        de: 'Arbeitsspeicher: alle Prozesse blockiert',
+        fr: 'Mémoire : toutes les tâches bloquées',
+        es: 'Memoria: todas las tareas bloqueadas',
+      },
+    },
+    {
+      id: 'io-some',
+      label: 'Disks and I/O: tasks waiting',
+      labels: {
+        de: 'Datenträger und E/A: Prozesse warten',
+        fr: 'Disques et E/S : tâches en attente',
+        es: 'Discos y E/S: tareas en espera',
+      },
+    },
+    {
+      id: 'io-full',
+      label: 'Disks and I/O: all tasks stalled',
+      labels: {
+        de: 'Datenträger und E/A: alle Prozesse blockiert',
+        fr: 'Disques et E/S : toutes les tâches bloquées',
+        es: 'Discos y E/S: todas las tareas bloqueadas',
+      },
+    },
+  ];
+  return [
+    {
+      id: 'pressure',
+      title: 'Pressure',
+      titles: { de: 'Engpässe', fr: 'Saturation', es: 'Saturación' },
+      items: items.map((item) => ({ ...item, unit: 'percent', history: true })),
+    },
+  ];
+}
+
+/** What the gpu add-on reports of one NVIDIA GPU; its values come from gpuAddOnValues(). */
+function gpuAddOn(performanceState: string): Extra[] {
+  const item = (
+    id: string,
+    label: string,
+    labels: Record<string, string>,
+    unit: ExtraUnit,
+    history: boolean,
+  ) => ({ id: `0-${id}`, label, labels, unit, history });
+  return [
+    {
+      id: 'gpu',
+      title: 'Graphics card',
+      titles: { de: 'Grafikkarte', fr: 'Carte graphique', es: 'Tarjeta gráfica' },
+      items: [
+        item('fan', 'Fan', { de: 'Lüfter', fr: 'Ventilateur', es: 'Ventilador' }, 'percent', true),
+        item(
+          'graphics-clock',
+          'Graphics clock (MHz)',
+          {
+            de: 'Grafiktakt (MHz)',
+            fr: 'Fréquence graphique (MHz)',
+            es: 'Frecuencia gráfica (MHz)',
+          },
+          'number',
+          true,
+        ),
+        item(
+          'memory-clock',
+          'Memory clock (MHz)',
+          {
+            de: 'Speichertakt (MHz)',
+            fr: 'Fréquence mémoire (MHz)',
+            es: 'Frecuencia de memoria (MHz)',
+          },
+          'number',
+          true,
+        ),
+        item(
+          'encoder',
+          'Video encoder',
+          { de: 'Video-Encoder', fr: 'Encodeur vidéo', es: 'Codificador de vídeo' },
+          'percent',
+          true,
+        ),
+        item(
+          'decoder',
+          'Video decoder',
+          { de: 'Video-Decoder', fr: 'Décodeur vidéo', es: 'Decodificador de vídeo' },
+          'percent',
+          true,
+        ),
+        {
+          ...item(
+            'performance-state',
+            'Performance state',
+            { de: 'Leistungszustand', fr: 'État de performance', es: 'Estado de rendimiento' },
+            'text',
+            false,
+          ),
+          text: performanceState,
+        },
+        item(
+          'power-limit',
+          'Power limit',
+          { de: 'Leistungsgrenze', fr: 'Limite de puissance', es: 'Límite de potencia' },
+          'watts',
+          false,
+        ),
+      ],
+    },
+  ];
+}
+
+/** What the inodes add-on reports for the given mount points; their percentages come from values() as "extra:inodes/<id>". */
+function inodesAddOn(items: { id: string; label: string }[]): Extra[] {
+  return [
+    {
+      id: 'inodes',
+      title: 'Inodes (files) in use',
+      titles: {
+        de: 'Belegte Inodes (Dateien)',
+        fr: 'Inodes (fichiers) utilisés',
+        es: 'Inodos (archivos) en uso',
+      },
+      items: items.map((item) => ({ ...item, unit: 'percent', history: true })),
+    },
+  ];
+}
+
+/** The I/O pressure of pressureAddOn(), with "all tasks stalled" a share of "tasks waiting", whose time it is part of. */
+function ioPressure(some: number, fullShare: number): Record<string, number> {
+  return { 'extra:pressure/io-some': some, 'extra:pressure/io-full': some * fullShare };
+}
+
+/** The values of gpuAddOn() at a GPU usage of gpu percent. */
+function gpuAddOnValues(
+  gpu: number,
+  maxClockMHz: number,
+  memoryClockMHz: number,
+  powerLimitWatts: number,
+  video: number,
+): Record<string, number> {
+  return {
+    'extra:gpu/0-fan': gpu < 15 ? 0 : 30 + gpu * 0.4,
+    'extra:gpu/0-graphics-clock': Math.round(210 + (maxClockMHz - 210) * Math.min(1, gpu / 40)),
+    'extra:gpu/0-memory-clock': gpu < 5 ? 405 : memoryClockMHz,
+    'extra:gpu/0-encoder': video,
+    'extra:gpu/0-decoder': video * 0.6,
+    'extra:gpu/0-power-limit': powerLimitWatts,
+  };
+}
+
+/** What the kernel add-on reports; its values come from values() as "extra:kernel/<id>", from kernelValues(). */
+function kernelAddOn(): Extra[] {
+  const perSecond = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'perSecond' as const,
+    history: true,
+  });
+  const number = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'number' as const,
+    history: true,
+  });
+  return [
+    {
+      id: 'kernel',
+      title: 'Kernel',
+      titles: { de: 'Kernel', fr: 'Noyau', es: 'Núcleo' },
+      items: [
+        perSecond('context-switches', 'Context switches', {
+          de: 'Kontextwechsel',
+          fr: 'Changements de contexte',
+          es: 'Cambios de contexto',
+        }),
+        perSecond('interrupts', 'Interrupts', {
+          de: 'Interrupts',
+          fr: 'Interruptions',
+          es: 'Interrupciones',
+        }),
+        perSecond('new-processes', 'New processes and threads', {
+          de: 'Neue Prozesse und Threads',
+          fr: 'Nouveaux processus et threads',
+          es: 'Procesos e hilos nuevos',
+        }),
+        number('open-files', 'Open files', {
+          de: 'Offene Dateien',
+          fr: 'Fichiers ouverts',
+          es: 'Archivos abiertos',
+        }),
+        number('sockets', 'Sockets in use', {
+          de: 'Belegte Sockets',
+          fr: 'Sockets utilisés',
+          es: 'Sockets en uso',
+        }),
+        number('tcp-established', 'Established TCP connections', {
+          de: 'Aufgebaute TCP-Verbindungen',
+          fr: 'Connexions TCP établies',
+          es: 'Conexiones TCP establecidas',
+        }),
+        perSecond('tcp-retransmissions', 'TCP retransmissions', {
+          de: 'TCP-Neuübertragungen',
+          fr: 'Retransmissions TCP',
+          es: 'Retransmisiones TCP',
+        }),
+      ],
+    },
+  ];
+}
+
+/** The kernel add-on's values at t for a machine with the given CPU usage, scaled by size (1 for a Raspberry Pi). */
+function kernelValues(t: number, step: number, seed: number, cpu: number, size: number): Values {
+  const count = (base: number, swing: number, period: number, i: number) =>
+    Math.round(vary(t, step, seed + i, base * size, [[swing * size, period]], 0, 1e9));
+  return {
+    'extra:kernel/context-switches': (900 + cpu * 60) * size + count(0, 200, 30, 0),
+    'extra:kernel/interrupts': (700 + cpu * 35) * size + count(0, 150, 30, 1),
+    'extra:kernel/new-processes': vary(t, step, seed + 2, 1 + cpu * 0.08, [[1, 60]], 0, 1e6) * size,
+    'extra:kernel/open-files': count(1400, 150, 3600, 3),
+    'extra:kernel/sockets': count(160, 20, 1800, 4),
+    'extra:kernel/tcp-established': count(12, 6, 900, 5),
+    'extra:kernel/tcp-retransmissions': vary(t, step, seed + 6, 0.2, [[0.3, 120]], 0, 1e6) * size,
+  };
+}
+
+/**
+ * What the Wi-Fi add-on reports for the interface name: on Linux its name, which is its id too, on Windows the
+ * adapter's description, with the interface's GUID as id. Its values come from values() as "extra:wifi/<id>-quality"
+ * and "-signal"; only the quality keeps its history, as the signal is below 0.
+ */
+function wifiAddOn(name: string, id = name): Extra[] {
+  // Like the add-on, a name too long for a label of 80 characters is cut so what the value is stays whole.
+  const label = (what: string) =>
+    name.length + 1 + what.length <= 80
+      ? `${name} ${what}`
+      : `${name.slice(0, 78 - what.length).trimEnd()}… ${what}`;
+  return [
+    {
+      id: 'wifi',
+      title: 'Wi-Fi',
+      titles: { de: 'WLAN', fr: 'Wi-Fi', es: 'Wi-Fi' },
+      items: [
+        {
+          id: `${id}-quality`,
+          label: label('link quality'),
+          labels: {
+            de: label('Verbindungsqualität'),
+            fr: label('qualité du lien'),
+            es: label('calidad del enlace'),
+          },
+          unit: 'percent',
+          history: true,
+        },
+        {
+          id: `${id}-signal`,
+          label: label('signal (dBm)'),
+          labels: {
+            de: label('Signal (dBm)'),
+            fr: label('signal (dBm)'),
+            es: label('señal (dBm)'),
+          },
+          unit: 'number',
+        },
+      ],
     },
   ];
 }
@@ -417,6 +709,12 @@ const piHub: DemoMachine = {
         },
       },
     ]),
+    ...inodesAddOn([
+      { id: 'root', label: '/' },
+      { id: 'mnt-usb', label: '/mnt/usb' },
+    ]),
+    ...pressureAddOn(),
+    ...kernelAddOn(),
     ...memoryAddOn(),
   ],
   bootedDaysAgo: 12.3,
@@ -462,6 +760,14 @@ const piHub: DemoMachine = {
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
+      'extra:inodes/root': vary(t, step, 14, 9, [[0.2, 86400 * 5]]),
+      'extra:inodes/mnt-usb': vary(t, step, 15, 3, [[0.1, 86400 * 9]]),
+      'extra:pressure/cpu-some': Math.max(0, cpu * 0.12 - 0.3),
+      'extra:pressure/memory-some': 0,
+      'extra:pressure/memory-full': 0,
+      // The SD card makes the Pi wait for I/O now and then.
+      ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
+      ...kernelValues(t, step, 900, cpu, 1),
       ...memoryValues(t, step, 140, 8 * GB, cpu / 100),
     };
   },
@@ -492,6 +798,7 @@ const windowsPc: DemoMachine = {
     { name: 'OpenVPN Data Channel Offload' },
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 4070', memoryBytes: 12 * GB }],
+  extras: gpuAddOn('P2'),
   bootedDaysAgo: 0.4,
   values: (t, step) => {
     const busy = workday(t);
@@ -536,9 +843,13 @@ const windowsPc: DemoMachine = {
       'network.send:vEthernet (WSL)': vary(t, step, 34, 2e3, [[2e3, 300]], 0, 1e9),
       'gpu:NVIDIA GeForce RTX 4070': gpu,
       'gpu.memory:NVIDIA GeForce RTX 4070': 18 + gpu * 0.5,
+      ...gpuAddOnValues(gpu, 2475, 10501, 200, vary(t, step, 35, 4 * busy, [[6, 900]], 0, 100)),
     };
   },
 };
+
+/** The interface GUID of the Windows laptop's Wi-Fi adapter, which the Wi-Fi add-on keeps its values by. */
+const WINDOWS_WIFI = '5c3e9a1f7b2d4e68a0c4d91f2b8e6a37';
 
 const windowsLaptop: DemoMachine = {
   device: {
@@ -560,6 +871,10 @@ const windowsLaptop: DemoMachine = {
     { name: 'LAN-Verbindung* 1' },
   ],
   gpus: [{ name: 'Qualcomm Adreno X1-85 GPU' }],
+  extras: wifiAddOn(
+    'Qualcomm FastConnect 7800 Wi-Fi 7 High Band Simultaneous (HBS) Network Adapter',
+    WINDOWS_WIFI,
+  ),
   bootedDaysAgo: 2.1,
   values: (t, step) => ({
     cpu: vary(
@@ -593,6 +908,22 @@ const windowsLaptop: DemoMachine = {
     ),
     'network.send:WLAN': vary(t, step, 48, 60e3, [[50e3, 30]], 0, 1e9),
     'gpu:Qualcomm Adreno X1-85 GPU': vary(t, step, 49, 9, [[7, 90]]),
+    ...wifiValues(
+      WINDOWS_WIFI,
+      vary(
+        t,
+        step,
+        50,
+        -62,
+        [
+          [5, 90],
+          [6, 3600],
+        ],
+        -88,
+        -40,
+      ),
+      'windows',
+    ),
   }),
 };
 
@@ -735,6 +1066,7 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
+  extras: pressureAddOn(),
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
@@ -754,6 +1086,11 @@ const linuxNas: DemoMachine = {
     return {
       cpu,
       memory: vary(t, step, 92, 27, [[3, 3600]]),
+      'extra:pressure/cpu-some': Math.max(0, cpu * 0.15 - 0.4),
+      'extra:pressure/memory-some': vary(t, step, 303, 0, [[0.4, 600]]),
+      'extra:pressure/memory-full': 0,
+      // The backup keeps the disks busy, so tasks wait for them.
+      ...ioPressure(vary(t, step, 304, 0.5 + 35 * backup, [[1, 300]]), 0.55),
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
       'temperature:drivetemp sda': 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
       'temperature:drivetemp sdb': 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
@@ -823,6 +1160,12 @@ const linuxServer: DemoMachine = {
       { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
       { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
     ]),
+    ...gpuAddOn('P2'),
+    ...inodesAddOn([
+      { id: 'root', label: '/' },
+      { id: 'var-lib-docker', label: '/var/lib/docker' },
+    ]),
+    ...kernelAddOn(),
     ...memoryAddOn(),
   ],
   utc: true,
@@ -857,6 +1200,10 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      ...gpuAddOnValues(gpu, 1695, 9751, 350, 0),
+      'extra:inodes/root': vary(t, step, 126, 6, [[0.3, 86400 * 3]]),
+      'extra:inodes/var-lib-docker': vary(t, step, 127, 38 + 2 * build, [[5, 86400 * 2]]),
+      ...kernelValues(t, step, 950, cpu, 8),
       ...memoryValues(t, step, 160, 128 * GB, build),
     };
   },
@@ -872,6 +1219,19 @@ export function offlineSince(online: (t: number) => boolean, now: number): numbe
     t -= 300;
   }
   return t;
+}
+
+/**
+ * The Wi-Fi add-on's values of the interface id at a signal level, with the quality the system derives from it: Linux's
+ * cfg80211 link quality, or on Windows its signal quality, 0 % at -100 dBm and 100 % at -50 dBm.
+ */
+function wifiValues(id: string, signal: number, os: 'linux' | 'windows' = 'linux'): Values {
+  const dBm = Math.round(signal);
+  const quality =
+    os === 'windows'
+      ? Math.min(100, Math.max(0, (dBm + 100) * 2))
+      : (Math.min(70, Math.max(0, dBm + 110)) / 70) * 100;
+  return { [`extra:wifi/${id}-signal`]: dBm, [`extra:wifi/${id}-quality`]: quality };
 }
 
 const linuxLaptop: DemoMachine = {
@@ -891,6 +1251,7 @@ const linuxLaptop: DemoMachine = {
   swapBytes: 16 * GB,
   disks: [{ path: '/', totalBytes: 476 * GB }],
   network: [{ name: 'wlp1s0', addresses: ['192.168.1.38'] }],
+  extras: wifiAddOn('wlp1s0'),
   batteryDetails: true,
   bootedDaysAgo: 0.3,
   online: laptopOnline,
@@ -917,6 +1278,21 @@ const linuxLaptop: DemoMachine = {
       'disk.write:/': vary(t, step, 136, 250e3, [[200e3, 25]], 0, 2e9),
       'network.receive:wlp1s0': vary(t, step, 137, 300e3, [[250e3, 60]], 0, 1e9),
       'network.send:wlp1s0': vary(t, step, 138, 50e3, [[40e3, 60]], 0, 1e9),
+      ...wifiValues(
+        'wlp1s0',
+        vary(
+          t,
+          step,
+          139,
+          -58,
+          [
+            [6, 120],
+            [5, 3600],
+          ],
+          -85,
+          -35,
+        ),
+      ),
     };
   },
 };
