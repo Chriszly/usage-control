@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -191,7 +192,10 @@ type fakeATA struct {
 	t      *testing.T
 	power  byte
 	passed bool
-	sent   []byte
+	// smartOff switches SMART off in the identify data, and badChecksum
+	// spoils the checksum of the SMART data.
+	smartOff, badChecksum bool
+	sent                  []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
@@ -200,9 +204,18 @@ func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
 	case c == ataCheckPowerMode:
 		return ataResult{count: f.power}, nil, nil
 	case c == ataIdentify:
-		return ataResult{}, readTestdata(f.t, "ata-identify.bin"), nil
+		sector := readTestdata(f.t, "ata-identify.bin")
+		if f.smartOff {
+			sector[2*85] &^= 1
+			sector[511]++
+		}
+		return ataResult{}, sector, nil
 	case c == ataSMARTReadData:
-		return ataResult{}, readTestdata(f.t, "ata-smart.bin"), nil
+		sector := readTestdata(f.t, "ata-smart.bin")
+		if f.badChecksum {
+			sector[100]++
+		}
+		return ataResult{}, sector, nil
 	case c == ataSMARTReturnStatus && f.passed:
 		return ataResult{lbaMid: 0x4F, lbaHigh: 0xC2}, nil, nil
 	case c == ataSMARTReturnStatus:
@@ -227,6 +240,29 @@ func TestReadATAReadsADiskThatIsAwake(t *testing.T) {
 	}
 	if !bytes.Equal(disk.sent, []byte{0xE5, 0xEC, 0xB0, 0xB0}) {
 		t.Errorf("sent % x, want CHECK POWER MODE first", disk.sent)
+	}
+}
+
+func TestReadATAShowsADiskWithSMARTOff(t *testing.T) {
+	disk := &fakeATA{t: t, power: 0xFF, smartOff: true}
+	got, err := readATA(disk.send)
+
+	want := Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v", got, err, want)
+	}
+	if !bytes.Equal(disk.sent, []byte{0xE5, 0xEC}) {
+		t.Errorf("sent % x, want no SMART command", disk.sent)
+	}
+}
+
+func TestReadATAKeepsTheCheckOfAttributesWithAWrongChecksum(t *testing.T) {
+	disk := &fakeATA{t: t, power: 0xFF, passed: true, badChecksum: true}
+	got, err := readATA(disk.send)
+
+	want := Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", Passed: yes()}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v without the attributes", got, err, want)
 	}
 }
 
@@ -403,6 +439,40 @@ func TestExtrasKeysEachDiskOnItsSerialNumber(t *testing.T) {
 	}
 }
 
+func TestExtrasShowsADiskWithSMARTOff(t *testing.T) {
+	got := Extras([]Disk{{Name: "sda", Model: "WDC", Serial: "WD-WX12D", SMARTOff: true}})
+
+	if len(got) != 1 || len(got[0].Items) != 1 {
+		t.Fatalf("Extras() = %+v, want one item", got)
+	}
+	item := got[0].Items[0]
+	if item.ID != "wd-wx12d-health" || item.Unit != metrics.UnitText || item.Text != "–" || item.History ||
+		item.Label != "WDC (sda): SMART off" || item.Labels["de"] != "WDC (sda): SMART aus" ||
+		item.Labels["fr"] != "WDC (sda): SMART désactivé" || item.Labels["es"] != "WDC (sda): SMART desactivado" {
+		t.Errorf("item = %+v, want SMART off in place of the check", item)
+	}
+}
+
+func TestExtrasLogsOnceThatTheDisksReportTooManyValues(t *testing.T) {
+	warnedTooMany.Store(false)
+	t.Cleanup(func() { warnedTooMany.Store(false) })
+	disk := func(n int) Disk {
+		return Disk{Name: fmt.Sprintf("sd%c", 'a'+n), Passed: yes(), Celsius: ptr(30), PowerOnHours: ptr(1), ReallocatedSectors: ptr(0)}
+	}
+	var disks []Disk
+	for n := range 16 {
+		disks = append(disks, disk(n))
+	}
+	Extras(disks)
+	if warnedTooMany.Load() {
+		t.Error("16 disks of 4 values each were logged as too many")
+	}
+	Extras(append(disks, disk(16)))
+	if !warnedTooMany.Load() {
+		t.Error("17 disks of 4 values each were not logged as too many")
+	}
+}
+
 func TestExtrasShowsADiskThatCannotBeRead(t *testing.T) {
 	got := Extras([]Disk{{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}})
 
@@ -460,6 +530,8 @@ type fakeSource struct {
 	asleep bool
 	// failing makes sda fail to read, as a failing disk may.
 	failing bool
+	// gone are the disks no longer listed, by path.
+	gone map[string]bool
 	// ioCounts are the disks' counts of reads and writes, by path; a disk
 	// without one is not counted.
 	ioCounts map[string]uint64
@@ -471,11 +543,17 @@ func (f *fakeSource) list() ([]device, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lists++
-	return []device{
+	var devices []device
+	for _, d := range []device{
 		{name: "sda", path: "/dev/sda"},
 		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980", serial: "S64DNX0R1"},
 		{name: "sdb", path: "/dev/sdb"},
-	}, nil
+	} {
+		if !f.gone[d.path] {
+			devices = append(devices, d)
+		}
+	}
+	return devices, nil
 }
 
 func (f *fakeSource) read(d device) (Disk, error) {
@@ -568,6 +646,31 @@ func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 	}
 }
 
+func TestReaderDropsADiskThatWasUnpluggedAtOnce(t *testing.T) {
+	src := &fakeSource{}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+	r.refresh(ctx, start)
+
+	// sdb, which was never read, does not make the disks be listed again.
+	r.refresh(ctx, start.Add(ReadInterval))
+	if lists, _ := src.counts(); lists != 1 {
+		t.Errorf("listed %d times, want once while only sdb cannot be read", lists)
+	}
+
+	// sda is swapped out: its read fails, and listing the disks again drops
+	// it instead of showing that it cannot be read.
+	src.set(func(f *fakeSource) { f.failing, f.gone = true, map[string]bool{"/dev/sda": true} })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 1 || got[0].Name != "nvme0" {
+		t.Errorf("last() = %+v, want only nvme0 once sda is gone", got)
+	}
+	if lists, _ := src.counts(); lists != 2 {
+		t.Errorf("listed %d times, want again after sda failed", lists)
+	}
+}
+
 func TestReaderLeavesADiskWithoutUseAlone(t *testing.T) {
 	// The NVMe disk is read every time even without use.
 	src := &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 100, "/dev/nvme0": 7}}
@@ -632,6 +735,23 @@ func TestReaderLogsADiskThatAlwaysSleeps(t *testing.T) {
 	r.refresh(ctx, start.Add(asleepLogAfter))
 	if !r.asleepLogged["/dev/sda"] {
 		t.Error("the disk that sleeps at every read was not logged")
+	}
+
+	// A read that fails in between ends the sleep, so it is counted anew.
+	src = &fakeSource{asleep: true}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.asleep, f.failing = false, true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	src.set(func(f *fakeSource) { f.asleep = true })
+	r.refresh(ctx, start.Add(asleepLogAfter))
+	r.refresh(ctx, start.Add(asleepLogAfter+ReadInterval))
+	if r.asleepLogged["/dev/sda"] {
+		t.Error("a disk that failed in between was logged as asleep at every read")
+	}
+	r.refresh(ctx, start.Add(2*asleepLogAfter))
+	if !r.asleepLogged["/dev/sda"] {
+		t.Error("the disk asleep at every read since it failed was not logged")
 	}
 
 	// A disk that was read before is not logged however long it sleeps.

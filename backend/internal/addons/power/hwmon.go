@@ -31,7 +31,7 @@ func readHwmon(dir string) []Reading {
 		microwatts := uint64(0)
 		if !metrics.HwmonAsleep(sensor) {
 			var ok bool
-			if microwatts, ok = sysfile.Uint(file); !ok {
+			if microwatts, ok = readUint(file); !ok {
 				continue
 			}
 		}

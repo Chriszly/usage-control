@@ -164,7 +164,8 @@ func (s *Store) AddMinutes(ctx context.Context, device string, minutes []Minute)
 //
 // Steps of an hour and more are whole hours (see stepFor) and come from the
 // hourly averages, each weighted by how many values it is over: the same
-// averages as from the values themselves, from 60 times fewer rows.
+// averages as from the values themselves, from 60 times fewer rows. They
+// include the whole step from falls in.
 func (s *Store) Range(ctx context.Context, device string, from, to time.Time, step time.Duration) ([]Series, error) {
 	stepSeconds := max(1, int64(step/time.Second))
 	query := `
@@ -181,7 +182,14 @@ func (s *Store) Range(ctx context.Context, device string, from, to time.Time, st
 		GROUP BY metric, bucket
 		ORDER BY metric, bucket`
 	}
-	rows, err := s.db.QueryContext(ctx, query, stepSeconds, device, from.Unix(), to.Unix())
+	start := from.Unix()
+	if step >= time.Hour {
+		// From the start of the step from falls in: its hours are stored at
+		// their start, before from, and would be left out, and the step
+		// would depend on the hour from is in, which the cache does not.
+		start = start / stepSeconds * stepSeconds
+	}
+	rows, err := s.db.QueryContext(ctx, query, stepSeconds, device, start, to.Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -219,14 +227,15 @@ func (s *Store) Newest(ctx context.Context, device string) (time.Time, bool, err
 // at most cacheFor old and covers the same steps (see rangeCache), so the
 // viewers of a long range share one query.
 func (s *Store) cachedRange(ctx context.Context, device string, from, to time.Time, step time.Duration) ([]Series, error) {
-	if series, ok := s.cache.get(device, from, to, step); ok {
+	series, ok, forgotten := s.cache.get(device, from, to, step)
+	if ok {
 		return series, nil
 	}
 	series, err := s.Range(ctx, device, from, to, step)
 	if err != nil {
 		return nil, err
 	}
-	s.cache.put(device, from, to, step, series)
+	s.cache.put(device, from, to, step, series, forgotten)
 	return series, nil
 }
 
@@ -273,8 +282,8 @@ func (s *Store) DeleteDevice(ctx context.Context, device string) error {
 		}
 		return true
 	})
-	// Again, as a range read while the values were deleted may have kept
-	// some of them.
+	// Again, so a range read while the values were deleted, which may have
+	// some of them, is not kept (see rangeCache.put).
 	s.cache.forget(device)
 	s.shrinkLog(ctx, deleted+hourly)
 	return nil

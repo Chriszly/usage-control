@@ -11,8 +11,8 @@ var linuxEphemeral = portRange{32768, 60999}
 
 // read returns the ports the machine listens on, from the socket tables of
 // the network namespace of process 1 under procDir: the host's, also in a
-// container that mounts the host's /proc. It fails with the first error when none of
-// the tables can be read.
+// container that mounts the host's /proc. It fails with the first error when
+// none of the tables can be read.
 func read(_ context.Context, procDir string) ([]Port, error) {
 	var sockets []Socket
 	var failed error

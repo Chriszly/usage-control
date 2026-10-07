@@ -60,6 +60,33 @@ func TestRAPLMeasuresPowerSinceThePreviousRead(t *testing.T) {
 	}
 }
 
+func TestRAPLLeavesOutAReadAcrossASleep(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"intel-rapl:0/name":      "package-0",
+		"intel-rapl:0/energy_uj": "1000000",
+	})
+	r := newRAPL(dir)
+	start := time.Now()
+	r.read(start)
+
+	// Two seconds on the monotonic clock, eight hours on the wall clock: the
+	// machine slept in between, and the counter went on.
+	r.wallSince = func(time.Time, time.Time) time.Duration { return 8 * time.Hour }
+	writeFiles(t, dir, map[string]string{"intel-rapl:0/energy_uj": "901000000"})
+	if got := r.read(start.Add(2 * time.Second)); len(got) != 0 {
+		t.Errorf("read() across a sleep = %+v, want nothing", got)
+	}
+
+	// The next read measures from the counter after the sleep.
+	r.wallSince = func(now, at time.Time) time.Duration { return now.Sub(at) }
+	writeFiles(t, dir, map[string]string{"intel-rapl:0/energy_uj": "911000000"})
+	got := r.read(start.Add(4 * time.Second))
+	if len(got) != 1 || got[0].Watts != 5 {
+		t.Errorf("read() after the sleep = %+v, want 5 W", got)
+	}
+}
+
 func TestSleptComparesTheWallClock(t *testing.T) {
 	if slept(5*time.Second, 5*time.Second) {
 		t.Error("slept() is true for two clocks that agree")

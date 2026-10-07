@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -63,23 +64,36 @@ var skipped = map[string]bool{
 	"ceph": true, "glusterfs": true, "afs": true, "virtiofs": true,
 }
 
-// containerFolders are the folders of container engines. What is mounted
-// below them is a container's own layer or root, such as one ZFS dataset
-// per layer with Docker's zfs driver or per container with LXD and Incus on
-// ZFS, and would fill the slots of the group with values that come and go
-// with the containers. A disk mounted at such a folder itself is kept.
+// containerFolders are the folders of the container engines that keep a
+// container's layers or root in them. What is mounted below them, other than
+// a disk, is such a layer or root, such as one ZFS dataset per layer with
+// Docker's zfs driver, and would fill the slots of the group with values
+// that come and go with the containers. A disk mounted at such a folder
+// itself, or below it, such as one for Docker's volumes, is kept.
 var containerFolders = []string{
 	"/var/lib/docker/",
 	"/var/lib/containerd/",
 	"/var/lib/containers/storage/",
+}
+
+// storagePools are the folders of LXD's and Incus's storage pools. Each pool
+// is mounted at storage-pools/<pool>, which is kept, and below it each
+// container, virtual machine, image and custom volume, which is left out
+// whatever it is mounted from: with LVM, Ceph or ZFS volumes these are disks
+// of their own, one per container.
+var storagePools = []string{
 	"/var/lib/lxd/storage-pools/",
 	"/var/snap/lxd/common/lxd/storage-pools/",
 	"/var/lib/incus/storage-pools/",
 }
 
 // belowContainerFolder reports whether path is below a container engine's
-// folder.
-func belowContainerFolder(path string) bool {
+// folder, or below dockerDir, Docker's data folder where DOCKER_DIR moves it
+// ("" when it does not).
+func belowContainerFolder(path, dockerDir string) bool {
+	if dockerDir = strings.TrimRight(dockerDir, "/"); dockerDir != "" && strings.HasPrefix(path, dockerDir+"/") {
+		return true
+	}
 	for _, folder := range containerFolders {
 		if strings.HasPrefix(path, folder) {
 			return true
@@ -88,31 +102,63 @@ func belowContainerFolder(path string) bool {
 	return false
 }
 
+// belowStoragePool reports whether path is below an LXD or Incus storage
+// pool's own mount point, as a container's volume is.
+func belowStoragePool(path string) bool {
+	for _, folder := range storagePools {
+		if pool, ok := strings.CutPrefix(path, folder); ok && strings.Contains(strings.Trim(pool, "/"), "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// containerLayer reports whether m is a container's own layer, root or
+// volume: what is mounted below a storage pool, and what is mounted below
+// another container engine's folder and is not a disk, or is a thin device of
+// Docker's old devicemapper driver, a disk of its own per container.
+func containerLayer(m Mount, dockerDir string) bool {
+	if belowStoragePool(m.Path) {
+		return true
+	}
+	if !belowContainerFolder(m.Path, dockerDir) {
+		return false
+	}
+	return !strings.HasPrefix(m.Source, "/dev/") || strings.HasPrefix(m.Source, "/dev/mapper/docker-")
+}
+
 // ParseMounts reads a mount table in the format of /proc/self/mounts and
-// returns the real filesystems: a path with filesystems mounted over each
-// other, of which statfs only sees the top one, is listed once, and what is
-// mounted below a container engine's folder is left out. A filesystem
-// mounted at several paths, such as through a bind mount, is listed at
-// each; Read keeps the first that can be read. Filesystems in user space
-// ("fuse.sshfs" and the like) are left out like network filesystems, except
-// fuseblk, a disk such as an NTFS one.
-func ParseMounts(table string) []Mount {
+// returns the real filesystems. A path with filesystems mounted over each
+// other is listed once, with the top one, the last in the table, which is
+// the one statfs sees. A container's own layers below a container engine's
+// folder are left out, with dockerDir, Docker's data folder where DOCKER_DIR
+// moves it, as one more such folder. A filesystem mounted at several paths,
+// such as through a bind mount, is listed at each; Read keeps the first that
+// can be read. Filesystems in user space ("fuse.sshfs" and the like) are left
+// out like network filesystems, except fuseblk, a disk such as an NTFS one.
+func ParseMounts(table, dockerDir string) []Mount {
 	var mounts []Mount
-	paths := map[string]bool{}
+	// at is where each path is in mounts.
+	at := map[string]int{}
 	for line := range strings.Lines(table) {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
 		m := Mount{Source: unescape(fields[0]), Path: unescape(fields[1]), Type: fields[2]}
-		if skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || !strings.HasPrefix(m.Path, "/") ||
-			paths[m.Path] || belowContainerFolder(m.Path) {
+		if !strings.HasPrefix(m.Path, "/") {
 			continue
 		}
-		paths[m.Path] = true
+		if i, ok := at[m.Path]; ok {
+			mounts[i] = m
+			continue
+		}
+		at[m.Path] = len(mounts)
 		mounts = append(mounts, m)
 	}
-	return mounts
+	return slices.DeleteFunc(mounts, func(m Mount) bool {
+		return skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || containerLayer(m, dockerDir)
+	})
 }
 
 // escaped matches a character the mount table writes as an octal escape,
@@ -141,6 +187,8 @@ type Reader struct {
 	table   string
 	statfs  func(path string) (total, free uint64, ok bool)
 	timeout time.Duration
+	// dockerDir is Docker's data folder from DOCKER_DIR, or "".
+	dockerDir string
 
 	// mu guards asking, the mount points whose statfs has not returned yet.
 	mu     sync.Mutex
@@ -151,9 +199,12 @@ type Reader struct {
 }
 
 // NewReader returns a Reader for the mount table file, such as
-// /proc/self/mounts.
+// /proc/self/mounts. DOCKER_DIR, where Docker keeps its data elsewhere, names
+// one more container engine's folder.
 func NewReader(table string) *Reader {
-	return newReader(table, statInodes, statTimeout)
+	r := newReader(table, statInodes, statTimeout)
+	r.dockerDir = os.Getenv("DOCKER_DIR")
+	return r
 }
 
 func newReader(table string, statfs func(string) (uint64, uint64, bool), timeout time.Duration) *Reader {
@@ -171,7 +222,7 @@ func (r *Reader) Read() []Usage {
 	}
 	var usages []Usage
 	read := map[string]bool{}
-	for _, m := range ParseMounts(string(table)) {
+	for _, m := range ParseMounts(string(table), r.dockerDir) {
 		// Only a device is the same filesystem wherever it is mounted; a
 		// name such as a ZFS dataset's is checked by its path alone.
 		device := strings.HasPrefix(m.Source, "/")

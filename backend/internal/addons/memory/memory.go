@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -181,10 +182,12 @@ func grouped(items []metrics.ExtraItem) []metrics.Extra {
 
 // readKeys reads a file of /proc whose lines are a name and a whole number,
 // such as /proc/meminfo ("Dirty:  1234 kB") or /proc/vmstat ("pgfault 5678").
-// It returns nil when the file cannot be read.
+// It returns nil when the file cannot be read, and logs once a failure other
+// than a missing file.
 func readKeys(file string) map[string]uint64 {
 	f, err := os.Open(file) //nolint:gosec // a fixed file below the /proc the HOST_PROC setting names
 	if err != nil {
+		addons.WarnRead(file, err)
 		return nil
 	}
 	defer func() { _ = f.Close() }()

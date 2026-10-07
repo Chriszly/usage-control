@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -173,12 +174,13 @@ func HostProc() string {
 	return "/proc"
 }
 
-// readText reads a file under /proc, or returns "" when it cannot be read.
-// Its path is the /proc folder from the settings and names the kernel gives
-// its files.
+// readText reads a file under /proc, or returns "" when it cannot be read;
+// a failure other than a missing file is logged once. Its path is the /proc
+// folder from the settings and names the kernel gives its files.
 func readText(path string) string {
 	text, err := os.ReadFile(path) //nolint:gosec // see above
 	if err != nil {
+		addons.WarnRead(path, err)
 		return ""
 	}
 	return string(text)

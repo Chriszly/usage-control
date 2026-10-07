@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,9 +48,9 @@ func TestServesTheMinutesForAHub(t *testing.T) {
 		if !reflect.DeepEqual(got.Minutes, source.minutes) || !got.More || time.Since(time.Unix(got.Now, 0)) > time.Minute {
 			t.Errorf("%s: answer = %+v, want the minutes, more and the time now", name, got)
 		}
-		if source.after.Unix() != 1_700_000_000 || source.limit != hub.MinutesPerAnswer || source.values != hub.ValuesPerAnswer || source.hub != "192.168.1.20" {
-			t.Errorf("%s: asked the source after %v for %d minutes and %d values for %q, want after 1700000000 for %d and %d for 192.168.1.20",
-				name, source.after.Unix(), source.limit, source.values, source.hub, hub.MinutesPerAnswer, hub.ValuesPerAnswer)
+		if source.after.Unix() != 1_700_000_000 || source.limit != hub.MinutesPerAnswer || source.values != hub.ValuesPerAnswer || source.hub != testHubID {
+			t.Errorf("%s: asked the source after %v for %d minutes and %d values for %q, want after 1700000000 for %d and %d for %s",
+				name, source.after.Unix(), source.limit, source.values, source.hub, hub.MinutesPerAnswer, hub.ValuesPerAnswer, testHubID)
 		}
 		// A hub may ask for fewer values, not for more.
 		for asked, want := range map[string]int{"500": 500, "99999999": hub.ValuesPerAnswer} {
@@ -69,33 +70,51 @@ func TestServesTheMinutesForAHub(t *testing.T) {
 	}
 }
 
-// getFromHub is get, as a hub asks, with hub.PagePortHeader.
+// testHubID is the id getFromHub sends.
+const testHubID = "0123456789abcdef0123456789abcdef"
+
+// getFromHub is get, as a hub asks, with hub.PagePortHeader and
+// hub.HubIDHeader.
 func getFromHub(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecorder {
+	return getFromHubWithID(handler, path, remoteAddr, testHubID)
+}
+
+func getFromHubWithID(handler http.Handler, path, remoteAddr, id string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.RemoteAddr = remoteAddr
 	req.Host = "192.168.1.9:9393"
 	req.Header.Set(hub.PagePortHeader, "9393")
+	if id != "" {
+		req.Header.Set(hub.HubIDHeader, id)
+	}
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
 }
 
-func TestTellsAHubApartByItsAddressOnly(t *testing.T) {
+func TestTellsAHubApartByItsID(t *testing.T) {
 	source := &fakeMinutes{minutes: []history.Minute{}}
 	handler := NewDataOnly(fakeCollector{}, source, nil)
-	for remote, want := range map[string]string{
-		"192.168.1.20:5000":          "192.168.1.20",
-		"[::ffff:192.168.1.20]:5001": "192.168.1.20",
-		"[fe80::1%eth0]:5002":        "fe80::1",
-		"[fd00::20]:5003":            "fd00::20",
+	// Two hubs behind one address are two hubs; one hub whose address changes
+	// is one.
+	for _, c := range []struct{ remote, id string }{
+		{"192.168.1.20:5000", testHubID},
+		{"192.168.1.20:5001", "fedcba9876543210fedcba9876543210"},
+		{"[fd00::20]:5003", testHubID},
 	} {
-		if rec := getFromHub(handler, "/api/minutes?after=0", remote); rec.Code != http.StatusOK || source.hub != want {
-			t.Errorf("GET from %s = %d, asked the source for %q; want 200 and %q", remote, rec.Code, source.hub, want)
+		if rec := getFromHubWithID(handler, "/api/minutes?after=0", c.remote, c.id); rec.Code != http.StatusOK || source.hub != c.id {
+			t.Errorf("GET from %s with id %s = %d, asked the source for %q; want 200 and the id", c.remote, c.id, rec.Code, source.hub)
 		}
 	}
-	// A request without the header is not from a hub: it deletes nothing.
+	// A request without the headers, or without a valid id, as from a hub
+	// that sends none, is not from a hub: it deletes nothing and adds no hub.
+	for _, id := range []string{"", "not an id", strings.Repeat("a", 33), strings.ToUpper(testHubID)} {
+		if rec := getFromHubWithID(handler, "/api/minutes?after=0", "192.168.1.20:5000", id); rec.Code != http.StatusOK || source.hub != "" {
+			t.Errorf("GET with id %q = %d, asked the source for %q; want 200 and no hub", id, rec.Code, source.hub)
+		}
+	}
 	if rec := get(handler, "/api/minutes?after=0", "192.168.1.20:5000"); rec.Code != http.StatusOK || source.hub != "" {
-		t.Errorf("GET without the hub's header = %d, asked the source for %q; want 200 and no hub", rec.Code, source.hub)
+		t.Errorf("GET without the hub's headers = %d, asked the source for %q; want 200 and no hub", rec.Code, source.hub)
 	}
 }
 
