@@ -93,6 +93,10 @@ func (d *minutesDevice) start(t *testing.T) *Agent {
 	return NewAgent(strings.TrimPrefix(server.URL, "http://"))
 }
 
+// anyMinute is the minute due when no minute in particular is: any the
+// device kept will do.
+var anyMinute time.Time
+
 // storedTimes returns the times of the CPU usage the hub stored for the
 // device over the last two hours, a minute apart.
 func storedTimes(t *testing.T, store *history.Store, device string) []int64 {
@@ -137,7 +141,7 @@ func TestFetcherFillsTheGapFromTheMinutesTheDeviceKept(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
-	if !f.fetch(ctx) {
+	if !f.fetch(ctx, anyMinute) {
 		t.Fatal("fetch() = false, want true for a device that keeps its minutes")
 	}
 
@@ -162,9 +166,38 @@ func TestFetcherFillsTheGapFromTheMinutesTheDeviceKept(t *testing.T) {
 	}
 
 	// The next fetch tells the device that the hub has the last minute.
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 	if last, want := device.asked[len(device.asked)-1], device.minutes[len(device.minutes)-1].Time; last != want {
 		t.Errorf("next fetch asked after %d, want %d, the last minute stored", last, want)
+	}
+}
+
+func TestFetcherLeavesAMinuteTheDeviceHasNotKeptYetToTheRecorder(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now()
+	device := newMinutesDevice(now, 3)
+	agent := device.start(t)
+	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-3*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
+	// The newest minute the device kept, on the hub's clock.
+	newest := time.Unix(device.minutes[len(device.minutes)-1].Time, 0).Add(-device.clock)
+
+	// The device's clock is so far behind that it has not kept the minute
+	// after its newest yet when the hub's recorder is due to store it.
+	if f.fetch(ctx, newest.Add(time.Minute)) || f.failing {
+		t.Error("fetch() of a minute the device has not kept yet = true or failing; want false quietly, so the recorder stores its own")
+	}
+	if got := storedTimes(t, store, "office-pc"); len(got) != 3 || got[len(got)-1] != newest.Unix() {
+		t.Errorf("stored minutes %v, want the ones the device kept, up to %d", got, newest.Unix())
+	}
+	if !f.fetch(ctx, newest) {
+		t.Error("fetch() of the minute the device kept = false, want true")
 	}
 }
 
@@ -178,7 +211,7 @@ func TestFetcherStartsWithANewDeviceNow(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 
 	got, err := store.Range(ctx, "office-pc", time.Now().Add(-time.Hour), time.Now().Add(time.Minute), time.Minute)
 	if err != nil || (len(got) > 0 && len(got[0].Points) > 1) {
@@ -202,10 +235,10 @@ func TestFetcherLeavesAnOlderDeviceToTheRecorder(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: openTestStore(t), device: "old-pi", maxEntries: 10}
 
-	if f.fetch(ctx) {
+	if f.fetch(ctx, anyMinute) {
 		t.Error("fetch() = true, want false for a device without minutes")
 	}
-	if f.fetch(ctx) || f.tooOld.IsZero() {
+	if f.fetch(ctx, anyMinute) || f.tooOld.IsZero() {
 		t.Error("fetch() again = true, want false without asking until recheckAfter")
 	}
 }
@@ -216,7 +249,7 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhileTheDeviceDoesNotAnswer(t *testi
 	agent := device.start(t)
 	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, back: time.Now().Add(-time.Hour)}
 
-	if f.fetch(ctx) || len(device.asked) != 0 || f.failing {
+	if f.fetch(ctx, anyMinute) || len(device.asked) != 0 || f.failing {
 		t.Errorf("fetch() before the device answered asked %d times; want false without asking or logging, so the recorder stores the readings it has of the minute", len(device.asked))
 	}
 	if !f.back.IsZero() {
@@ -265,7 +298,7 @@ func TestFetcherKeepsTheMinutesInPlaceWhileTheClocksDifferBySecondsMoreOrLess(t 
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 
 	// The device's clock now seems a second ahead, which would put its next
 	// minute on the hub's minute before, which has one already.
@@ -277,7 +310,7 @@ func TestFetcherKeepsTheMinutesInPlaceWhileTheClocksDifferBySecondsMoreOrLess(t 
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 
 	got, want := storedTimes(t, store, "office-pc"), minutesFrom(newest, now.Truncate(time.Minute))
 	if fmt.Sprint(got) != fmt.Sprint(want) {
@@ -300,7 +333,7 @@ func TestFetcherStartsAgainWhenTheClockOfTheDeviceGoesBack(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 
 	// The device's clock goes back another hour, and it keeps its next minute
 	// at its new time, before every minute the hub has from it.
@@ -313,7 +346,7 @@ func TestFetcherStartsAgainWhenTheClockOfTheDeviceGoesBack(t *testing.T) {
 		t.Fatalf("Collect() error = %v", err)
 	}
 
-	if !f.fetch(ctx) {
+	if !f.fetch(ctx, anyMinute) {
 		t.Fatal("fetch() after the clock went back = false, want true")
 	}
 	if last := device.asked[len(device.asked)-1]; last > now.Add(device.clock).Unix() {
@@ -339,7 +372,7 @@ func TestFetcherStartsAfterTheHubsOwnMinutesOnceAnOlderDeviceIsUpdated(t *testin
 		t.Fatalf("Collect() error = %v", err)
 	}
 	f := &fetcher{agent: agent, store: store, device: "old-pi", maxEntries: history.DefaultMaxEntries}
-	if f.fetch(ctx) || f.after != 0 {
+	if f.fetch(ctx, anyMinute) || f.after != 0 {
 		t.Fatalf("fetch() of an older device = true, after %d; want false and after unset", f.after)
 	}
 
@@ -353,7 +386,7 @@ func TestFetcherStartsAfterTheHubsOwnMinutesOnceAnOlderDeviceIsUpdated(t *testin
 	device.broken = nil
 	f.tooOld = time.Now().Add(-recheckAfter)
 
-	if !f.fetch(ctx) {
+	if !f.fetch(ctx, anyMinute) {
 		t.Fatal("fetch() of the updated device = false, want true")
 	}
 	// The device has the last hour; the hub takes what follows its own minutes.
@@ -385,7 +418,7 @@ func TestFetcherLeavesAMinuteItCannotFetchToTheRecorder(t *testing.T) {
 		}
 		f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
-		if f.fetch(ctx) {
+		if f.fetch(ctx, anyMinute) {
 			t.Errorf("%s: fetch() = true, want false, so the recorder stores the minute", name)
 		}
 
@@ -396,7 +429,7 @@ func TestFetcherLeavesAMinuteItCannotFetchToTheRecorder(t *testing.T) {
 			t.Fatalf("Add() error = %v", err)
 		}
 		device.broken = nil
-		if !f.fetch(ctx) {
+		if !f.fetch(ctx, anyMinute) {
 			t.Errorf("%s: fetch() once the device answers = false, want true", name)
 		}
 		if device.asked[1] != device.asked[0] {
@@ -433,7 +466,7 @@ func TestFetcherFetchesTheDevicesMinuteBeforeOneTheHubStoredItselfAfterARestart(
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
-	if !f.fetch(ctx) {
+	if !f.fetch(ctx, anyMinute) {
 		t.Fatal("fetch() = false, want true for a device that keeps its minutes")
 	}
 	if got, want := storedTimes(t, store, "office-pc"), minutesFrom(fetched, own); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -453,7 +486,7 @@ func TestFetcherStartsAgainWhenTheDeviceRefusesAfter(t *testing.T) {
 		http.Error(w, "after is later than this device's time", http.StatusBadRequest)
 	}
 
-	if f.fetch(ctx) || f.after != 0 {
+	if f.fetch(ctx, anyMinute) || f.after != 0 {
 		t.Errorf("fetch() after a refusal: after = %d, want 0, so the next fetch works it out again", f.after)
 	}
 }
@@ -475,7 +508,7 @@ func TestFetcherLeavesAMinuteToTheRecorderWhenTheDeviceKeepsNone(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries, back: now.Add(-time.Hour)}
 
-	if f.fetch(ctx) {
+	if f.fetch(ctx, anyMinute) {
 		t.Error("fetch() = true for a device that keeps no minutes now, want false, so the recorder stores its own")
 	}
 	if got := storedTimes(t, store, "office-pc"); len(got) != 6 {
@@ -499,7 +532,7 @@ func TestFetcherLeavesTheMinutesToTheRecorderQuietlyUntilADeviceThatIsBackKeepsO
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
-	if f.fetch(ctx) || f.failing {
+	if f.fetch(ctx, anyMinute) || f.failing {
 		t.Error("fetch() for a device that is back = true or logged a failure; want false without logging, so the recorder stores its own until the device keeps its first minute")
 	}
 }
@@ -536,7 +569,7 @@ func TestFetcherStopsInTimeForTheReadings(t *testing.T) {
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, budget: 200 * time.Millisecond}
 
 	start := time.Now()
-	fetched := f.fetch(ctx)
+	fetched := f.fetch(ctx, anyMinute)
 
 	if took := time.Since(start); took > time.Second {
 		t.Errorf("fetch() took %v, want it to stop after its budget", took)
@@ -558,7 +591,7 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	}
 	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, budget: 100 * time.Millisecond}
 
-	fetched := f.fetch(ctx)
+	fetched := f.fetch(ctx, anyMinute)
 
 	// As when a page is too long to store in time on a slow disk: the recorder
 	// stores its own average, and the next fetch asks for a shorter page,
@@ -572,7 +605,7 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	if _, err := f.agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if !f.fetch(ctx) || len(device.values) == 0 || device.values[0] != ValuesPerAnswer/2 || f.values != ValuesPerAnswer {
+	if !f.fetch(ctx, anyMinute) || len(device.values) == 0 || device.values[0] != ValuesPerAnswer/2 || f.values != ValuesPerAnswer {
 		t.Errorf("next fetch asked for %v values, now %d; want %d, and back to %d once it ran in time", device.values, f.values, ValuesPerAnswer/2, ValuesPerAnswer)
 	}
 }
@@ -587,7 +620,7 @@ func TestFetcherAsksForMoreValuesAgainOnlyWhileItHasTimeToSpare(t *testing.T) {
 	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, values: ValuesPerAnswer / 4}
 
 	for _, want := range []int{ValuesPerAnswer / 2, ValuesPerAnswer, ValuesPerAnswer} {
-		if !f.fetch(ctx) || f.values != want {
+		if !f.fetch(ctx, anyMinute) || f.values != want {
 			t.Fatalf("values after a quick fetch = %d, want %d", f.values, want)
 		}
 	}
@@ -599,7 +632,7 @@ func TestFetcherAsksForMoreValuesAgainOnlyWhileItHasTimeToSpare(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"now":%d,"minutes":[]}`, time.Now().Add(device.clock).Unix())
 	}
 	f.budget = 100 * time.Millisecond
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 	if f.values != ValuesPerAnswer/4 {
 		t.Errorf("values after a slow fetch = %d, want %d", f.values, ValuesPerAnswer/4)
 	}
@@ -618,7 +651,7 @@ func TestFetcherLeavesStoppingToTheProgram(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10}
 
-	if !f.fetch(ctx) || f.failing {
+	if !f.fetch(ctx, anyMinute) || f.failing {
 		t.Errorf("fetch() while the program stops = false or failing; want true quietly, as the recorder stops too")
 	}
 }
@@ -639,7 +672,7 @@ func TestFetcherFetchesNothingOlderThanTheRetention(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, retention: 5 * time.Minute}
 
-	f.fetch(ctx)
+	f.fetch(ctx, anyMinute)
 
 	if oldest := now.Add(-5*time.Minute).Add(device.clock).Unix() - 1; device.asked[0] < oldest {
 		t.Errorf("asked after %d, want after %d at the earliest, the start of the retention on the device's clock", device.asked[0], oldest)
@@ -678,7 +711,7 @@ func TestFetcherDescribesTheExtrasItFetches(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10}
 
-	if !f.fetch(ctx) {
+	if !f.fetch(ctx, anyMinute) {
 		t.Fatal("fetch() = false, want true")
 	}
 

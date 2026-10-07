@@ -123,10 +123,11 @@ type fetcher struct {
 // fetch stores the minutes the device has after the newest one fetched, or,
 // when it starts again, from a few minutes before the newest one the hub has.
 // It returns false when the device does not answer now, is too old to keep
-// its minutes, or answers but its minutes cannot be fetched, so the recorder
-// stores the average of its own readings instead; a device minute for the
-// same minute is then not stored again.
-func (f *fetcher) fetch(ctx context.Context) bool {
+// its minutes, answers but its minutes cannot be fetched, or has not kept
+// minute yet, the one the recorder is due to store, so the recorder stores
+// the average of its own readings instead; a device minute for the same
+// minute is then not stored again.
+func (f *fetcher) fetch(ctx context.Context, minute time.Time) bool {
 	if !f.tooOld.IsZero() && time.Since(f.tooOld) < recheckAfter {
 		return false
 	}
@@ -233,7 +234,11 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		f.failing = false
 		slog.Info("fetching the minutes of the device works again", "device", f.device)
 	}
-	return true
+	// The hub fetches a few seconds after the device keeps its minute, which
+	// a device whose clock is further behind has not done yet. Should it then
+	// stop, the minute would be missing: the recorder stores its own, and the
+	// device's, fetched next time, is not stored again.
+	return !time.Unix(f.after+f.offset, 0).Truncate(history.SampleInterval).Before(minute)
 }
 
 // pageValues returns how many values the device is asked to send at most
@@ -440,9 +445,9 @@ func (f *fetcher) describe(ctx context.Context, extras map[string]history.ExtraI
 // information, and only as a failure once a single minute is too many. The
 // next fetch goes on from where this one stopped, so the minutes the device
 // kept meanwhile are not lost; one it kept for a minute the recorder stored
-// is not stored again. Only when the device refuses where the hub goes on from, after its
-// clock went back further than the hub measured, does the next fetch start
-// again from shortly before the newest minute the hub has.
+// is not stored again. Only when the device refuses where the hub goes on
+// from, after its clock went back further than the hub measured, does the
+// next fetch start again from shortly before the newest minute the hub has.
 func (f *fetcher) failed(stopping, ctx context.Context, err error, progressed bool) bool {
 	if stopping.Err() != nil {
 		return true

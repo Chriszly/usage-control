@@ -24,7 +24,9 @@ const storeAt = 55 * time.Second
 // stores, at second 5 of the next minute, under the minute before: by then
 // the device has kept its minute, which the hub fetches at once. Fetching at
 // the device's own storeAt would often find it not kept yet, and lose it
-// when the device then died.
+// when the device then died. A device whose clock is so far behind that it
+// has not kept its minute by then leaves the minute to the recorder
+// (see Fetch).
 const fetchLag = 10 * time.Second
 
 // Collector reads the current usage of the machine.
@@ -52,10 +54,11 @@ type Recorder struct {
 	MaxEntries int
 	// Fetch, when set, takes the place of storing the average every
 	// SampleInterval: a hub fetches the averages the device keeps itself,
-	// which also cover the time the hub could not reach it. It returns false
-	// for a device too old to keep them, or one whose minutes cannot be
-	// fetched now, whose average is then stored as before.
-	Fetch func(ctx context.Context) bool
+	// which also cover the time the hub could not reach it. minute is the
+	// minute the recorder would store under. It returns false for a device
+	// too old to keep them, or one whose minutes cannot be fetched now or do
+	// not have that minute yet, whose average is then stored as before.
+	Fetch func(ctx context.Context, minute time.Time) bool
 
 	// failing is set while readings fail, so an unreachable device is logged
 	// once and not every few seconds.
@@ -85,21 +88,38 @@ func (r *Recorder) Run(ctx context.Context) {
 
 	read := time.NewTicker(RecentInterval)
 	defer read.Stop()
-	store := time.NewTimer(untilStore(stored, r.lag()))
+	wait, due := r.next(stored, last)
+	store := time.NewTimer(wait)
 	defer store.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			r.storeLast(ctx, stored, last, time.Now())
 			return
+		case now := <-store.C:
+			r.store(ctx, stored, now, due)
+			stored, last = now, due
+			wait, due = r.next(time.Now(), last)
+			store.Reset(wait)
 		case <-read.C:
 			r.read(ctx)
-		case now := <-store.C:
-			r.store(ctx, stored, now)
-			stored, last = now, r.minuteOf(now)
-			store.Reset(untilStore(time.Now(), r.lag()))
 		}
 	}
+}
+
+// next returns how long until the recorder stores next, and the minute it
+// stores under then. That is the minute it was due for, not the one the
+// clock shows once the timer fires: the clock may have been set meanwhile,
+// as by NTP shortly after a Raspberry Pi without a real-time clock started,
+// which would skip a minute or store one twice. For the same reason the
+// minute stored last is not due again.
+func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
+	wait := untilStore(now, r.lag())
+	due := r.minuteOf(now.Add(wait))
+	if due.Equal(last) {
+		wait, due = wait+SampleInterval, due.Add(SampleInterval)
+	}
+	return wait, due
 }
 
 // lag returns how much later than storeAt the recorder stores.
@@ -191,19 +211,19 @@ func (r *Recorder) storeLast(ctx context.Context, from, last, now time.Time) {
 	}
 }
 
-// store saves the average of the readings from from up to to, at the start of
-// the minute to falls in (for a hub's recorder of another device, the minute
-// before; see fetchLag): on whole minutes, where a hub also puts the minutes
-// it fetches from a device, so a minute both store is stored once.
-func (r *Recorder) store(ctx context.Context, from, to time.Time) {
-	if r.Fetch != nil && r.Fetch(ctx) {
+// store saves the average of the readings from from up to to under minute,
+// the one it was due for (see next): on whole minutes, where a hub also puts
+// the minutes it fetches from a device, so a minute both store is stored
+// once.
+func (r *Recorder) store(ctx context.Context, from, to, minute time.Time) {
+	if r.Fetch != nil && r.Fetch(ctx, minute) {
 		return
 	}
 	averages := r.Recent.Average(from, to)
 	if averages == nil {
 		return
 	}
-	if err := r.Store.Add(ctx, r.Device, r.minuteOf(to), averages); err != nil {
+	if err := r.Store.Add(ctx, r.Device, minute, averages); err != nil {
 		slog.Error("store usage in the history", "error", err)
 	}
 }
