@@ -53,6 +53,9 @@ if [[ "${1:-}" == --uninstall ]]; then
   done
   systemctl disable --now usage-control.service 2> /dev/null || true
   rm -f "$binary" "$unit"
+  # The add-on folder only holds the add-ons' last values; systemd keeps it
+  # until the next boot (RuntimeDirectoryPreserve), so it goes now.
+  rm -rf /run/usage-control-addons
   systemctl daemon-reload
   if [[ "${2:-}" == --purge ]]; then
     rm -rf /var/lib/usage-control /var/lib/private/usage-control "$settings"

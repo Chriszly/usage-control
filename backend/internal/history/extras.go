@@ -84,12 +84,14 @@ func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraI
 
 // deleteUnusedExtraInfo deletes the descriptions of extras that have no
 // values left and were not written since before. Recently written ones stay,
-// as their first values may not be stored yet.
+// as their first values may not be stored yet. The extras that have values
+// are listed with one pass over the hourly values, which the primary key
+// cannot look up by metric.
 func (s *Store) deleteUnusedExtraInfo(ctx context.Context, before time.Time) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM extra_info
-		WHERE written < ? AND NOT EXISTS (
-			SELECT 1 FROM samples_hourly h WHERE h.device = extra_info.device AND h.metric = extra_info.metric
+		WHERE written < ? AND (device, metric) NOT IN (
+			SELECT DISTINCT device, metric FROM samples_hourly WHERE metric LIKE 'extra:%'
 		)`, before.Unix())
 	return err
 }
