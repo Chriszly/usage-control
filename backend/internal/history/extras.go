@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"time"
 
@@ -75,7 +76,9 @@ func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraI
 		}
 		var description ExtraInfo
 		if err := json.Unmarshal([]byte(text), &description); err != nil {
-			return nil, fmt.Errorf("read the description of %s: %w", metric, err)
+			// One broken description leaves out its chart, not every chart.
+			slog.Warn("read the description of an extra", "device", device, "metric", metric, "error", err)
+			continue
 		}
 		info[metric] = description
 	}
