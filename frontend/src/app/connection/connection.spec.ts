@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DeviceService } from '../devices/devices';
-import { HubConnection, hubConnectionInterceptor } from './connection';
+import { ANSWER_TIMEOUT_MS, HubConnection, hubConnectionInterceptor } from './connection';
 import { ConnectionBanner } from './connection-banner';
 
 describe('HubConnection', () => {
@@ -64,6 +64,41 @@ describe('HubConnection', () => {
   it('counts a proxy that cannot reach the hub as no answer', () => {
     get((r) => r.flush('', { status: 502, statusText: 'Bad Gateway' }));
     expect(connection.lost()).toBe(true);
+  });
+
+  it('gives up on a request the hub never answers and says so', () => {
+    vi.useFakeTimers();
+    try {
+      let failed: unknown = null;
+      client.get('/api/metrics').subscribe({ error: (error: unknown) => (failed = error) });
+      const request = http.expectOne('/api/metrics');
+
+      vi.advanceTimersByTime(ANSWER_TIMEOUT_MS - 1);
+      expect(connection.lost()).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(failed).not.toBeNull();
+      expect(request.cancelled).toBe(true);
+      expect(connection.lost()).toBe(true);
+      expect(banner()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives page files as long as they take', () => {
+    vi.useFakeTimers();
+    try {
+      client.get('/main.js', { responseType: 'text' }).subscribe();
+      const request = http.expectOne('/main.js');
+
+      vi.advanceTimersByTime(ANSWER_TIMEOUT_MS * 2);
+      expect(request.cancelled).toBe(false);
+      expect(connection.lost()).toBe(false);
+      request.flush('');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps the time the hub stopped answering', () => {
