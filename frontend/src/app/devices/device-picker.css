@@ -6,8 +6,30 @@
   margin-bottom: 1.5rem;
 }
 
+/* Styled as Material's outlined button, which would add Material's button code to the first load. */
 .manage {
+  height: 2.5rem;
   margin-left: auto;
+  padding: 0 1.5rem;
+  border: 1px solid var(--mat-sys-outline);
+  border-radius: var(--mat-sys-corner-full);
+  background: transparent;
+  color: var(--mat-sys-primary);
+  font: var(--mat-sys-label-large);
+  cursor: pointer;
+}
+
+.manage:hover {
+  background: color-mix(in srgb, var(--mat-sys-primary) 8%, transparent);
+}
+
+.manage:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
+.manage:active {
+  background: color-mix(in srgb, var(--mat-sys-primary) 10%, transparent);
 }
 
 /*

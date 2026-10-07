@@ -24,7 +24,7 @@ func readHwmon(dir string) []Reading {
 	slices.Sort(files)
 	var readings []Reading
 	for _, file := range files {
-		microwatts, ok := sysfile.Uint(file)
+		microwatts, ok := readUint(file)
 		if !ok {
 			continue
 		}

@@ -10,7 +10,12 @@ After=usage-control.service
 
 [Service]
 ExecStart=/usr/local/bin/usage-control-inodes
-Environment=ADDONS_DIR=/run/usage-control-addons
+# DOCKER_DIR, where Docker keeps its data elsewhere, is set with the other
+# settings in /etc/usage-control.env; what is mounted below it is left out.
+EnvironmentFile=-/etc/usage-control.env
+# It writes to /run/usage-control-addons, the add-ons' default, like the
+# other add-ons, even where the settings file names another ADDONS_DIR.
+UnsetEnvironment=ADDONS_DIR
 # The add-on folder usage-control reads; others may read it, only root writes.
 RuntimeDirectory=usage-control-addons
 RuntimeDirectoryMode=0755
@@ -43,8 +48,9 @@ ProtectHostname=yes
 # No socket of any kind: as root it could otherwise connect to the Unix
 # sockets of services such as Docker or systemd and have them act for it.
 RestrictAddressFamilies=none
-# systemd before 249 (as on Raspberry Pi OS bullseye) ignores "none", so the
-# call that opens a socket is denied as well.
+# The call that opens a socket is denied as well, so this does not rest on
+# how systemd reads "none": before 249 (as on Raspberry Pi OS bullseye) it
+# warns that it does not know the word, though it still allows no family.
 SystemCallFilter=~socket
 # A denied call fails instead of ending the program.
 SystemCallErrorNumber=EPERM

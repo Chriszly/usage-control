@@ -1,7 +1,6 @@
 import { formatDate } from '@angular/common';
 import { Component, Injector, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MatButtonModule } from '@angular/material/button';
 import { EMPTY, catchError, exhaustMap } from 'rxjs';
 
 import { HubConnection } from '../connection/connection';
@@ -24,7 +23,6 @@ export const DEVICES_REFRESH_MS = 5000;
  */
 @Component({
   selector: 'app-device-picker',
-  imports: [MatButtonModule],
   templateUrl: './device-picker.html',
   styleUrl: './device-picker.css',
 })

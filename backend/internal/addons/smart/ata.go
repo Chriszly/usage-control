@@ -201,6 +201,9 @@ func parseSMARTData(sector []byte) (Disk, error) {
 // whether the disk sleeps first and leaves it alone if it does, then reads
 // its model and serial number, its SMART check and its SMART attributes. A
 // disk whose power mode cannot be read is not read either, as it might sleep.
+// A disk with SMART switched off is returned with SMARTOff, and one whose
+// attributes have a wrong checksum, as some older disks send, with its check
+// but without the attributes, which may be garbled.
 func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	power, _, err := send(ataCheckPowerMode)
 	if err != nil {
@@ -218,14 +221,14 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 		return Disk{}, fmt.Errorf("identify: %w", err)
 	}
 	if !smart {
-		return Disk{Model: model, Serial: serial}, nil
+		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
 	}
 	_, sector, err = send(ataSMARTReadData)
 	if err != nil {
 		return Disk{}, fmt.Errorf("read the SMART data: %w", err)
 	}
 	disk, err := parseSMARTData(sector)
-	if err != nil {
+	if err != nil && !errors.Is(err, errChecksum) {
 		return Disk{}, fmt.Errorf("read the SMART data: %w", err)
 	}
 	disk.Model, disk.Serial = model, serial

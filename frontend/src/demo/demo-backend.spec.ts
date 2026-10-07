@@ -6,6 +6,7 @@ import { DeviceService, LOCAL_DEVICE, problemMessage } from '../app/devices/devi
 import { I18n } from '../app/i18n/i18n';
 import { MetricsService } from '../app/metrics/metrics';
 import { DEMO_RETENTION_DAYS, DemoBackend } from './demo-backend';
+import { demoVersion } from './demo-build';
 import { FLEET } from './fleet';
 
 describe('DemoBackend', () => {
@@ -38,6 +39,13 @@ describe('DemoBackend', () => {
       expect(s.cpu.loadAverage === undefined).toBe(machine.os === 'windows');
       expect(s.temperatures.length === 0).toBe(machine.os === 'windows');
     }
+  });
+
+  it('reports the version the demo was built from, like the backend', async () => {
+    // A test build sets neither a release nor a commit.
+    expect((await firstValueFrom(metrics.current(LOCAL_DEVICE.id))).version).toBe('dev');
+    expect(demoVersion({ release: '1.2.0', commit: 'a690bc7' })).toBe('1.2.0');
+    expect(demoVersion({ commit: 'a690bc7' })).toBe('a690bc7');
   });
 
   it('gives every value of the add-ons a number, the processes busiest first', async () => {
