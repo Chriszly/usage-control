@@ -190,6 +190,32 @@ func TestReadIgnoresCgroupV1(t *testing.T) {
 	}
 }
 
+func TestReadNotesOnceWhatItCannotRead(t *testing.T) {
+	r := NewReader(t.TempDir(), filepath.Join(t.TempDir(), "missing"))
+	r.Read(time.Now())
+	if !r.noCgroupV2 {
+		t.Error("noCgroupV2 = false without cgroup v2, want it noted")
+	}
+
+	sys := t.TempDir()
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/cgroup.controllers":                                  "cpu memory",
+		"fs/cgroup/system.slice/libpod-" + podmanID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	r = NewReader(sys, filepath.Join(t.TempDir(), "missing"))
+	r.Read(time.Now())
+	if r.noDockerDir {
+		t.Error("noDockerDir = true with only a Podman container, want nothing noted")
+	}
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/system.slice/docker-" + webID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	r.Read(time.Now())
+	if !r.noDockerDir {
+		t.Error("noDockerDir = false with a Docker container and no Docker folder, want it noted")
+	}
+}
+
 func TestCountCPUs(t *testing.T) {
 	for list, want := range map[string]int{"0-3": 4, "0-3,6,8-9": 7, "0": 1} {
 		if got := countCPUs(list); got != want {

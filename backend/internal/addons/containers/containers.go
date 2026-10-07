@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,6 +63,9 @@ type Reader struct {
 	at time.Time
 	// names are the names read from Docker's settings, by id.
 	names map[string]knownName
+	// noCgroupV2 and noDockerDir are set once that was logged, so it is
+	// logged once and not at every read.
+	noCgroupV2, noDockerDir bool
 }
 
 // knownName is a name read from a Docker container's settings, with the
@@ -91,10 +95,20 @@ func NewReader(sysDir, dockerDir string) *Reader {
 func (r *Reader) Read(now time.Time) []Container {
 	// cgroup.controllers is only in the root of cgroup v2.
 	if _, err := os.Stat(filepath.Join(r.cgroups, "cgroup.controllers")); err != nil {
+		if !r.noCgroupV2 {
+			r.noCgroupV2 = true
+			slog.Warn("the kernel's cgroups are not version 2, which the add-on reads, so it reports no containers", "folder", r.cgroups)
+		}
 		return nil
 	}
 	found := map[string]string{}
 	findContainers(r.cgroups, 0, found)
+	if !r.noDockerDir && anyDocker(found) {
+		if _, err := os.Stat(r.docker); err != nil {
+			r.noDockerDir = true
+			slog.Warn("Docker's data folder cannot be read, so its containers are named by their short id; set DOCKER_DIR to the folder docker info shows as Docker Root Dir", "error", err)
+		}
+	}
 
 	current := map[string]uint64{}
 	names := map[string]knownName{}
@@ -190,6 +204,17 @@ func findContainers(dir string, depth int, found map[string]string) {
 		}
 		findContainers(path, depth+1, found)
 	}
+}
+
+// anyDocker reports whether one of the containers found is Docker's, by its
+// cgroup folder: docker-<id>.scope, or <id> in a folder named docker.
+func anyDocker(found map[string]string) bool {
+	for _, dir := range found {
+		if strings.HasPrefix(filepath.Base(dir), "docker-") || filepath.Base(filepath.Dir(dir)) == "docker" {
+			return true
+		}
+	}
+	return false
 }
 
 // dockerName reads a Docker container's name from its settings, path, which
