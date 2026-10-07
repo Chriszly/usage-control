@@ -20,6 +20,13 @@ const SampleInterval = time.Minute
 // unless that passed before it stopped.
 const storeAt = 55 * time.Second
 
+// fetchLag is how much later than storeAt a hub's recorder of another device
+// stores, at second 5 of the next minute, under the minute before: by then
+// the device has kept its minute, which the hub fetches at once. Fetching at
+// the device's own storeAt would often find it not kept yet, and lose it
+// when the device then died.
+const fetchLag = 10 * time.Second
+
 // Collector reads the current usage of the machine.
 type Collector interface {
 	Collect(ctx context.Context) (metrics.Snapshot, error)
@@ -75,7 +82,7 @@ func (r *Recorder) Run(ctx context.Context) {
 
 	read := time.NewTicker(RecentInterval)
 	defer read.Stop()
-	store := time.NewTimer(untilStore(stored))
+	store := time.NewTimer(untilStore(stored, r.lag()))
 	defer store.Stop()
 	for {
 		select {
@@ -86,18 +93,32 @@ func (r *Recorder) Run(ctx context.Context) {
 			r.read(ctx)
 		case now := <-store.C:
 			r.store(ctx, stored, now)
-			stored, last = now, now.Truncate(SampleInterval)
-			store.Reset(untilStore(time.Now()))
+			stored, last = now, r.minuteOf(now)
+			store.Reset(untilStore(time.Now(), r.lag()))
 		}
 	}
 }
 
-// untilStore returns how long until the recorder stores next: at storeAt of
-// a minute, at least a quarter of a minute from now, so a timer that fires a
-// little early, or the start just before storeAt, does not store the same
-// minute twice or an average of hardly any readings.
-func untilStore(now time.Time) time.Duration {
-	next := now.Truncate(SampleInterval).Add(storeAt)
+// lag returns how much later than storeAt the recorder stores.
+func (r *Recorder) lag() time.Duration {
+	if r.Fetch != nil {
+		return fetchLag
+	}
+	return 0
+}
+
+// minuteOf returns the minute an average stored at the given time is stored
+// under.
+func (r *Recorder) minuteOf(at time.Time) time.Time {
+	return at.Add(-r.lag()).Truncate(SampleInterval)
+}
+
+// untilStore returns how long until the recorder stores next: lag after
+// storeAt of a minute, at least a quarter of a minute from now, so a timer
+// that fires a little early, or the start just before then, does not store
+// the same minute twice or an average of hardly any readings.
+func untilStore(now time.Time, lag time.Duration) time.Duration {
+	next := now.Truncate(SampleInterval).Add(storeAt + lag - SampleInterval)
 	for next.Sub(now) < SampleInterval/4 {
 		next = next.Add(SampleInterval)
 	}
@@ -163,7 +184,8 @@ func (r *Recorder) storeLast(ctx context.Context, from, last, now time.Time) {
 }
 
 // store saves the average of the readings from from up to to, at the start of
-// the minute to falls in: on whole minutes, where a hub also puts the minutes
+// the minute to falls in (for a hub's recorder of another device, the minute
+// before; see fetchLag): on whole minutes, where a hub also puts the minutes
 // it fetches from a device, so a minute both store is stored once.
 func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if r.Fetch != nil && r.Fetch(ctx) {
@@ -173,7 +195,7 @@ func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if averages == nil {
 		return
 	}
-	if err := r.Store.Add(ctx, r.Device, to.Truncate(SampleInterval), averages); err != nil {
+	if err := r.Store.Add(ctx, r.Device, r.minuteOf(to), averages); err != nil {
 		slog.Error("store usage in the history", "error", err)
 	}
 }

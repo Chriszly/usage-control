@@ -175,17 +175,47 @@ func TestRecorderRunStoresTheMinuteItStopsIn(t *testing.T) {
 
 func TestUntilStoreWaitsForTheSameSecondOfAMinute(t *testing.T) {
 	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
-	for _, c := range []struct{ now, want time.Time }{
-		{minute.Add(10 * time.Second), minute.Add(storeAt)},
+	for _, c := range []struct {
+		now  time.Time
+		lag  time.Duration
+		want time.Time
+	}{
+		{now: minute.Add(10 * time.Second), want: minute.Add(storeAt)},
 		// Too close to the minute's: the next one's.
-		{minute.Add(storeAt - time.Second), minute.Add(time.Minute + storeAt)},
+		{now: minute.Add(storeAt - time.Second), want: minute.Add(time.Minute + storeAt)},
 		// Just after storing, or a timer that fired a little early.
-		{minute.Add(storeAt + time.Millisecond), minute.Add(time.Minute + storeAt)},
-		{minute.Add(storeAt - time.Millisecond), minute.Add(time.Minute + storeAt)},
+		{now: minute.Add(storeAt + time.Millisecond), want: minute.Add(time.Minute + storeAt)},
+		{now: minute.Add(storeAt - time.Millisecond), want: minute.Add(time.Minute + storeAt)},
+		// A hub's recorder of another device, at second 5 of the next minute.
+		{now: minute.Add(10 * time.Second), lag: fetchLag, want: minute.Add(time.Minute + 5*time.Second)},
+		{now: minute.Add(-20 * time.Second), lag: fetchLag, want: minute.Add(5 * time.Second)},
+		{now: minute.Add(5*time.Second + time.Millisecond), lag: fetchLag, want: minute.Add(time.Minute + 5*time.Second)},
 	} {
-		if got := c.now.Add(untilStore(c.now)); !got.Equal(c.want) {
-			t.Errorf("untilStore(%v) stores at %v, want %v", c.now, got, c.want)
+		if got := c.now.Add(untilStore(c.now, c.lag)); !got.Equal(c.want) {
+			t.Errorf("untilStore(%v, %v) stores at %v, want %v", c.now, c.lag, got, c.want)
 		}
+	}
+}
+
+func TestRecorderOfAnotherDeviceStoresUnderTheMinuteBefore(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	// Second 5 of a minute, when a hub's recorder of another device stores.
+	now := time.Now().Truncate(time.Minute).Add(5 * time.Second)
+	recorder := &Recorder{
+		Store:     store,
+		Recent:    &Recent{},
+		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-30 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+		Device:    "living-room-pi",
+		Fetch:     func(context.Context) bool { return false },
+	}
+	recorder.read(ctx)
+
+	recorder.store(ctx, now.Add(-time.Minute), now)
+
+	got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
+	if want := now.Truncate(time.Minute).Add(-time.Minute).Unix(); err != nil || len(got) == 0 || got[0].Points[0].Time != want {
+		t.Errorf("Range() = %+v, %v; want the average under %d, the minute its readings are in", got, err, want)
 	}
 }
 

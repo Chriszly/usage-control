@@ -219,7 +219,8 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 
 func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 	snapshot := metrics.Snapshot{
-		Temperatures: []metrics.Temperature{{Sensor: "a", Celsius: 1}, {Sensor: "b", Celsius: 2}, {Sensor: "c", Celsius: 3}},
+		// Kept by name, not in the order the device lists them.
+		Temperatures: []metrics.Temperature{{Sensor: "c", Celsius: 3}, {Sensor: "b", Celsius: 2}, {Sensor: "a", Celsius: 1}},
 		Disks:        []metrics.Disk{{Path: "/", UsedPercent: 20}, {Path: "/mnt/a", UsedPercent: 30}, {Path: "/mnt/b", UsedPercent: 40}},
 		Network:      []metrics.NetworkInterface{{Name: "eth0"}, {Name: "eth1"}, {Name: "eth2"}},
 		GPUs:         []metrics.GPU{{Name: "g0", UsagePercent: 1}, {Name: "g1", UsagePercent: 2}, {Name: "g2", UsagePercent: 3}},

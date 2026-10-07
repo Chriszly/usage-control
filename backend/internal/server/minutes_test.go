@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strconv"
 	"testing"
@@ -38,7 +39,7 @@ func TestServesTheMinutesForAHub(t *testing.T) {
 		"website":   New(Site{Devices: DeviceList(device(fakeCollector{}, nil)), Files: site, Minutes: source}),
 	}
 	for name, handler := range handlers {
-		rec := get(handler, "/api/minutes?after=1700000000", "192.168.1.20:5000")
+		rec := getFromHub(handler, "/api/minutes?after=1700000000", "192.168.1.20:5000")
 		var got hub.MinutesAnswer
 		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil || rec.Code != http.StatusOK {
 			t.Fatalf("%s: GET /api/minutes = %d, %v, want 200", name, rec.Code, err)
@@ -65,6 +66,36 @@ func TestServesTheMinutesForAHub(t *testing.T) {
 				t.Errorf("%s: GET %s = %d and asked the source after %v, want %d without asking", name, path, rec.Code, source.after, http.StatusBadRequest)
 			}
 		}
+	}
+}
+
+// getFromHub is get, as a hub asks, with hub.PagePortHeader.
+func getFromHub(handler http.Handler, path, remoteAddr string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = remoteAddr
+	req.Host = "192.168.1.9:9393"
+	req.Header.Set(hub.PagePortHeader, "9393")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestTellsAHubApartByItsAddressOnly(t *testing.T) {
+	source := &fakeMinutes{minutes: []history.Minute{}}
+	handler := NewDataOnly(fakeCollector{}, source, nil)
+	for remote, want := range map[string]string{
+		"192.168.1.20:5000":          "192.168.1.20",
+		"[::ffff:192.168.1.20]:5001": "192.168.1.20",
+		"[fe80::1%eth0]:5002":        "fe80::1",
+		"[fd00::20]:5003":            "fd00::20",
+	} {
+		if rec := getFromHub(handler, "/api/minutes?after=0", remote); rec.Code != http.StatusOK || source.hub != want {
+			t.Errorf("GET from %s = %d, asked the source for %q; want 200 and %q", remote, rec.Code, source.hub, want)
+		}
+	}
+	// A request without the header is not from a hub: it deletes nothing.
+	if rec := get(handler, "/api/minutes?after=0", "192.168.1.20:5000"); rec.Code != http.StatusOK || source.hub != "" {
+		t.Errorf("GET without the hub's header = %d, asked the source for %q; want 200 and no hub", rec.Code, source.hub)
 	}
 }
 

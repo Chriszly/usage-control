@@ -105,7 +105,8 @@ type fetcher struct {
 	offset int64
 	// values is how many values one answer has at most; zero is
 	// ValuesPerAnswer. It halves after a fetch could not store one answer in
-	// time, and doubles back after one that ran in time.
+	// time, and doubles back after one that took less than half its time, so
+	// it does not go back to a size that only just fits.
 	values int
 	// tooOld is when the device was found to keep no minutes.
 	tooOld time.Time
@@ -154,8 +155,8 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		f.after = 0
 	}
 
-	stopping := ctx
-	ctx, cancel := context.WithTimeout(ctx, cmp.Or(f.budget, fetchFor))
+	stopping, began, budget := ctx, time.Now(), cmp.Or(f.budget, fetchFor)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	if f.after == 0 {
 		newest, ok, err := f.store.Newest(ctx, f.device)
@@ -214,7 +215,7 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 			break
 		}
 	}
-	if f.values != 0 {
+	if f.values != 0 && time.Since(began) < budget/2 {
 		f.values = min(ValuesPerAnswer, 2*f.values)
 	}
 	// A device that answers but has kept no minute for a while, as when it
@@ -408,10 +409,11 @@ func (f *fetcher) describe(ctx context.Context, extras map[string]history.ExtraI
 // previous fetch failed too, and returns false, so the recorder stores the
 // average of its own readings for this minute. A fetch that ran out of time
 // before it stored one answer asks for half as many values next time, so
-// one answer can be stored in time even on a slow disk. The next fetch goes
-// on from where this one stopped, so the minutes the device kept meanwhile
-// are not lost; one it kept for a minute the recorder stored is not stored
-// again. Only when the device refuses where the hub goes on from, after its
+// one answer can be stored in time even on a slow disk; that is logged as
+// information, and only as a failure once a single minute is too many. The
+// next fetch goes on from where this one stopped, so the minutes the device
+// kept meanwhile are not lost; one it kept for a minute the recorder stored
+// is not stored again. Only when the device refuses where the hub goes on from, after its
 // clock went back further than the hub measured, does the next fetch start
 // again from shortly before the newest minute the hub has.
 func (f *fetcher) failed(stopping, ctx context.Context, err error, progressed bool) bool {
@@ -422,8 +424,13 @@ func (f *fetcher) failed(stopping, ctx context.Context, err error, progressed bo
 		if progressed {
 			return true
 		}
-		f.values = max(1, f.pageValues()/2)
-		err = fmt.Errorf("could not fetch and store one answer in time; asking for at most %d values per answer now: %w", f.values, err)
+		if values := f.pageValues(); values > 1 {
+			f.values = values / 2
+			slog.Info("could not fetch and store one answer of the device's minutes in time; asking for fewer values per answer, storing the average of the hub's own readings for this minute",
+				"device", f.device, "values", f.values)
+			return false
+		}
+		err = fmt.Errorf("could not fetch and store one minute in time: %w", err)
 	}
 	if !f.failing {
 		f.failing = true

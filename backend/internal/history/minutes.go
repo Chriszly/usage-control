@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS buffer_extra_info (
 
 // Buffer keeps the minutes of a device without a history of its own, so a
 // hub that cannot reach it for a while fetches them later and its history
-// has no gap. Minutes are deleted once every hub that asks for them has them,
+// has no gap. Minutes are deleted once every hub that fetched them has them,
 // and in any case once they are older than Span. It is a table on disk, so a
 // restart of the device loses nothing either.
 type Buffer struct {
@@ -125,34 +125,49 @@ func (b *Buffer) ExtraInfo(ctx context.Context) (map[string]ExtraInfo, error) {
 	return readExtraInfo(ctx, b.db, `SELECT metric, info FROM buffer_extra_info`)
 }
 
-// Since returns to the hub at the given address the oldest minutes after the
-// given time, at most minutes of them and values values in all (one minute at
-// least), and whether more follow. Asking after a time tells that the hub has
-// stored everything up to it. The buffer keeps that per hub, as far as it
-// handed the minutes out to that hub, and deletes the minutes that every hub
-// which asked within the span has. So neither a second hub nor any other
-// client deletes minutes a hub has not fetched yet; one that stops asking
-// holds them back for the span at most.
+// maxBufferHubs is how many hubs a buffer keeps apart: the ones that asked
+// most recently. More than any home network has collecting from one device.
+const maxBufferHubs = 16
+
+// Since returns the oldest minutes after the given time, at most minutes of
+// them and values values in all (one minute at least), and whether more
+// follow. hub is the address of the hub asking, or empty for a request that
+// is not from a hub. A hub asking after a time tells that it has stored
+// everything up to it. The buffer keeps that per hub, as far as it handed the
+// minutes out to that hub, and deletes the minutes that every hub it knows
+// has. A request not from a hub deletes nothing. A hub stays known however
+// long it does not ask, until maxBufferHubs others asked after it, so one
+// that was away for longer than the span still gets every minute kept; one
+// that is gone for good leaves the buffer at a span of minutes.
 func (b *Buffer) Since(ctx context.Context, hub string, after time.Time, minutes, values int) ([]Minute, bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var sent int64
-	err := b.db.QueryRowContext(ctx, `SELECT sent FROM buffer_hubs WHERE hub = ?`, hub).Scan(&sent)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
-	}
 	list, more, err := readMinutes(ctx, b.db,
 		`SELECT time, COUNT(*) FROM buffer WHERE time > ?1 GROUP BY time ORDER BY time LIMIT ?2`,
 		`SELECT time, metric, value FROM buffer WHERE time > ?1 AND time <= ?2 ORDER BY time`,
 		after, minutes, values)
+	if err != nil || hub == "" {
+		return list, more, err
+	}
+	var fetched, sent, asked int64
+	known := true
+	err = b.db.QueryRowContext(ctx, `SELECT fetched, sent, asked FROM buffer_hubs WHERE hub = ?`, hub).Scan(&fetched, &sent, &asked)
+	if errors.Is(err, sql.ErrNoRows) {
+		known, err = false, nil
+	}
 	if err != nil {
 		return nil, false, err
 	}
-	fetched := min(after.Unix(), sent)
+	nowFetched, nowSent := min(after.Unix(), sent), sent
 	if len(list) > 0 {
-		sent = max(sent, list[len(list)-1].Time)
+		nowSent = max(sent, list[len(list)-1].Time)
 	}
+	// Asking every minute for the newest minute writes only when it changed
+	// what the hub has, or once a minute that it still asks.
 	now := time.Now()
+	if known && nowFetched == fetched && nowSent == sent && now.Unix()-asked < int64(SampleInterval/time.Second) {
+		return list, more, nil
+	}
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, false, err
@@ -162,8 +177,8 @@ func (b *Buffer) Since(ctx context.Context, hub string, after time.Time, minutes
 		query string
 		args  []any
 	}{
-		{`INSERT OR REPLACE INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, ?, ?, ?)`, []any{hub, fetched, sent, now.Unix()}},
-		{`DELETE FROM buffer_hubs WHERE asked < ?`, []any{now.Add(-b.span).Unix()}},
+		{`INSERT OR REPLACE INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, ?, ?, ?)`, []any{hub, nowFetched, nowSent, now.Unix()}},
+		{`DELETE FROM buffer_hubs WHERE hub NOT IN (SELECT hub FROM buffer_hubs ORDER BY asked DESC LIMIT ?)`, []any{maxBufferHubs}},
 		{`DELETE FROM buffer WHERE time <= (SELECT MIN(fetched) FROM buffer_hubs)`, nil},
 	} {
 		if _, err := tx.ExecContext(ctx, step.query, step.args...); err != nil {

@@ -1,6 +1,11 @@
 package history
 
-import "github.com/Chriszly/usage-control/backend/internal/metrics"
+import (
+	"cmp"
+	"slices"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
+)
 
 // Metric names. Values that exist once per disk, sensor or network interface
 // get its name after a colon, such as "disk:/" or "network.receive:eth0".
@@ -33,8 +38,9 @@ const DefaultMaxEntries = 64
 // temperatures in °C, disk and network speeds in bytes per second, and the
 // extras that ask for it in their own unit. The load average, clock, each
 // core's usage and throttling are only shown live. Of the disks, sensors,
-// network cards and GPUs, the first maxEntries each are kept; dropped tells
-// whether any were left out.
+// network cards and GPUs, the first maxEntries each by name are kept, as a
+// hub keeps of the minutes it fetches; dropped tells whether any were left
+// out.
 func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped bool) {
 	v = map[string]float64{
 		MetricCPU:    s.CPU.UsagePercent,
@@ -46,21 +52,21 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped b
 	if s.Battery != nil {
 		v[MetricBattery] = s.Battery.Percent
 	}
-	for _, t := range first(s.Temperatures, maxEntries, &dropped) {
+	for _, t := range first(s.Temperatures, func(t metrics.Temperature) string { return t.Sensor }, maxEntries, &dropped) {
 		v[MetricTemperature+":"+t.Sensor] = t.Celsius
 	}
-	for _, d := range first(s.Disks, maxEntries, &dropped) {
+	for _, d := range first(s.Disks, func(d metrics.Disk) string { return d.Path }, maxEntries, &dropped) {
 		v[MetricDisk+":"+d.Path] = d.UsedPercent
 		if d.ReadBytesPerSecond != nil && d.WriteBytesPerSecond != nil {
 			v[MetricDiskRead+":"+d.Path] = *d.ReadBytesPerSecond
 			v[MetricDiskWrite+":"+d.Path] = *d.WriteBytesPerSecond
 		}
 	}
-	for _, n := range first(s.Network, maxEntries, &dropped) {
+	for _, n := range first(s.Network, func(n metrics.NetworkInterface) string { return n.Name }, maxEntries, &dropped) {
 		v[MetricNetworkReceive+":"+n.Name] = n.ReceiveBytesPerSecond
 		v[MetricNetworkSend+":"+n.Name] = n.SendBytesPerSecond
 	}
-	for _, g := range first(s.GPUs, maxEntries, &dropped) {
+	for _, g := range first(s.GPUs, func(g metrics.GPU) string { return g.Name }, maxEntries, &dropped) {
 		v[MetricGPU+":"+g.Name] = g.UsagePercent
 		if memory, ok := g.MemoryUsedPercent(); ok {
 			v[MetricGPUMemory+":"+g.Name] = memory
@@ -109,12 +115,13 @@ func extraMetric(group metrics.Extra, item metrics.ExtraItem) string {
 	return MetricExtra + ":" + group.ID + "/" + item.ID
 }
 
-// first returns the first n entries of list, and sets dropped when that
-// leaves some out.
-func first[T any](list []T, n int, dropped *bool) []T {
+// first returns the first n entries of list by name, and sets dropped when
+// that leaves some out.
+func first[T any](list []T, name func(T) string, n int, dropped *bool) []T {
 	if len(list) <= n {
 		return list
 	}
 	*dropped = true
-	return list[:n]
+	sorted := slices.SortedFunc(slices.Values(list), func(a, b T) int { return cmp.Compare(name(a), name(b)) })
+	return sorted[:n]
 }

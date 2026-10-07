@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -100,7 +101,7 @@ func TestBufferDeletesOnlyTheMinutesEveryHubHas(t *testing.T) {
 	if _, _, err := buffer.Since(ctx, hub, start.Add(time.Minute), 10, 1000); err != nil {
 		t.Fatalf("Since() error = %v", err)
 	}
-	// Another client, or a second hub, fetches everything and says it has it.
+	// A second hub fetches everything and says it has it.
 	const other = "192.168.1.99"
 	if _, _, err := buffer.Since(ctx, other, time.Unix(0, 0), 10, 1000); err != nil {
 		t.Fatalf("Since() error = %v", err)
@@ -115,7 +116,17 @@ func TestBufferDeletesOnlyTheMinutesEveryHubHas(t *testing.T) {
 	}
 }
 
-func TestBufferForgetsAHubThatStoppedAsking(t *testing.T) {
+// bufferedMinutes returns how many minutes the buffer has.
+func bufferedMinutes(t *testing.T, buffer *Buffer) int {
+	t.Helper()
+	var n int
+	if err := buffer.db.QueryRowContext(context.Background(), `SELECT COUNT(DISTINCT time) FROM buffer`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestBufferKeepsTheMinutesOfAHubThatIsAway(t *testing.T) {
 	ctx := context.Background()
 	buffer := openTestBuffer(t, time.Hour)
 	start := time.Now().Truncate(time.Minute).Add(-3 * time.Minute)
@@ -124,19 +135,94 @@ func TestBufferForgetsAHubThatStoppedAsking(t *testing.T) {
 			t.Fatalf("Add() error = %v", err)
 		}
 	}
-	// A hub that last asked longer ago than the span holds back nothing.
+	// A hub that last asked longer ago than the span, and had none of them.
 	if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES ('192.168.1.99', 0, 0, ?)`, time.Now().Add(-2*time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := buffer.Since(ctx, hub, time.Unix(0, 0), 10, 1000); err != nil {
 		t.Fatalf("Since() error = %v", err)
 	}
-	if _, _, err := buffer.Since(ctx, hub, start.Add(time.Minute), 10, 1000); err != nil {
+	if _, _, err := buffer.Since(ctx, hub, start.Add(2*time.Minute), 10, 1000); err != nil {
 		t.Fatalf("Since() error = %v", err)
 	}
-	var left int
-	if err := buffer.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM buffer`).Scan(&left); err != nil || left != 1 {
-		t.Errorf("%d minutes left, %v; want 1, the one the hub does not have", left, err)
+	if left := bufferedMinutes(t, buffer); left != 3 {
+		t.Errorf("%d minutes left, want all 3 for the hub that is away", left)
+	}
+}
+
+func TestBufferDeletesNothingForARequestNotFromAHub(t *testing.T) {
+	ctx := context.Background()
+	buffer := openTestBuffer(t, time.Hour)
+	start := time.Unix(1_800_000_000, 0)
+	for i := range 3 {
+		if err := buffer.Add(ctx, LocalDevice, start.Add(time.Duration(i)*time.Minute), map[string]float64{MetricCPU: float64(i)}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+	for _, after := range []time.Time{time.Unix(0, 0), start.Add(2 * time.Minute)} {
+		if got, _, err := buffer.Since(ctx, "", after, 10, 1000); err != nil || (after.Unix() == 0 && len(got) != 3) {
+			t.Fatalf("Since(%v) = %+v, %v; want the minutes", after, got, err)
+		}
+	}
+	var hubs int
+	if err := buffer.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM buffer_hubs`).Scan(&hubs); err != nil || hubs != 0 || bufferedMinutes(t, buffer) != 3 {
+		t.Errorf("%d hubs kept, %v, %d minutes left; want none kept and all 3 left", hubs, err, bufferedMinutes(t, buffer))
+	}
+}
+
+func TestBufferKeepsTheHubsThatAskedMostRecently(t *testing.T) {
+	ctx := context.Background()
+	buffer := openTestBuffer(t, time.Hour)
+	for i := range maxBufferHubs + 4 {
+		if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, 0, 0, ?)`, fmt.Sprintf("192.168.1.%d", 100+i), 1000+i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := buffer.Since(ctx, hub, time.Unix(0, 0), 10, 1000); err != nil {
+		t.Fatalf("Since() error = %v", err)
+	}
+	var hubs, oldest int
+	if err := buffer.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(asked) FROM buffer_hubs`).Scan(&hubs, &oldest); err != nil || hubs != maxBufferHubs || oldest != 1000+5 {
+		t.Errorf("%d hubs kept, the oldest asked at %d, %v; want %d, the ones that asked most recently", hubs, oldest, err, maxBufferHubs)
+	}
+}
+
+func TestBufferWritesOnlyWhatChanged(t *testing.T) {
+	ctx := context.Background()
+	buffer := openTestBuffer(t, time.Hour)
+	if err := buffer.Add(ctx, LocalDevice, time.Unix(1_800_000_000, 0), map[string]float64{MetricCPU: 1}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	asked := func() int64 {
+		t.Helper()
+		var at int64
+		if err := buffer.db.QueryRowContext(ctx, `SELECT asked FROM buffer_hubs WHERE hub = ?`, hub).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+	if _, _, err := buffer.Since(ctx, hub, time.Unix(1_800_000_000, 0), 10, 1000); err != nil {
+		t.Fatalf("Since() error = %v", err)
+	}
+	if _, err := buffer.db.ExecContext(ctx, `UPDATE buffer_hubs SET asked = asked - 30`); err != nil {
+		t.Fatal(err)
+	}
+	before := asked()
+	// The same again within a minute changes nothing, so it writes nothing.
+	if _, _, err := buffer.Since(ctx, hub, time.Unix(1_800_000_000, 0), 10, 1000); err != nil {
+		t.Fatalf("Since() error = %v", err)
+	}
+	if asked() != before {
+		t.Error("the same request within a minute wrote when the hub asked")
+	}
+	if _, err := buffer.db.ExecContext(ctx, `UPDATE buffer_hubs SET asked = asked - 60`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buffer.Since(ctx, hub, time.Unix(1_800_000_000, 0), 10, 1000); err != nil {
+		t.Fatalf("Since() error = %v", err)
+	}
+	if asked() <= before {
+		t.Error("a request a minute later did not write when the hub asked")
 	}
 }
 

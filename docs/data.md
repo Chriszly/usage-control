@@ -129,6 +129,6 @@ The charts and the database keep a subset of the snapshot: the values that make 
 
 Examples: `disk:/`, `network.receive:eth0`, `temperature:cpu_thermal`. Adding a metric needs no change to the database: every value is a row with its name.
 
-Per device, the first 64 sensors, disks, network cards and GPUs each are kept (`HISTORY_MAX_ENTRIES`); a device that reports more is logged once, and the dashboard still shows them all.
+Per device, the first 64 sensors, disks, network cards and GPUs each by name are kept (`HISTORY_MAX_ENTRIES`); a device that reports more is logged once, and the dashboard still shows them all.
 
 How these values are stored, averaged and deleted is described in [Database and history](database.md).

@@ -560,9 +560,10 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	fetched := f.fetch(ctx)
 
 	// As when a page is too long to store in time on a slow disk: the recorder
-	// stores its own average, and the next fetch asks for a shorter page.
-	if fetched || !f.failing || f.after == 0 || f.values != ValuesPerAnswer/2 {
-		t.Errorf("fetch() = %v, failing %v, after %d, values %d; want false, failing, after kept and %d values", fetched, f.failing, f.after, f.values, ValuesPerAnswer/2)
+	// stores its own average, and the next fetch asks for a shorter page,
+	// which is no failure yet.
+	if fetched || f.failing || f.after == 0 || f.values != ValuesPerAnswer/2 {
+		t.Errorf("fetch() = %v, failing %v, after %d, values %d; want false, not failing, after kept and %d values", fetched, f.failing, f.after, f.values, ValuesPerAnswer/2)
 	}
 	// The device answers in time again.
 	device = newMinutesDevice(time.Now(), 10)
@@ -572,6 +573,34 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	}
 	if !f.fetch(ctx) || len(device.values) == 0 || device.values[0] != ValuesPerAnswer/2 || f.values != ValuesPerAnswer {
 		t.Errorf("next fetch asked for %v values, now %d; want %d, and back to %d once it ran in time", device.values, f.values, ValuesPerAnswer/2, ValuesPerAnswer)
+	}
+}
+
+func TestFetcherAsksForMoreValuesAgainOnlyWhileItHasTimeToSpare(t *testing.T) {
+	ctx := context.Background()
+	device := newMinutesDevice(time.Now(), 10)
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, values: ValuesPerAnswer / 4}
+
+	for _, want := range []int{ValuesPerAnswer / 2, ValuesPerAnswer, ValuesPerAnswer} {
+		if !f.fetch(ctx) || f.values != want {
+			t.Fatalf("values after a quick fetch = %d, want %d", f.values, want)
+		}
+	}
+
+	// A fetch that took more than half its time keeps the size it has.
+	f.values = ValuesPerAnswer / 4
+	device.broken = func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(60 * time.Millisecond)
+		_, _ = fmt.Fprintf(w, `{"now":%d,"minutes":[]}`, time.Now().Add(device.clock).Unix())
+	}
+	f.budget = 100 * time.Millisecond
+	f.fetch(ctx)
+	if f.values != ValuesPerAnswer/4 {
+		t.Errorf("values after a slow fetch = %d, want %d", f.values, ValuesPerAnswer/4)
 	}
 }
 

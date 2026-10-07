@@ -28,7 +28,9 @@ type MinuteSource interface {
 // on this machine's clock, with how the extras among them are described.
 // Asking with after tells that the hub has stored everything up to it, so
 // after may not be later than this machine's time: there are no minutes
-// after it yet. Each hub is told apart by the address it asks from.
+// after it yet. A hub sends hub.PagePortHeader with every request; it is told
+// apart from other hubs by the address it asks from. A request without the
+// header is not from a hub, so it reads the minutes but deletes none.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
@@ -46,7 +48,7 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 			}
 			values = min(values, n)
 		}
-		minutes, more, err := source.Since(r.Context(), askedFrom(r), time.Unix(after, 0), hub.MinutesPerAnswer, values)
+		minutes, more, err := source.Since(r.Context(), hubAsking(r), time.Unix(after, 0), hub.MinutesPerAnswer, values)
 		if err != nil {
 			slog.Error("read the minutes for a hub", "error", err)
 			http.Error(w, "could not read the minutes", http.StatusInternalServerError)
@@ -60,6 +62,15 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, hub.MinutesAnswer{Now: time.Now().Unix(), Minutes: minutes, More: more, Extras: extras})
 	}
+}
+
+// hubAsking returns the address of the hub a request is from, or empty for
+// a request that is not from a hub.
+func hubAsking(r *http.Request) string {
+	if r.Header.Get(hub.PagePortHeader) == "" {
+		return ""
+	}
+	return askedFrom(r)
 }
 
 // askedFrom returns the address a request came from, without its port, which
