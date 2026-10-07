@@ -54,16 +54,17 @@ func longPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	buffer := make([]uint16, windows.MAX_PATH)
-	for {
-		n, err := windows.GetLongPathName(name, &buffer[0], uint32(len(buffer)))
+	// A buffer too small gets the size it needs.
+	for size := uint32(windows.MAX_PATH); ; {
+		buffer := make([]uint16, size)
+		n, err := windows.GetLongPathName(name, &buffer[0], size)
 		if err != nil {
 			return "", err
 		}
-		if int(n) < len(buffer) {
+		if n < size {
 			return windows.UTF16ToString(buffer[:n]), nil
 		}
-		buffer = make([]uint16, n)
+		size = n
 	}
 }
 
@@ -75,20 +76,20 @@ func openedPath(folder *os.Root) (string, error) {
 		return "", err
 	}
 	defer func() { _ = opened.Close() }()
-	buffer := make([]uint16, windows.MAX_PATH)
-	for {
+	for size := uint32(windows.MAX_PATH); ; {
+		buffer := make([]uint16, size)
 		// Flags 0: the normalized path, starting with a drive letter.
-		n, err := windows.GetFinalPathNameByHandle(windows.Handle(opened.Fd()), &buffer[0], uint32(len(buffer)), 0)
+		n, err := windows.GetFinalPathNameByHandle(windows.Handle(opened.Fd()), &buffer[0], size, 0)
 		if err != nil {
 			return "", err
 		}
-		if int(n) < len(buffer) {
+		if n < size {
 			path := windows.UTF16ToString(buffer[:n])
 			if unc, ok := strings.CutPrefix(path, `\\?\UNC\`); ok {
 				return `\\` + unc, nil
 			}
 			return strings.TrimPrefix(path, `\\?\`), nil
 		}
-		buffer = make([]uint16, n)
+		size = n
 	}
 }
