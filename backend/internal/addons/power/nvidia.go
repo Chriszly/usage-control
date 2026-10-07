@@ -6,7 +6,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
+
+// nvidiaTimeout is how long nvidia-smi may take. Without the driver's
+// persistence mode, as on many Linux servers, each call starts the driver,
+// which can take more than a second.
+const nvidiaTimeout = 3 * time.Second
 
 // readNvidia reads the power draw of each NVIDIA GPU through nvidia-smi,
 // which comes with the NVIDIA driver. program is "" when it is not installed.
@@ -14,13 +21,14 @@ func readNvidia(ctx context.Context, program string) []Reading {
 	if program == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	ctx, cancel := context.WithTimeout(ctx, nvidiaTimeout)
 	defer cancel()
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
-	out, err := exec.CommandContext(ctx, program, "--query-gpu=index,name,power.draw", "--format=csv,noheader,nounits").Output()
-	if err != nil {
-		return nil
-	}
+	cmd := exec.CommandContext(ctx, program, "--query-gpu=index,name,power.draw", "--format=csv,noheader,nounits")
+	metrics.HideWindow(cmd)
+	// When one GPU is in an error state, nvidia-smi still prints the others
+	// but exits with an error, so what it printed is read either way.
+	out, _ := cmd.Output()
 	return parseNvidia(string(out))
 }
 

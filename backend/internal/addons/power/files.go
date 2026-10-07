@@ -1,6 +1,8 @@
 package power
 
 import (
+	"fmt"
+	"hash/crc32"
 	"os"
 	"os/exec"
 	"regexp"
@@ -36,11 +38,13 @@ func lookPath(name string) string {
 var notInID = regexp.MustCompile(`[^a-z0-9]+`)
 
 // idOf turns parts of a name into an id for an extra: lowercase letters and
-// digits joined by "-", at most 40 characters.
+// digits joined by "-", at most 40 characters. A longer one is cut and ends
+// in a checksum of the whole, so two names that start the same keep apart.
 func idOf(parts ...string) string {
 	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(strings.Join(parts, "-")), "-"), "-")
 	if len(id) > 40 {
-		id = strings.TrimRight(id[:40], "-")
+		sum := crc32.ChecksumIEEE([]byte(id))
+		id = fmt.Sprintf("%s-%08x", strings.TrimRight(id[:31], "-"), sum)
 	}
 	return id
 }
