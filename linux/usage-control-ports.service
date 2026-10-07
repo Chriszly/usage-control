@@ -24,7 +24,7 @@ RestartSec=5
 # tables of /proc/1/net, which any user may read. It stays in the host's
 # network, without PrivateNetwork=yes, only so it reads the range of ports
 # the host hands out from /proc/sys/net/ipv4/ip_local_port_range, which each
-# network has of its own; it can still open no network socket (only AF_UNIX
+# network has of its own; it can still open no socket (RestrictAddressFamilies
 # below) and send no packet (IPAddressDeny). It reads no process names:
 # finding them would mean reading every process's /proc/<pid>/fd, which root
 # without capabilities may not do for other users' processes.
@@ -45,7 +45,9 @@ ProtectControlGroups=yes
 # calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
-RestrictAddressFamilies=AF_UNIX
+# No socket of any kind: as root it could otherwise connect to the Unix
+# sockets of services such as Docker or systemd and have them act for it.
+RestrictAddressFamilies=none
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

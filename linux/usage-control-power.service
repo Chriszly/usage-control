@@ -26,13 +26,18 @@ User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 # Of the hardware only the devices nvidia-smi and vcgencmd talk to: NVIDIA's
-# control and GPU devices, the capability files nvidia-smi reads on GPUs split
-# with MIG, and the Raspberry Pi firmware's mailbox. One a machine lacks is
-# skipped; disks, input and other devices cannot be opened.
+# GPU and control devices (named nvidia and nvidiactl by current drivers,
+# nvidia-frontend by old ones), the capability files nvidia-smi reads on GPUs
+# split with MIG, and the Raspberry Pi firmware's mailbox (vcio, or vchiq for
+# older vcgencmd). One a machine lacks is skipped; disks, input and other
+# devices cannot be opened.
 DevicePolicy=closed
+DeviceAllow=char-nvidia rw
+DeviceAllow=char-nvidiactl rw
 DeviceAllow=char-nvidia-frontend rw
 DeviceAllow=char-nvidia-caps r
 DeviceAllow=/dev/vcio rw
+DeviceAllow=/dev/vchiq rw
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -45,7 +50,11 @@ ProtectControlGroups=yes
 # calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
+# Unix sockets only, as nvidia-smi may ask nvidia-persistenced through one;
+# those of services root could have act for it, such as Docker and systemd,
+# are hidden.
 RestrictAddressFamilies=AF_UNIX
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd -/run/systemd/private -/run/dbus
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

@@ -13,7 +13,9 @@ ExecStart=/usr/local/bin/usage-control-containers
 # DOCKER_DIR, where Docker keeps its data elsewhere, is set with the other
 # settings in /etc/usage-control.env.
 EnvironmentFile=-/etc/usage-control.env
-Environment=ADDONS_DIR=/run/usage-control-addons
+# It writes to /run/usage-control-addons, the add-ons' default, like the
+# other add-ons, even where the settings file names another ADDONS_DIR.
+UnsetEnvironment=ADDONS_DIR
 # The add-on folder usage-control reads; others may read it, only root writes.
 RuntimeDirectory=usage-control-addons
 RuntimeDirectoryMode=0755
@@ -43,7 +45,9 @@ ProtectControlGroups=yes
 # calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
-RestrictAddressFamilies=AF_UNIX
+# No socket of any kind: as root it could otherwise connect to the Unix
+# sockets of services such as Docker or systemd and have them act for it.
+RestrictAddressFamilies=none
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

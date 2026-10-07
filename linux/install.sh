@@ -5,14 +5,15 @@
 #   sudo ./install.sh                # install, or update to this version
 #   sudo ./install.sh --addons=power # install with the power add-on
 #   sudo ./install.sh --addons=      # install without any add-on
-#   sudo ./install.sh --uninstall    # remove it; add --purge to delete the history too
+#   sudo ./install.sh --uninstall    # remove it; add --purge to delete settings and history too
 #
 # Add-ons are optional programs that track more than usage-control itself,
 # each as a service of its own. Without --addons, the install asks for each
 # one when run in a terminal, and an update keeps the add-ons installed before.
 #
 # Settings live in /etc/usage-control.env and the history in
-# /var/lib/usage-control; an update keeps both.
+# /var/lib/usage-control; an update keeps both. --uninstall --purge deletes
+# them, with any settings made with systemctl edit (usage-control*.service.d).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

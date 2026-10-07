@@ -45,7 +45,9 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectHostname=yes
-RestrictAddressFamilies=AF_UNIX
+# No socket of any kind: as root it could otherwise connect to the Unix
+# sockets of services such as Docker or systemd and have them act for it.
+RestrictAddressFamilies=none
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

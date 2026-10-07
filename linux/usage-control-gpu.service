@@ -27,10 +27,14 @@ RestartSec=5
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=
-# Of the hardware only the devices nvidia-smi talks to: NVIDIA's control and
-# GPU devices and the capability files it reads on GPUs split with MIG. Disks,
-# input and other devices cannot be opened.
+# Of the hardware only the devices nvidia-smi talks to: NVIDIA's GPU and
+# control devices (named nvidia and nvidiactl by current drivers,
+# nvidia-frontend by old ones) and the capability files it reads on GPUs split
+# with MIG. One a machine lacks is skipped; disks, input and other devices
+# cannot be opened.
 DevicePolicy=closed
+DeviceAllow=char-nvidia rw
+DeviceAllow=char-nvidiactl rw
 DeviceAllow=char-nvidia-frontend rw
 DeviceAllow=char-nvidia-caps r
 ProtectSystem=strict
@@ -45,7 +49,11 @@ ProtectControlGroups=yes
 # calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
+# Unix sockets only, as nvidia-smi may ask nvidia-persistenced through one;
+# those of services root could have act for it, such as Docker and systemd,
+# are hidden.
 RestrictAddressFamilies=AF_UNIX
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/containerd -/run/systemd/private -/run/dbus
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
