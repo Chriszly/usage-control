@@ -62,6 +62,12 @@ SystemCallArchitectures=native
 # not allowed fails instead of ending the program.
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @mount @obsolete @debug @cpu-emulation
+# systemd before 249 (as on Raspberry Pi OS bullseye) ignores
+# RestrictAddressFamilies=none, so the call that opens a socket is left out
+# as well. It comes after the allow list, as the first SystemCallFilter= line
+# decides whether the filter allows or denies: a deny line first would make
+# @system-service add calls back instead of limiting them.
+SystemCallFilter=~socket
 SystemCallErrorNumber=EPERM
 
 [Install]
