@@ -1,8 +1,9 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power and processes add-ons on, checks
-# the tray icon pauses, resumes and stops the service, updates it to a newer
-# version without options and checks the options and the add-ons were kept
-# and the tray icon was closed for the update,
+# installs it with the website and the power, gpu, kernel, pressure, Wi-Fi,
+# memory, ports, smart and processes add-ons on, checks the tray icon
+# pauses, resumes and stops the service, updates it to a newer version
+# without options and checks the options and the add-ons were kept and the
+# tray icon was closed for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -111,6 +112,70 @@ function Assert-PowerAddOn {
     Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\power.json" } 'the power add-on wrote its report'
 }
 
+function Assert-GpuAddOn {
+    $addOn = Get-Service UsageControlGPU -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The gpu add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlGPU).Status -eq 'Running' } 'the gpu add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\gpu.json" } 'the gpu add-on wrote its report'
+}
+
+function Assert-KernelAddOn {
+    $addOn = Get-Service UsageControlKernel -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The kernel add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlKernel).Status -eq 'Running' } 'the kernel add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\kernel.json"
+    Wait-Until { (Test-Path $report) -and (Get-Content $report -Raw) -match '"context-switches"' } 'the kernel add-on wrote its report'
+}
+
+function Assert-PressureAddOn {
+    $addOn = Get-Service UsageControlPressure -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The pressure add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlPressure).Status -eq 'Running' } 'the pressure add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\pressure.json" } 'the pressure add-on wrote its report'
+    Wait-Until { (Get-Content -Raw "$env:ProgramData\Usage Control\addons\pressure.json") -match '"cpu-queue"' } 'the pressure add-on read the processor queue'
+}
+
+# The runner has no Wi-Fi, and Windows Server may lack the WLAN API; the
+# add-on then still runs and writes a report without values.
+function Assert-WifiAddOn {
+    $addOn = Get-Service UsageControlWifi -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The Wi-Fi add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlWifi).Status -eq 'Running' } 'the Wi-Fi add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\wifi.json" } 'the Wi-Fi add-on wrote its report'
+}
+
+# The memory add-on reads the Memory performance counters as LocalService;
+# its report holds the committed memory once it could read them.
+function Assert-MemoryAddOn {
+    $addOn = Get-Service UsageControlMemory -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The memory add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlMemory).Status -eq 'Running' } 'the memory add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\memory.json"
+    Wait-Until {
+        try {
+            $items = (Get-Content $report -Raw -ErrorAction Stop | ConvertFrom-Json).extras.items
+            @($items | Where-Object { $_.id -eq 'committed' -and $_.value -gt 0 }).Count -eq 1
+        } catch { $false }
+    } 'the memory add-on wrote the committed memory'
+}
+
+function Assert-PortsAddOn {
+    if (-not (Get-Service UsageControlPorts -ErrorAction SilentlyContinue)) { throw 'The ports add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlPorts).Status -eq 'Running' } 'the ports add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\ports.json"
+    Wait-Until { (Test-Path $report) -and (Get-Content $report -Raw) -match '"id":"ports"' } 'the ports add-on wrote its ports'
+}
+
+# The smart add-on runs as LocalSystem, as SMART commands need an
+# administrator. Its report may hold no disks on a virtual machine.
+function Assert-SmartAddOn {
+    $addOn = Get-CimInstance Win32_Service -Filter "Name = 'UsageControlSmart'"
+    if (-not $addOn) { throw 'The smart add-on is not installed' }
+    if ($addOn.StartName -ne 'LocalSystem') { throw "The smart add-on runs as $($addOn.StartName), not LocalSystem" }
+    Wait-Until { (Get-Service UsageControlSmart).Status -eq 'Running' } 'the smart add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\smart.json" } 'the smart add-on wrote its report'
+}
+
 # The processes add-on lists ten processes by memory at once, and by CPU from
 # its second read on, as the Local Service account sees them.
 function Assert-ProcessesAddOn {
@@ -124,12 +189,19 @@ function Assert-ProcessesAddOn {
     if ($memory.Count -ne 1 -or $memory[0].items.Count -ne 10) { throw "The processes add-on did not list ten processes by memory: $($groups | ConvertTo-Json -Depth 4)" }
 }
 
-Write-Host 'Installing with the website and the power and processes add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 PROCESSES=1"
+Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1 SMART=1 PROCESSES=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
 Assert-PowerAddOn
+Assert-GpuAddOn
+Assert-KernelAddOn
+Assert-PressureAddOn
+Assert-WifiAddOn
+Assert-MemoryAddOn
+Assert-PortsAddOn
+Assert-SmartAddOn
 Assert-ProcessesAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
@@ -145,12 +217,26 @@ $installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion
 if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
 Assert-PowerAddOn
+Assert-GpuAddOn
+Assert-KernelAddOn
+Assert-PressureAddOn
+Assert-WifiAddOn
+Assert-MemoryAddOn
+Assert-PortsAddOn
+Assert-SmartAddOn
 Assert-ProcessesAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on is still installed' }
+if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on is still installed' }
+if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on is still installed' }
+if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
+if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on is still installed' }
+if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on is still installed' }
+if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on is still installed' }
+if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The smart add-on is still installed' }
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
@@ -166,6 +252,13 @@ $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it should be off" }
 Assert-FirewallPort 9393
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on was installed without POWER=1' }
+if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on was installed without GPU=1' }
+if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on was installed without KERNEL=1' }
+if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
+if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on was installed without WIFI=1' }
+if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on was installed without MEMORY=1' }
+if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on was installed without PORTS=1' }
+if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The smart add-on was installed without SMART=1' }
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on was installed without PROCESSES=1' }
 Invoke-Installer "/x `"$Msi`""
 

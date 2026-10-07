@@ -1,0 +1,66 @@
+# The smart add-on of usage-control: reads the health of the SATA and NVMe
+# disks straight from them, with nothing else to install, and writes it to
+# /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control smart add-on: reads the disks' health (SMART); runs as root with read-only disk access only
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-smart
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Runs as root because only root may open the disks, with only the two
+# capabilities the disk commands need: CAP_SYS_RAWIO lets it pass ATA commands
+# to SATA disks (SG_IO), CAP_SYS_ADMIN lets it send the NVMe admin command
+# that reads an NVMe disk's health log. It sends only commands that read, opens
+# the disks read-only, and only SATA/SCSI disks and NVMe controllers are
+# reachable at all. It writes nothing but its folder and needs no network.
+# CAP_SYS_ADMIN allows much more than NVMe commands, and systemd cannot grant
+# it only where there are NVMe disks, so it is granted everywhere; the system
+# call filter below keeps it from mounting, loading modules and the like. On a
+# machine without NVMe disks, a drop-in (systemctl edit usage-control-smart)
+# with CapabilityBoundingSet=~CAP_SYS_ADMIN takes it away.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=char-nvme r
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# Only the system calls a service needs, without those of @privileged (which
+# holds @clock, @swap, @reboot, @module, @raw-io and setuid and the like),
+# @mount and others no reader needs, so ProtectClock=yes would add nothing:
+# the clock calls are left out, and the clock's capability is not granted.
+# The disk commands are plain ioctl calls, which stay allowed. A call that is
+# not allowed fails instead of ending the program.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @obsolete @debug @cpu-emulation
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=usage-control.service
