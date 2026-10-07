@@ -2,6 +2,7 @@ package processes
 
 import (
 	"errors"
+	"fmt"
 	"time"
 	"unsafe"
 
@@ -18,24 +19,25 @@ func NewSource(string) Source {
 	// Windows keeps no count of the machine's CPU time, so it is added up from
 	// the idle time and the processes', in their 100 ns units.
 	var sum cpuSum
-	return func(now time.Time) (Sample, bool) {
+	return func(now time.Time) (Sample, error) {
 		var processes []Process
 		var idle uint64
-		processes, idle, buf = ntProcesses(buf)
-		if processes == nil {
-			return Sample{}, false
+		var err error
+		processes, idle, buf, err = ntProcesses(buf)
+		if err != nil {
+			return Sample{}, err
 		}
 		// A process's start is a FILETIME, 100 ns units since 1601.
 		ft := windows.NsecToFiletime(now.UnixNano())
 		at := uint64(ft.HighDateTime)<<32 | uint64(ft.LowDateTime)
-		return Sample{Processes: processes, Total: sum.add(at, idle, processes), Time: at}, true
+		return Sample{Processes: processes, Total: sum.add(at, idle, processes), Time: at}, nil
 	}
 }
 
 // ntProcesses lists every process and the CPUs' idle time, reusing buf,
-// which it returns grown when it was too small. It returns no processes when
-// the call fails.
-func ntProcesses(buf []byte) ([]Process, uint64, []byte) {
+// which it returns grown when it was too small, or returns why the call
+// failed.
+func ntProcesses(buf []byte) ([]Process, uint64, []byte, error) {
 	if len(buf) == 0 {
 		buf = make([]byte, 512*1024)
 	}
@@ -49,12 +51,15 @@ func ntProcesses(buf []byte) ([]Process, uint64, []byte) {
 			continue
 		}
 		if err != nil {
-			return nil, 0, buf
+			return nil, 0, buf, fmt.Errorf("NtQuerySystemInformation: %w", err)
 		}
 		processes, idle := parseNT(buf)
-		return processes, idle, buf
+		if len(processes) == 0 {
+			return nil, 0, buf, errors.New("NtQuerySystemInformation listed no processes")
+		}
+		return processes, idle, buf, nil
 	}
-	return nil, 0, buf
+	return nil, 0, buf, errors.New("NtQuerySystemInformation: more processes started at every try")
 }
 
 // parseNT walks the list NtQuerySystemInformation wrote to buf, and returns

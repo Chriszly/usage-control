@@ -32,7 +32,7 @@ import (
 // change per second. A total the kernel did not report is left out.
 type counters map[string]uint64
 
-// The values of the group, in the order they are shown.
+// The values of the add-on.
 const (
 	contextSwitches = "context-switches"
 	interrupts      = "interrupts"
@@ -44,9 +44,19 @@ const (
 	retransmissions = "tcp-retransmissions"
 )
 
-var order = []string{
-	contextSwitches, interrupts, newProcesses, openFiles, handles,
-	sockets, tcpEstablished, retransmissions,
+// groups are the groups of values, in the order they are shown, each with
+// values of a similar size: a chart is drawn per group and unit, and a few
+// TCP retransmissions or new processes per second would be a flat line next
+// to thousands of interrupts.
+var groups = []struct {
+	id, title string
+	titles    map[string]string
+	values    []string
+}{
+	{"kernel", "Kernel", map[string]string{"de": "Kernel", "fr": "Noyau", "es": "Núcleo"}, []string{contextSwitches, interrupts}},
+	{"kernel-processes", "Kernel: processes", map[string]string{"de": "Kernel: Prozesse", "fr": "Noyau : processus", "es": "Núcleo: procesos"}, []string{newProcesses}},
+	{"kernel-in-use", "Kernel: in use", map[string]string{"de": "Kernel: belegt", "fr": "Noyau : utilisés", "es": "Núcleo: en uso"}, []string{openFiles, handles, sockets}},
+	{"kernel-tcp", "Kernel: TCP", map[string]string{"de": "Kernel: TCP", "fr": "Noyau : TCP", "es": "Núcleo: TCP"}, []string{tcpEstablished, retransmissions}},
 }
 
 // rates are the values shown per second, from the change of a counter.
@@ -123,35 +133,35 @@ func (r *Reader) Read(now time.Time) map[string]float64 {
 	)
 }
 
-// Extras returns the values as the group of extras the collector shows.
+// Extras returns the values as the groups of extras the collector shows,
+// leaving out groups without values.
 func Extras(values map[string]float64) []metrics.Extra {
-	if len(values) == 0 {
-		return nil
-	}
-	group := metrics.Extra{
-		ID:     "kernel",
-		Title:  "Kernel",
-		Titles: map[string]string{"de": "Kernel", "fr": "Noyau", "es": "Núcleo"},
-	}
-	for _, id := range order {
-		value, ok := values[id]
-		if !ok {
-			continue
+	var extras []metrics.Extra
+	for _, g := range groups {
+		group := metrics.Extra{ID: g.id, Title: g.title, Titles: g.titles}
+		for _, id := range g.values {
+			value, ok := values[id]
+			if !ok {
+				continue
+			}
+			unit := metrics.UnitNumber
+			if rates[id] {
+				unit = metrics.UnitPerSecond
+			}
+			group.Items = append(group.Items, metrics.ExtraItem{
+				ID:      id,
+				Label:   labels[id].en,
+				Labels:  labels[id].other,
+				Unit:    unit,
+				Value:   &value,
+				History: true,
+			})
 		}
-		unit := metrics.UnitNumber
-		if rates[id] {
-			unit = metrics.UnitPerSecond
+		if len(group.Items) > 0 {
+			extras = append(extras, group)
 		}
-		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:      id,
-			Label:   labels[id].en,
-			Labels:  labels[id].other,
-			Unit:    unit,
-			Value:   &value,
-			History: true,
-		})
 	}
-	return []metrics.Extra{group}
+	return extras
 }
 
 // HostProc returns where /proc is: HOST_PROC in a container that mounts the

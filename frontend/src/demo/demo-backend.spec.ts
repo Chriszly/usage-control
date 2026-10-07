@@ -40,6 +40,22 @@ describe('DemoBackend', () => {
     }
   });
 
+  it('gives every value of the add-ons a number, the processes busiest first', async () => {
+    for (const machine of FLEET.filter((m) => !m.online)) {
+      const s = await firstValueFrom(metrics.current(machine.device.id));
+      for (const group of s.extras ?? []) {
+        const values = group.items.filter((i) => i.unit !== 'text').map((i) => i.value);
+        expect(
+          values.every((v) => typeof v === 'number'),
+          `${machine.device.id} ${group.id}`,
+        ).toBe(true);
+        if (group.id.startsWith('processes-')) {
+          expect(values).toEqual([...values].sort((a, b) => b! - a!));
+        }
+      }
+    }
+  });
+
   it('counts the time the laptop sleeps as not in use, not as outages', async () => {
     const laptop = await firstValueFrom(devices.availability('linux-laptop'));
     expect(laptop.kind).toBe('pc');

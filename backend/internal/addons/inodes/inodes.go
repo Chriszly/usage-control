@@ -63,30 +63,51 @@ var skipped = map[string]bool{
 	"ceph": true, "glusterfs": true, "afs": true, "virtiofs": true,
 }
 
+// containerFolders are the folders of container engines. What is mounted
+// below them is a container's own layer or root, such as one ZFS dataset
+// per layer with Docker's zfs driver or per container with LXD and Incus on
+// ZFS, and would fill the slots of the group with values that come and go
+// with the containers. A disk mounted at such a folder itself is kept.
+var containerFolders = []string{
+	"/var/lib/docker/",
+	"/var/lib/containerd/",
+	"/var/lib/containers/storage/",
+	"/var/lib/lxd/storage-pools/",
+	"/var/snap/lxd/common/lxd/storage-pools/",
+	"/var/lib/incus/storage-pools/",
+}
+
+// belowContainerFolder reports whether path is below a container engine's
+// folder.
+func belowContainerFolder(path string) bool {
+	for _, folder := range containerFolders {
+		if strings.HasPrefix(path, folder) {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseMounts reads a mount table in the format of /proc/self/mounts and
-// returns the real filesystems, each once: a filesystem mounted at several
-// paths, such as through a bind mount, keeps the first, and a path with
-// filesystems mounted over each other, of which statfs only sees the top
-// one, is listed once. Filesystems in user space ("fuse.sshfs" and the like)
-// are left out like network filesystems, except fuseblk, a disk such as an
-// NTFS one.
+// returns the real filesystems: a path with filesystems mounted over each
+// other, of which statfs only sees the top one, is listed once, and what is
+// mounted below a container engine's folder is left out. A filesystem
+// mounted at several paths, such as through a bind mount, is listed at
+// each; Read keeps the first that can be read. Filesystems in user space
+// ("fuse.sshfs" and the like) are left out like network filesystems, except
+// fuseblk, a disk such as an NTFS one.
 func ParseMounts(table string) []Mount {
 	var mounts []Mount
-	sources, paths := map[string]bool{}, map[string]bool{}
+	paths := map[string]bool{}
 	for line := range strings.Lines(table) {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
 		m := Mount{Source: unescape(fields[0]), Path: unescape(fields[1]), Type: fields[2]}
-		if skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || !strings.HasPrefix(m.Path, "/") || paths[m.Path] {
+		if skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || !strings.HasPrefix(m.Path, "/") ||
+			paths[m.Path] || belowContainerFolder(m.Path) {
 			continue
-		}
-		if strings.HasPrefix(m.Source, "/") {
-			if sources[m.Source] {
-				continue
-			}
-			sources[m.Source] = true
 		}
 		paths[m.Path] = true
 		mounts = append(mounts, m)
@@ -140,17 +161,29 @@ func newReader(table string, statfs func(string) (uint64, uint64, bool), timeout
 }
 
 // Read returns the inode usage of each real filesystem in the mount table,
-// in its order, or nothing when the table cannot be read.
+// in its order, or nothing when the table cannot be read. A device mounted
+// at several paths is reported at the first one that can be read, so one
+// whose first mount does not answer still shows up.
 func (r *Reader) Read() []Usage {
 	table, err := os.ReadFile(r.table)
 	if err != nil {
 		return nil
 	}
 	var usages []Usage
+	read := map[string]bool{}
 	for _, m := range ParseMounts(string(table)) {
+		// Only a device is the same filesystem wherever it is mounted; a
+		// name such as a ZFS dataset's is checked by its path alone.
+		device := strings.HasPrefix(m.Source, "/")
+		if device && read[m.Source] {
+			continue
+		}
 		total, free, ok := r.stat(m.Path)
 		if !ok {
 			continue
+		}
+		if device {
+			read[m.Source] = true
 		}
 		if percent, ok := UsedPercent(total, free); ok {
 			usages = append(usages, Usage{Path: m.Path, UsedPercent: percent})

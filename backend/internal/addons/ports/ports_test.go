@@ -1,11 +1,14 @@
 package ports
 
 import (
+	"fmt"
 	"net/netip"
 	"reflect"
 	"testing"
 
 	"github.com/shirou/gopsutil/v4/net"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 const procNetTCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -164,5 +167,25 @@ func TestExtrasCountsAndListsThePorts(t *testing.T) {
 	}
 	if items[1].ID != "tcp-22" || items[1].Label != "TCP 22" || items[1].Text != "0.0.0.0, ::" || items[1].History {
 		t.Errorf("second item = %+v, want TCP 22 on 0.0.0.0, :: without history", items[1])
+	}
+}
+
+func TestJoinAddressesKeepsWholeAddresses(t *testing.T) {
+	var addresses []string
+	for i := range 10 {
+		addresses = append(addresses, fmt.Sprintf("fd00::1:%d", 1000+i))
+	}
+
+	got := joinAddresses(addresses)
+
+	want := "fd00::1:1000, fd00::1:1001, fd00::1:1002, fd00::1:1003, fd00::1:1004 +5"
+	if got != want {
+		t.Errorf("joinAddresses() = %q, want %q", got, want)
+	}
+	if len(got) > metrics.MaxTextLength {
+		t.Errorf("joinAddresses() has %d characters, want at most %d", len(got), metrics.MaxTextLength)
+	}
+	if got := joinAddresses(addresses[:2]); got != "fd00::1:1000, fd00::1:1001" {
+		t.Errorf("joinAddresses() of two = %q, want both", got)
 	}
 }

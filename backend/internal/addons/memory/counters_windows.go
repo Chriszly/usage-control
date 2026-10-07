@@ -73,5 +73,5 @@ func (r *counterReader) Read(time.Time) []metrics.Extra {
 	}
 	withRates := r.read
 	r.read = true
-	return group(counterItems(values, withRates, float64(os.Getpagesize())))
+	return grouped(counterItems(values, withRates, float64(os.Getpagesize())))
 }

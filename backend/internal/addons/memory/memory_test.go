@@ -48,8 +48,9 @@ func TestReadSizesNowAndRatesFromTheSecondRead(t *testing.T) {
 	start := time.Now()
 
 	first := r.Read(start)
-	if len(first) != 1 || first[0].ID != "memory" || first[0].Titles["de"] != "Speicherdetails" {
-		t.Fatalf("first Read() = %+v, want the memory group", first)
+	if len(first) != 3 || first[0].ID != "memory" || first[0].Titles["de"] != "Speicherdetails" ||
+		first[1].ID != "memory-committed" || first[2].ID != "memory-writeback" {
+		t.Fatalf("first Read() = %+v, want the memory, committed and writeback groups", first)
 	}
 	want := map[string]float64{
 		"dirty": 1024 * 1024, "writeback": 0, "slab": 204800 * 1024, "shared": 51200 * 1024,
@@ -58,9 +59,11 @@ func TestReadSizesNowAndRatesFromTheSecondRead(t *testing.T) {
 	if got := values(first); len(got) != len(want) {
 		t.Fatalf("first Read() = %v, want only the sizes %v", got, want)
 	}
-	for _, item := range first[0].Items {
-		if item.Unit != metrics.UnitBytes || !item.History || item.Labels["fr"] == "" || *item.Value != want[item.ID] {
-			t.Errorf("item %+v, want %v bytes with history and translations", item, want[item.ID])
+	for _, group := range first {
+		for _, item := range group.Items {
+			if item.Unit != metrics.UnitBytes || !item.History || item.Labels["fr"] == "" || *item.Value != want[item.ID] {
+				t.Errorf("item %+v, want %v bytes with history and translations", item, want[item.ID])
+			}
 		}
 	}
 
@@ -75,7 +78,10 @@ func TestReadSizesNowAndRatesFromTheSecondRead(t *testing.T) {
 			t.Errorf("%s = %v, want %v", id, got[id], value)
 		}
 	}
-	for _, item := range second[0].Items {
+	if len(second) != 5 || second[3].ID != "memory-faults" || second[4].ID != "memory-disk" {
+		t.Fatalf("second Read() = %+v, want the page faults and disk access groups too", second)
+	}
+	for _, item := range append(second[3].Items, second[4].Items...) {
 		switch item.ID {
 		case "swap-in", "swap-out":
 			if item.Unit != metrics.UnitBytesPerSecond {
@@ -85,6 +91,36 @@ func TestReadSizesNowAndRatesFromTheSecondRead(t *testing.T) {
 			if item.Unit != metrics.UnitPerSecond {
 				t.Errorf("%s unit = %s, want perSecond", item.ID, item.Unit)
 			}
+		}
+	}
+}
+
+func TestEveryValueIsInOneGroup(t *testing.T) {
+	seen := map[string]bool{}
+	for _, g := range groups {
+		if len(g.titles) != 3 {
+			t.Errorf("group %s wants its title's translations", g.id)
+		}
+		for _, id := range g.ids {
+			if seen[id] {
+				t.Errorf("%s is in two groups", id)
+			}
+			seen[id] = true
+		}
+	}
+	var ids []string
+	for _, s := range sizes {
+		ids = append(ids, s.id)
+	}
+	for _, r := range rates {
+		ids = append(ids, r.id)
+	}
+	for _, c := range counters {
+		ids = append(ids, c.id)
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			t.Errorf("%s is in no group", id)
 		}
 	}
 }

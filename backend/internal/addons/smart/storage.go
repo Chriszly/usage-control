@@ -109,6 +109,20 @@ func nvmeLogFromDescriptor(b []byte, size int) ([]byte, error) {
 	return p[offset : offset+size], nil
 }
 
+// diskPerformanceSize is the size of DISK_PERFORMANCE: five 8-byte times
+// and byte counts, four 4-byte counts, an 8-byte time, a 4-byte number and
+// a name of 8 UTF-16 characters.
+const diskPerformanceSize = 88
+
+// parseDiskPerformance reads the reads and writes, ReadCount and WriteCount,
+// from the DISK_PERFORMANCE that IOCTL_DISK_PERFORMANCE returns.
+func parseDiskPerformance(b []byte) (uint64, bool) {
+	if len(b) < 48 {
+		return 0, false
+	}
+	return uint64(binary.LittleEndian.Uint32(b[40:])) + uint64(binary.LittleEndian.Uint32(b[44:])), true
+}
+
 // The SMART IOCTLs' SENDCMDINPARAMS and SENDCMDOUTPARAMS: the input is
 // cBufferSize, the 8 IDE registers, the drive number and reserved bytes, 32
 // bytes up to its buffer; the output is cBufferSize and 12 bytes of

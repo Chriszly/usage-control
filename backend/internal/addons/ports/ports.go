@@ -164,10 +164,31 @@ func Extras(ports []Port, ok bool) []metrics.Extra {
 			ID:    fmt.Sprintf("%s-%d", p.Protocol, p.Number),
 			Label: fmt.Sprintf("%s %d", strings.ToUpper(p.Protocol), p.Number),
 			Unit:  metrics.UnitText,
-			Text:  strings.Join(p.Addresses, ", "),
+			Text:  joinAddresses(p.Addresses),
 		})
 	}
 	return []metrics.Extra{group}
+}
+
+// joinAddresses returns addresses as one text of at most metrics.MaxTextLength
+// characters: as many whole addresses as fit, then how many more there are,
+// such as "10.0.0.1, 10.0.0.2 +3", so no address is cut in the middle.
+func joinAddresses(addresses []string) string {
+	if text := strings.Join(addresses, ", "); len(text) <= metrics.MaxTextLength {
+		return text
+	}
+	text := ""
+	for i, address := range addresses {
+		next := address
+		if i > 0 {
+			next = text + ", " + address
+		}
+		if len(next)+len(fmt.Sprintf(" +%d", len(addresses)-i-1)) > metrics.MaxTextLength {
+			return fmt.Sprintf("%s +%d", text, len(addresses)-i)
+		}
+		text = next
+	}
+	return text
 }
 
 // HostProc returns where /proc is: HOST_PROC in a container that mounts the

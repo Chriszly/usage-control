@@ -9,5 +9,5 @@ import (
 // host's /proc.
 func NewSource(procDir string) Source {
 	proc := newProcFS(procDir, os.Getpagesize())
-	return func(time.Time) (Sample, bool) { return proc.sample() }
+	return func(time.Time) (Sample, error) { return proc.sample() }
 }

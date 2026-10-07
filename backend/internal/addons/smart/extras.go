@@ -46,17 +46,19 @@ var values = []value{
 	},
 }
 
-// The translations of the disk's own check. Only labels have translations,
-// so the label tells whether it passed and the text is a mark that needs
-// none.
+// The translations of the disk's own check, and of a disk that cannot be
+// read. Only labels have translations, so the label tells whether it passed
+// and the text is a mark that needs none.
 var (
-	passedLabels = map[string]string{"de": "SMART-Prüfung bestanden", "fr": "Contrôle SMART réussi", "es": "Comprobación SMART superada"}
-	failedLabels = map[string]string{"de": "SMART-Prüfung NICHT BESTANDEN", "fr": "Contrôle SMART ÉCHOUÉ", "es": "Comprobación SMART FALLIDA"}
+	passedLabels     = map[string]string{"de": "SMART-Prüfung bestanden", "fr": "Contrôle SMART réussi", "es": "Comprobación SMART superada"}
+	failedLabels     = map[string]string{"de": "SMART-Prüfung NICHT BESTANDEN", "fr": "Contrôle SMART ÉCHOUÉ", "es": "Comprobación SMART FALLIDA"}
+	unreadableLabels = map[string]string{"de": "Kann nicht gelesen werden", "fr": "Ne peut pas être lu", "es": "No se puede leer"}
 )
 
 // Extras returns the disks as the group of extras the collector shows: for
 // each disk its overall check and the numbers it reports, each labelled with
-// the disk, such as "Samsung SSD 980 (nvme0): Temperature".
+// the disk, such as "Samsung SSD 980 (nvme0): Temperature", or for a disk
+// that cannot be read any more only that, in place of its check.
 func Extras(disks []Disk) []metrics.Extra {
 	group := metrics.Extra{
 		ID:     "smart",
@@ -71,9 +73,12 @@ func Extras(disks []Disk) []metrics.Extra {
 		if disk.Model != "" {
 			prefix = disk.Model + " (" + disk.Name + ")"
 		}
-		if disk.Passed != nil {
+		if disk.Passed != nil || disk.Unreadable {
 			label, labels, text := "SMART check passed", passedLabels, "✓"
-			if !*disk.Passed {
+			switch {
+			case disk.Unreadable:
+				label, labels, text = "Cannot be read", unreadableLabels, "✗"
+			case !*disk.Passed:
 				label, labels, text = "SMART check FAILED", failedLabels, "✗"
 			}
 			group.Items = append(group.Items, metrics.ExtraItem{

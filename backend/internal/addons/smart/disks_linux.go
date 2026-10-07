@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -44,7 +45,7 @@ func (s linuxSource) list() ([]device, error) {
 		return nil, err
 	}
 	devices := []device{}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	for _, entry := range entries {
 		name := entry.Name()
 		match := nvmeName.FindStringSubmatch(name)
@@ -63,7 +64,7 @@ func (s linuxSource) list() ([]device, error) {
 		if onUSB(target) {
 			continue
 		}
-		d := device{name: name, path: filepath.Join(s.dev, name)}
+		d := device{name: name, path: filepath.Join(s.dev, name), blocks: []string{name}}
 		if match != nil {
 			// The kernel keeps the model and serial number the controller
 			// tells in its Identify Controller data.
@@ -72,16 +73,54 @@ func (s linuxSource) list() ([]device, error) {
 				name: ctrl, path: filepath.Join(s.dev, ctrl), nvme: true,
 				model:  s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "model")),
 				serial: s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "serial")),
+				blocks: []string{name},
 			}
 		} else {
 			d.model = s.text(filepath.Join(block, name, "device", "model"))
 		}
-		if !seen[d.path] {
-			seen[d.path] = true
+		if i, ok := seen[d.path]; ok {
+			devices[i].blocks = append(devices[i].blocks, name)
+		} else {
+			seen[d.path] = len(devices)
 			devices = append(devices, d)
 		}
 	}
 	return devices, nil
+}
+
+// ioCount adds up the reads and writes completed on the disk's block
+// devices, the first and fifth number of /sys/block/<name>/stat. Commands
+// passed through to the disk, as the add-on sends, are not counted there.
+// A block device whose counting is switched off (queue/iostats 0) keeps the
+// same numbers whatever it does, so the disk then counts as not counted.
+func (s linuxSource) ioCount(d device) (uint64, bool) {
+	var count uint64
+	for _, block := range d.blocks {
+		if s.text(filepath.Join(s.sys, "block", block, "queue", "iostats")) == "0" {
+			return 0, false
+		}
+		n, ok := parseBlockStat(s.text(filepath.Join(s.sys, "block", block, "stat")))
+		if !ok {
+			return 0, false
+		}
+		count += n
+	}
+	return count, len(d.blocks) > 0
+}
+
+// parseBlockStat returns the reads and writes completed in the text of a
+// block device's stat file.
+func parseBlockStat(text string) (uint64, bool) {
+	fields := strings.Fields(text)
+	if len(fields) < 5 {
+		return 0, false
+	}
+	reads, err1 := strconv.ParseUint(fields[0], 10, 64)
+	writes, err2 := strconv.ParseUint(fields[4], 10, 64)
+	if err1 != nil || err2 != nil {
+		return 0, false
+	}
+	return reads + writes, true
 }
 
 // onUSB tells whether a device in /sys/devices hangs off USB, such as
@@ -226,6 +265,35 @@ func sgATA(fd int, c ataCommand) (ataResult, []byte, error) {
 	return sgAnswer(c, &hdr, sense, data)
 }
 
+// Sense keys of SCSI sense data that report no error: NO SENSE, and
+// RECOVERED ERROR, which a disk or a bridge in front of it may send with an
+// answer that is complete, and which smartctl takes as no error too.
+const (
+	senseNoSense        = 0x00
+	senseRecoveredError = 0x01
+)
+
+// senseKey returns the sense key of fixed- or descriptor-format sense data,
+// or false when there is none.
+func senseKey(sense []byte) (byte, bool) {
+	if len(sense) < 3 {
+		return 0, false
+	}
+	switch sense[0] & 0x7F {
+	case 0x70, 0x71:
+		return sense[2] & 0x0F, true
+	case 0x72, 0x73:
+		return sense[1] & 0x0F, true
+	}
+	return 0, false
+}
+
+// noError tells whether sense data reports no error (see senseNoSense).
+func noError(sense []byte) bool {
+	key, ok := senseKey(sense)
+	return ok && (key == senseNoSense || key == senseRecoveredError)
+}
+
 // sgAnswer reads what SG_IO returned for the ATA command c in hdr, with the
 // sense data and the data buffer it was given: the registers, or the sector.
 // A sector the disk did not return in full is an error, as an empty buffer
@@ -238,12 +306,15 @@ func sgAnswer(c ataCommand, hdr *sgIOHdr, sense, data []byte) (ataResult, []byte
 	if driver := hdr.driverStatus & sgDriverMask; driver != 0 && driver != sgDriverSense {
 		return ataResult{}, nil, fmt.Errorf("SG_IO driver status %#x", hdr.driverStatus)
 	}
-	result, ok := parseATASense(sense[:min(int(hdr.sbLenWr), len(sense))])
+	written := sense[:min(int(hdr.sbLenWr), len(sense))]
+	result, ok := parseATASense(written)
 	if ok && result.status&ataStatusError != 0 {
 		return ataResult{}, nil, fmt.Errorf("the disk refused the command %#x (error %#x)", c.command, result.err)
 	}
 	switch {
-	case c.dataIn && hdr.status != 0:
+	// Some bridges send a sector with RECOVERED ERROR, which smartctl
+	// takes as read too.
+	case c.dataIn && hdr.status != 0 && (hdr.status != scsiCheckCondition || !noError(written)):
 		return ataResult{}, nil, fmt.Errorf("SCSI status %#x", hdr.status)
 	case c.dataIn && hdr.resid != 0:
 		return ataResult{}, nil, fmt.Errorf("the disk returned %d of %d bytes", len(data)-int(hdr.resid), len(data))

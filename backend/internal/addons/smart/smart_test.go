@@ -403,6 +403,32 @@ func TestExtrasKeysEachDiskOnItsSerialNumber(t *testing.T) {
 	}
 }
 
+func TestExtrasShowsADiskThatCannotBeRead(t *testing.T) {
+	got := Extras([]Disk{{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}})
+
+	if len(got) != 1 || len(got[0].Items) != 1 {
+		t.Fatalf("Extras() = %+v, want one item", got)
+	}
+	item := got[0].Items[0]
+	if item.ID != "wd-wx12d-health" || item.Unit != metrics.UnitText || item.Text != "✗" || item.History ||
+		item.Label != "WDC (sda): Cannot be read" || item.Labels["de"] != "WDC (sda): Kann nicht gelesen werden" ||
+		item.Labels["fr"] != "WDC (sda): Ne peut pas être lu" || item.Labels["es"] != "WDC (sda): No se puede leer" {
+		t.Errorf("item = %+v, want that it cannot be read, in place of the check", item)
+	}
+}
+
+func TestParseDiskPerformanceAddsReadsAndWrites(t *testing.T) {
+	b := make([]byte, diskPerformanceSize)
+	binary.LittleEndian.PutUint32(b[40:], 7)
+	binary.LittleEndian.PutUint32(b[44:], 5)
+	if got, ok := parseDiskPerformance(b); !ok || got != 12 {
+		t.Errorf("parseDiskPerformance() = %d, %v, want 12", got, ok)
+	}
+	if _, ok := parseDiskPerformance(b[:40]); ok {
+		t.Error("parseDiskPerformance() of a short answer is ok")
+	}
+}
+
 func TestExtrasOfNoDisksIsNothing(t *testing.T) {
 	if got := Extras(nil); got != nil {
 		t.Errorf("Extras(nil) = %+v, want nil", got)
@@ -434,8 +460,11 @@ type fakeSource struct {
 	asleep bool
 	// failing makes sda fail to read, as a failing disk may.
 	failing bool
-	lists   int
-	reads   int
+	// ioCounts are the disks' counts of reads and writes, by path; a disk
+	// without one is not counted.
+	ioCounts map[string]uint64
+	lists    int
+	reads    int
 }
 
 func (f *fakeSource) list() ([]device, error) {
@@ -464,6 +493,19 @@ func (f *fakeSource) read(d device) (Disk, error) {
 		return Disk{}, errors.New("input/output error")
 	}
 	return Disk{Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)}, nil
+}
+
+func (f *fakeSource) ioCount(d device) (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count, ok := f.ioCounts[d.path]
+	return count, ok
+}
+
+func (f *fakeSource) set(change func(f *fakeSource)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change(f)
 }
 
 func (f *fakeSource) counts() (lists, reads int) {
@@ -509,14 +551,130 @@ func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 	}
 
 	// Another read interval later sda cannot be read: it no longer shows the
-	// check it passed before.
+	// check it passed before, but that it cannot be read.
 	src.mu.Lock()
 	src.asleep, src.failing = false, true
 	src.mu.Unlock()
 	r.refresh(ctx, start.Add(2*ReadInterval))
 	got = r.Read(ctx, start.Add(2*ReadInterval+5*time.Second))
-	if !reflect.DeepEqual(got, want[1:]) {
-		t.Errorf("Read() = %+v, want only the NVMe disk once sda fails", got)
+	unreadable := []Disk{{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}, want[1]}
+	if !reflect.DeepEqual(got, unreadable) {
+		t.Errorf("Read() = %+v, want %+v once sda fails", got, unreadable)
+	}
+	// It stays so while it cannot be read.
+	r.refresh(ctx, start.Add(3*ReadInterval))
+	if got := r.last(); !reflect.DeepEqual(got, unreadable) {
+		t.Errorf("Read() = %+v, want %+v while sda fails", got, unreadable)
+	}
+}
+
+func TestReaderLeavesADiskWithoutUseAlone(t *testing.T) {
+	// The NVMe disk is read every time even without use.
+	src := &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 100, "/dev/nvme0": 7}}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+
+	r.refresh(ctx, start)
+	_, before := src.counts()
+
+	// sda was not used since: it is not read again, and keeps its result.
+	src.set(func(f *fakeSource) { f.failing = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	if _, reads := src.counts(); reads != before+2 {
+		t.Errorf("read %d disks, want 2 without the unused sda", reads-before)
+	}
+	if got := r.last(); len(got) != 2 || got[0].Name != "sda" || got[0].Unreadable || got[0].Celsius == nil {
+		t.Errorf("last() = %+v, want sda's last result", got)
+	}
+
+	// Once it was used, it is read again.
+	src.set(func(f *fakeSource) { f.ioCounts["/dev/sda"] = 101 })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if _, reads := src.counts(); reads != before+5 {
+		t.Errorf("read %d disks, want 3 with the used sda", reads-before-2)
+	}
+	if got := r.last(); len(got) != 2 || !got[0].Unreadable {
+		t.Errorf("last() = %+v, want sda that cannot be read", got)
+	}
+
+	// A disk that cannot be read is tried again even without use.
+	r.refresh(ctx, start.Add(3*ReadInterval))
+	if _, reads := src.counts(); reads != before+8 {
+		t.Errorf("read %d disks, want 3 with the unreadable sda", reads-before-5)
+	}
+
+	// Once it is read again, it is left alone without use until its last
+	// read is idleReadAfter old.
+	src.set(func(f *fakeSource) { f.failing = false })
+	r.refresh(ctx, start.Add(4*ReadInterval))
+	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter-time.Second))
+	if _, reads := src.counts(); reads != before+13 {
+		t.Errorf("read %d disks, want 3 and then 2 without the unused sda", reads-before-8)
+	}
+	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter))
+	if _, reads := src.counts(); reads != before+16 {
+		t.Errorf("read %d disks, want 3 with sda read a day ago", reads-before-13)
+	}
+}
+
+func TestReaderLogsADiskThatAlwaysSleeps(t *testing.T) {
+	src := &fakeSource{asleep: true}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+
+	r.refresh(ctx, start)
+	r.refresh(ctx, start.Add(asleepLogAfter-time.Second))
+	if r.asleepLogged["/dev/sda"] {
+		t.Error("the sleeping disk was logged before asleepLogAfter")
+	}
+	r.refresh(ctx, start.Add(asleepLogAfter))
+	if !r.asleepLogged["/dev/sda"] {
+		t.Error("the disk that sleeps at every read was not logged")
+	}
+
+	// A disk that was read before is not logged however long it sleeps.
+	src = &fakeSource{}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.asleep = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	r.refresh(ctx, start.Add(ReadInterval+asleepLogAfter))
+	if r.asleepLogged["/dev/sda"] {
+		t.Error("a disk read before was logged as always asleep")
+	}
+}
+
+func TestReaderHoldsTheReadInterval(t *testing.T) {
+	if ReadInterval <= 20*time.Minute {
+		t.Errorf("ReadInterval = %v, want more than 20 minutes, so disks can switch off", ReadInterval)
+	}
+	src := &fakeSource{}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+	r.refresh(ctx, start)
+	reading := func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.reading
+	}
+
+	r.Read(ctx, start.Add(ReadInterval-time.Second))
+	if reading() {
+		t.Error("Read() one second before ReadInterval started a read")
+	}
+	r.Read(ctx, start.Add(ReadInterval))
+	if !reading() {
+		t.Error("Read() at ReadInterval did not start a read")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for reading() {
+		if time.Now().After(deadline) {
+			t.Fatal("the background read did not finish")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

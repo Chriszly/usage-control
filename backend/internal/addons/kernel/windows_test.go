@@ -125,9 +125,14 @@ func TestWindowsCountersMeasureRetransmissionsPerSecond(t *testing.T) {
 
 func TestWindowsValuesHaveLabels(t *testing.T) {
 	got := Extras(map[string]float64{handles: 1, tcpEstablished: 2})
-	for _, item := range got[0].Items {
-		if item.Label == "" || item.Labels["de"] == "" || item.Labels["es"] == "" || item.Unit != "number" {
-			t.Errorf("item %+v wants a label, translations and the unit number", item)
+	if len(got) != 2 {
+		t.Fatalf("Extras() = %+v, want two groups", got)
+	}
+	for _, group := range got {
+		for _, item := range group.Items {
+			if item.Label == "" || item.Labels["de"] == "" || item.Labels["es"] == "" || item.Unit != "number" {
+				t.Errorf("item %+v wants a label, translations and the unit number", item)
+			}
 		}
 	}
 }

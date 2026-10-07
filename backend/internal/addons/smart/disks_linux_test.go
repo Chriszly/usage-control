@@ -87,9 +87,9 @@ func TestListKeepsFixedSATAAndNVMeDisks(t *testing.T) {
 	}
 
 	want := []device{
-		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980 PRO 1TB", serial: "S5GXNF0R123456A"},
-		{name: "nvme1", path: "/dev/nvme1", nvme: true},
-		{name: "sda", path: "/dev/sda", model: "WDC WD40EFRX-68N"},
+		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980 PRO 1TB", serial: "S5GXNF0R123456A", blocks: []string{"nvme0n1", "nvme0n2"}},
+		{name: "nvme1", path: "/dev/nvme1", nvme: true, blocks: []string{"nvme1n1"}},
+		{name: "sda", path: "/dev/sda", model: "WDC WD40EFRX-68N", blocks: []string{"sda"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("list() = %+v, want %+v", got, want)
@@ -118,7 +118,7 @@ func TestListLeavesOutUSBDisks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []device{{name: "sda", path: "/dev/sda"}}; !reflect.DeepEqual(got, want) {
+	if want := []device{{name: "sda", path: "/dev/sda", blocks: []string{"sda"}}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("list() = %+v, want %+v, without the USB disks", got, want)
 	}
 }
@@ -132,6 +132,10 @@ func TestSGAnswerChecksWhatCameBack(t *testing.T) {
 		0x09, 0x0C, 0, 0x00, 0, 0x00, 0, 0x00, 0, 0x4F, 0, 0xC2, 0xA0, 0x50,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
+	// Fixed-format sense data with the sense keys RECOVERED ERROR and MEDIUM
+	// ERROR.
+	recovered := []byte{0x70, 0, 0x01, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	medium := []byte{0x70, 0, 0x03, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0x11, 0, 0, 0, 0, 0}
 	tests := []struct {
 		name    string
 		command ataCommand
@@ -148,6 +152,8 @@ func TestSGAnswerChecksWhatCameBack(t *testing.T) {
 		{"registers with sense data", ataSMARTReturnStatus, sgIOHdr{status: scsiCheckCondition, driverStatus: sgDriverSense, sbLenWr: 22}, passed, true},
 		{"a driver error with sense data", ataSMARTReturnStatus, sgIOHdr{status: scsiCheckCondition, driverStatus: sgDriverSense | 0x04, sbLenWr: 22}, passed, false},
 		{"no registers", ataSMARTReturnStatus, sgIOHdr{}, nil, false},
+		{"a sector with RECOVERED ERROR", ataIdentify, sgIOHdr{status: scsiCheckCondition, driverStatus: sgDriverSense, sbLenWr: 18}, recovered, true},
+		{"a sector with MEDIUM ERROR", ataIdentify, sgIOHdr{status: scsiCheckCondition, driverStatus: sgDriverSense, sbLenWr: 18}, medium, false},
 	}
 	for _, test := range tests {
 		sense := make([]byte, 32)
@@ -160,6 +166,28 @@ func TestSGAnswerChecksWhatCameBack(t *testing.T) {
 			t.Errorf("%s: sgAnswer() = %d bytes, want the sector", test.name, len(data))
 		case err == nil && !test.command.dataIn && (smartPassed(result) == nil || !*smartPassed(result)):
 			t.Errorf("%s: sgAnswer() = %+v, want the registers of a passed check", test.name, result)
+		}
+	}
+}
+
+func TestIOCountAddsUpTheBlockDevices(t *testing.T) {
+	sys := fakeSys(t, nil, map[string]string{
+		"block/nvme0n1/stat":          "  120  3  9000  50  80  1  700  30  0  60  90  0  0  0  0  4  2",
+		"block/nvme0n2/stat":          "    5  0    40   1   2  0   16   1  0   2   2",
+		"block/sda/stat":              "garbage",
+		"block/sdb/stat":              "  120  3  9000  50  80  1  700  30  0  60  90",
+		"block/sdb/queue/iostats":     "0",
+		"block/nvme0n1/queue/iostats": "1",
+	})
+	src := linuxSource{sys: sys}
+
+	if got, ok := src.ioCount(device{blocks: []string{"nvme0n1", "nvme0n2"}}); !ok || got != 207 {
+		t.Errorf("ioCount() = %d, %v, want 207 reads and writes", got, ok)
+	}
+	// sda's stat cannot be read, sdz is gone and sdb does not count.
+	for _, blocks := range [][]string{{"sda"}, {"sdz"}, {"sdb"}, nil} {
+		if got, ok := src.ioCount(device{blocks: blocks}); ok {
+			t.Errorf("ioCount() of %v = %d, want not counted", blocks, got)
 		}
 	}
 }

@@ -121,23 +121,46 @@ func TestParsersSkipWhatTheyDoNotKnow(t *testing.T) {
 }
 
 func TestExtrasKeepsTheOrderAndUnits(t *testing.T) {
-	got := Extras(map[string]float64{retransmissions: 0.5, openFiles: 1888, contextSwitches: 4200})
+	got := Extras(map[string]float64{retransmissions: 0.5, openFiles: 1888, contextSwitches: 4200, interrupts: 900})
 
-	if len(got) != 1 || got[0].ID != "kernel" || got[0].Title != "Kernel" || got[0].Titles["de"] != "Kernel" {
-		t.Fatalf("Extras() = %+v, want the kernel group", got)
+	if len(got) != 3 || got[0].ID != "kernel" || got[0].Title != "Kernel" || got[0].Titles["de"] != "Kernel" {
+		t.Fatalf("Extras() = %+v, want the kernel group first", got)
 	}
 	var ids, units []string
-	for _, item := range got[0].Items {
-		ids = append(ids, item.ID)
-		units = append(units, string(item.Unit))
-		if !item.History || item.Labels["fr"] == "" || item.Value == nil {
-			t.Errorf("item %+v wants a value, history and translations", item)
+	for _, group := range got {
+		if group.Title == "" || len(group.Titles) != 3 {
+			t.Errorf("group %s wants a title and its translations", group.ID)
+		}
+		for _, item := range group.Items {
+			ids = append(ids, group.ID+"/"+item.ID)
+			units = append(units, string(item.Unit))
+			if !item.History || item.Labels["fr"] == "" || item.Value == nil {
+				t.Errorf("item %+v wants a value, history and translations", item)
+			}
 		}
 	}
-	if want := []string{contextSwitches, openFiles, retransmissions}; !reflect.DeepEqual(ids, want) {
+	want := []string{"kernel/" + contextSwitches, "kernel/" + interrupts, "kernel-in-use/" + openFiles, "kernel-tcp/" + retransmissions}
+	if !reflect.DeepEqual(ids, want) {
 		t.Errorf("ids = %v, want %v", ids, want)
 	}
-	if want := []string{"perSecond", "number", "perSecond"}; !reflect.DeepEqual(units, want) {
+	if want := []string{"perSecond", "perSecond", "number", "perSecond"}; !reflect.DeepEqual(units, want) {
 		t.Errorf("units = %v, want %v", units, want)
+	}
+}
+
+func TestEveryValueIsInOneGroup(t *testing.T) {
+	seen := map[string]bool{}
+	for _, g := range groups {
+		for _, id := range g.values {
+			if seen[id] {
+				t.Errorf("%s is in two groups", id)
+			}
+			seen[id] = true
+		}
+	}
+	for id := range labels {
+		if !seen[id] {
+			t.Errorf("%s is in no group", id)
+		}
 	}
 }

@@ -285,3 +285,117 @@ func TestItemIDFollowsTheName(t *testing.T) {
 		t.Errorf("Extras() of two containers with one name = %+v, want the second by its short id", items)
 	}
 }
+
+func TestReadNotesADockerContainerWithOnlyItsShortID(t *testing.T) {
+	sys, docker := t.TempDir(), t.TempDir()
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/cgroup.controllers":                               "cpu memory",
+		"fs/cgroup/system.slice/docker-" + webID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	// Docker's folder is there, but holds other containers, as after moving
+	// Docker's data elsewhere.
+	writeFiles(t, docker, map[string]string{dbID + "/config.v2.json": `{"Name":"/old"}`})
+	r := NewReader(sys, docker)
+
+	if got := r.Read(time.Now()); len(got) != 1 || got[0].Name != webID[:12] {
+		t.Fatalf("Read() = %+v, want web by its short id", got)
+	}
+	if r.noDockerDir || !r.shortDockerID {
+		t.Errorf("noDockerDir = %v, shortDockerID = %v, want only the short id noted", r.noDockerDir, r.shortDockerID)
+	}
+}
+
+func TestReadNamesPodmanContainersFromItsLists(t *testing.T) {
+	sys, storage := t.TempDir(), t.TempDir()
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/cgroup.controllers":                                   "cpu memory",
+		"fs/cgroup/machine.slice/libpod-" + podmanID + ".scope/cpu.stat": "usage_usec 1",
+		"fs/cgroup/system.slice/crio-" + dbID + ".scope/cpu.stat":        "usage_usec 1",
+		"fs/cgroup/machine.slice/libpod-" + webID + ".scope/cpu.stat":    "usage_usec 1",
+	})
+	writeFiles(t, storage, map[string]string{
+		"overlay-containers/containers.json": `[{"id":"` + podmanID + `","names":["nextcloud"],"image":"x"},{"id":"` + dbID + `","names":[]}]`,
+		// The list of another storage driver.
+		"vfs-containers/containers.json": `[{"id":"` + webID + `","names":["web"]}]`,
+	})
+	list := filepath.Join(storage, "overlay-containers", "containers.json")
+	r := NewReader(sys, t.TempDir())
+	r.podman = storage
+
+	got := r.Read(time.Now())
+	if len(got) != 3 || got[0].Name != dbID[:12] || got[1].Name != "nextcloud" || got[2].Name != "web" {
+		t.Fatalf("Read() = %+v, want bbb… by its short id, nextcloud and web", got)
+	}
+
+	// The list is read again when it changes, as on podman rename. One that
+	// cannot be understood, as while Podman writes it, keeps the names
+	// before and is read again at the next read.
+	changed := func(text string, modified time.Time) {
+		t.Helper()
+		writeFiles(t, storage, map[string]string{"overlay-containers/containers.json": text})
+		if err := os.Chtimes(list, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+	later := time.Now().Add(time.Minute)
+	changed(`[{"id":"`+podmanID+`","names":["clo`, later)
+	if got := r.Read(time.Now()); len(got) != 3 || got[1].Name != "nextcloud" {
+		t.Errorf("Read() = %+v, want the name before while the list cannot be read", got)
+	}
+	changed(`[{"id":"`+podmanID+`","names":["cloud"]}]`, later)
+	if got := r.Read(time.Now()); len(got) != 3 || got[1].Name != "cloud" {
+		t.Errorf("Read() = %+v, want the new name cloud", got)
+	}
+}
+
+func TestReadWalksTheCgroupTreeWhenCgroupsComeOrGo(t *testing.T) {
+	sys := t.TempDir()
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/cgroup.controllers":                               "cpu memory",
+		"fs/cgroup/cgroup.stat":                                      "nr_descendants 40\nnr_dying_descendants 0\n",
+		"fs/cgroup/system.slice/docker-" + webID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	r := NewReader(sys, t.TempDir())
+	r.Read(time.Now())
+
+	// A container next to a known one shows at once.
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/system.slice/docker-" + dbID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	if got := r.Read(time.Now()); len(got) != 2 {
+		t.Errorf("Read() = %+v, want the new container next to web", got)
+	}
+
+	// One in a new place shows once the number of cgroups changes.
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/machine.slice/libpod-" + podmanID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	if got := r.Read(time.Now()); len(got) != 2 {
+		t.Errorf("Read() = %+v, want no walk while the number of cgroups stays", got)
+	}
+	writeFiles(t, sys, map[string]string{"fs/cgroup/cgroup.stat": "nr_descendants 42\n"})
+	if got := r.Read(time.Now()); len(got) != 3 {
+		t.Errorf("Read() = %+v, want all three containers once there are more cgroups", got)
+	}
+
+	// Should the number stay the same, the walk every walkEvery reads finds
+	// a new one.
+	nextID := strings.Repeat("d", 64)
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/kubepods.slice/cri-containerd-" + nextID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	for range walkEvery - 1 {
+		r.Read(time.Now())
+	}
+	if got := r.Read(time.Now()); len(got) != 4 {
+		t.Errorf("Read() at the walk every walkEvery reads = %+v, want four containers", got)
+	}
+
+	// A container that stops is gone at once.
+	if err := os.RemoveAll(filepath.Join(sys, "fs/cgroup/system.slice/docker-"+webID+".scope")); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Read(time.Now()); len(got) != 3 {
+		t.Errorf("Read() = %+v, want three containers once web stopped", got)
+	}
+}

@@ -62,8 +62,9 @@ var knownUnits = map[Unit]bool{
 }
 
 const (
-	// maxTextLength is the most characters a title, label or text keeps.
-	maxTextLength = 80
+	// MaxTextLength is the most characters a title, label or text keeps, so
+	// an add-on can make its texts fit.
+	MaxTextLength = 80
 	// maxTranslations is the most languages a title or label keeps.
 	maxTranslations = 8
 )
@@ -78,7 +79,7 @@ var (
 
 // CleanExtras returns what can safely be stored and shown of the extras
 // another device reported: at most maxEntries groups of at most maxEntries
-// values each, every title, label and text cut to maxTextLength characters,
+// values each, every title, label and text cut to MaxTextLength characters,
 // and a unit the hub does not know turned into UnitNumber. Groups and values
 // with an id that is invalid or already used, and values without a value for
 // their unit, are left out.
@@ -157,14 +158,14 @@ func cleanTranslations(texts map[string]string) map[string]string {
 	return clean
 }
 
-// cut returns text cut to maxTextLength characters, with invalid UTF-8
+// cut returns text cut to MaxTextLength characters, with invalid UTF-8
 // replaced.
 func cut(text string) string {
 	if !utf8.ValidString(text) {
 		text = string([]rune(text))
 	}
-	if utf8.RuneCountInString(text) <= maxTextLength {
+	if utf8.RuneCountInString(text) <= MaxTextLength {
 		return text
 	}
-	return string([]rune(text)[:maxTextLength])
+	return string([]rune(text)[:MaxTextLength])
 }
