@@ -69,6 +69,7 @@ func (r *Recorder) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			r.storeLast(ctx, stored, time.Now())
 			return
 		case <-read.C:
 			r.read(ctx)
@@ -116,6 +117,25 @@ func (r *Recorder) failed(err error) {
 	if !r.failing {
 		r.failing = true
 		slog.Error("read usage for the history", "device", r.Device, "error", err)
+	}
+}
+
+// storeLast stores the average of the readings since the last minute was
+// stored when the recorder stops, as for an update or when the machine is shut
+// down, so a hub fetching this device's minutes gets that one too. Only a
+// minute after the last one stored is stored: a buffer replaces a minute it
+// has. A hub's recorder of another device leaves it, as the device keeps its
+// own.
+func (r *Recorder) storeLast(ctx context.Context, from, now time.Time) {
+	if r.Fetch != nil || now.Truncate(SampleInterval).Equal(from.Truncate(SampleInterval)) {
+		return
+	}
+	averages := r.Recent.Average(from, now)
+	if averages == nil {
+		return
+	}
+	if err := r.Store.Add(context.WithoutCancel(ctx), r.Device, now.Truncate(SampleInterval), averages); err != nil {
+		slog.Error("store usage in the history", "error", err)
 	}
 }
 

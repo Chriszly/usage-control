@@ -74,9 +74,10 @@ type fetcher struct {
 	// fetchFor, for tests.
 	budget time.Duration
 
-	// after is the time, on the device's clock, of the newest minute the hub
-	// has; zero until a fetch works it out from the database, as at the start
-	// and after the recorder stored a minute itself.
+	// after is the time, on the device's clock, of the newest minute fetched
+	// from the device; zero until a fetch works it out from the database, as
+	// at the start, once an older device was updated, and after the device
+	// refused it or its clock went back.
 	after int64
 	// offset is how many seconds the hub's clock is ahead of the device's, as
 	// the minutes are moved by; see maxClockJitter.
@@ -130,7 +131,13 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		if err != nil {
 			return f.failed(ctx, err)
 		}
-		if !ok {
+		if ok {
+			// A few minutes before the hub's newest, which may be one the hub
+			// stored itself while the device did not answer, before it fetched
+			// the one the device kept just before; minutes the hub has are not
+			// stored again.
+			newest = newest.Add(-keptWithin)
+		} else {
 			// A device new to the hub starts now, not with what it kept for another.
 			newest = time.Now().Add(-history.SampleInterval)
 		}

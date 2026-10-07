@@ -96,6 +96,43 @@ func TestRecorderLeavesStoringToFetchWhenItCan(t *testing.T) {
 	}
 }
 
+func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	now := time.Now().Truncate(time.Minute).Add(20 * time.Second)
+	for name, c := range map[string]struct {
+		from  time.Time
+		fetch func(context.Context) bool
+		want  bool
+	}{
+		"in a new minute":                   {from: now.Add(-30 * time.Second), want: true},
+		"in the minute stored last":         {from: now.Add(-10 * time.Second)},
+		"for a device the hub fetches from": {from: now.Add(-30 * time.Second), fetch: func(context.Context) bool { return true }},
+	} {
+		store := openTestStore(t)
+		recorder := &Recorder{
+			Store:     store,
+			Recent:    &Recent{},
+			Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+			Device:    LocalDevice,
+			Fetch:     c.fetch,
+		}
+		recorder.read(context.Background())
+
+		recorder.storeLast(stopped, c.from, now)
+
+		got, err := store.Range(context.Background(), LocalDevice, now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
+		if err != nil {
+			t.Fatalf("%s: Range() error = %v", name, err)
+		}
+		if stored := len(got) > 0; stored != c.want {
+			t.Errorf("%s: stored %+v, want a minute stored: %v", name, got, c.want)
+		} else if stored && got[0].Points[0].Time != now.Truncate(time.Minute).Unix() {
+			t.Errorf("%s: stored at %d, want at %d, the minute it stopped in", name, got[0].Points[0].Time, now.Truncate(time.Minute).Unix())
+		}
+	}
+}
+
 func TestRecorderTakesAReadingOnlyOnce(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Second)
