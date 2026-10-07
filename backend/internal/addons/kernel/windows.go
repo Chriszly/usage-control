@@ -54,6 +54,11 @@ func (t *tcpTotals) counters(versions map[string]tcpStats) counters {
 		}
 		t.previous[version] = stats.retransSegs
 	}
+	// A version that answered last time but not now would make the
+	// connections dip for one reading, so they are left out of this one.
+	if len(versions) < len(previous) {
+		delete(found, tcpEstablished)
+	}
 	found[retransmissions] = t.retransmitted
 	return found
 }

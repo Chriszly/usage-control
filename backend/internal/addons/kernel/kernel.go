@@ -1,7 +1,7 @@
 // Package kernel reads what the operating system's kernel is busy with, for
 // the kernel add-on.
 //
-// On Linux it reads context switches, interrupts and new processes per second from
+// On Linux it reads context switches, interrupts and new processes and threads per second from
 // /proc/stat, the open files from /proc/sys/fs/file-nr, the sockets in use
 // from /proc/net/sockstat and the established TCP connections and the TCP
 // retransmissions per second from /proc/net/snmp.
@@ -58,7 +58,8 @@ var labels = map[string]struct {
 }{
 	contextSwitches: {"Context switches", map[string]string{"de": "Kontextwechsel", "fr": "Changements de contexte", "es": "Cambios de contexto"}},
 	interrupts:      {"Interrupts", map[string]string{"de": "Interrupts", "fr": "Interruptions", "es": "Interrupciones"}},
-	newProcesses:    {"New processes", map[string]string{"de": "Neue Prozesse", "fr": "Nouveaux processus", "es": "Procesos nuevos"}},
+	// The kernel counts every new thread as a new process too.
+	newProcesses:    {"New processes and threads", map[string]string{"de": "Neue Prozesse und Threads", "fr": "Nouveaux processus et threads", "es": "Procesos e hilos nuevos"}},
 	openFiles:       {"Open files", map[string]string{"de": "Offene Dateien", "fr": "Fichiers ouverts", "es": "Archivos abiertos"}},
 	handles:         {"Open handles", map[string]string{"de": "Offene Handles", "fr": "Handles ouverts", "es": "Handles abiertos"}},
 	sockets:         {"Sockets in use", map[string]string{"de": "Belegte Sockets", "fr": "Sockets utilisés", "es": "Sockets en uso"}},

@@ -1,7 +1,7 @@
 // Command usage-control-kernel is the kernel add-on of usage-control: every
 // few seconds it reads what the kernel is busy with and writes it to the
 // add-on folder (see package addons). On Linux, from /proc: context switches,
-// interrupts and new processes per second, open files, sockets in use,
+// interrupts and new processes and threads per second, open files, sockets in use,
 // established TCP connections, TCP retransmissions per second. On Windows,
 // from its performance counters, GetPerformanceInfo and GetTcpStatisticsEx:
 // context switches and interrupts per second, open handles, established TCP

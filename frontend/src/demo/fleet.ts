@@ -156,10 +156,10 @@ function kernelAddOn(): Extra[] {
           fr: 'Interruptions',
           es: 'Interrupciones',
         }),
-        perSecond('new-processes', 'New processes', {
-          de: 'Neue Prozesse',
-          fr: 'Nouveaux processus',
-          es: 'Procesos nuevos',
+        perSecond('new-processes', 'New processes and threads', {
+          de: 'Neue Prozesse und Threads',
+          fr: 'Nouveaux processus et threads',
+          es: 'Procesos e hilos nuevos',
         }),
         number('open-files', 'Open files', {
           de: 'Offene Dateien',

@@ -46,6 +46,21 @@ func TestTCPCountersAddUpIPv4AndIPv6(t *testing.T) {
 	}
 }
 
+func TestTCPConnectionsLeaveOutAReadWithAVersionMissing(t *testing.T) {
+	var totals tcpTotals
+	totals.counters(map[string]tcpStats{"IPv4": {currEstab: 30}, "IPv6": {currEstab: 4}})
+
+	got := totals.counters(map[string]tcpStats{"IPv4": {currEstab: 31}})
+	if _, ok := got[tcpEstablished]; ok {
+		t.Errorf("counters() = %v with IPv6 missing, want no established connections rather than a dip", got)
+	}
+	// From then on IPv4 alone is all there is.
+	got = totals.counters(map[string]tcpStats{"IPv4": {currEstab: 32}})
+	if got[tcpEstablished] != 32 {
+		t.Errorf("counters() = %v, want 32 established connections", got)
+	}
+}
+
 func TestTCPRetransmissionsSkipAVersionMissingOnEitherRead(t *testing.T) {
 	var totals tcpTotals
 	var m meter
