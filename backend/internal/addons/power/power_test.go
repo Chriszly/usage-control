@@ -56,6 +56,21 @@ func TestRAPLMeasuresPowerSinceThePreviousRead(t *testing.T) {
 	}
 }
 
+func TestSleptComparesTheWallClock(t *testing.T) {
+	if slept(5*time.Second, 5*time.Second) {
+		t.Error("slept() is true for two clocks that agree")
+	}
+	if slept(5*time.Second, 5*time.Second+300*time.Millisecond) {
+		t.Error("slept() is true for a wall clock a little ahead")
+	}
+	if !slept(5*time.Second, 8*time.Hour) {
+		t.Error("slept() is false for eight hours of sleep, which would read as a huge spike")
+	}
+	if slept(5*time.Second, -time.Hour) {
+		t.Error("slept() is true for a wall clock set back, which the monotonic clock is not fooled by")
+	}
+}
+
 func TestHwmonPrefersTheAverage(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
@@ -120,6 +135,25 @@ func TestExtrasKeepTheHistoryOfEveryReading(t *testing.T) {
 	}
 	if Extras(nil) != nil {
 		t.Error("Extras(nil) is not nil, want no group without readings")
+	}
+}
+
+func TestExtrasNumberLabelsThatOccurTwice(t *testing.T) {
+	gpu := map[string]string{"de": "Grafikkarte"}
+	got := Extras([]Reading{
+		{ID: "nvidia-0", Label: "GPU", Labels: gpu, Watts: 18},
+		{ID: "nvidia-1", Label: "GPU", Labels: gpu, Watts: 20},
+		{ID: "pmic", Label: "Total", Watts: 5},
+	})[0].Items
+
+	if got[0].Label != "GPU 1" || got[1].Label != "GPU 2" || got[2].Label != "Total" {
+		t.Errorf("labels = %q, %q, %q, want GPU 1, GPU 2 and Total", got[0].Label, got[1].Label, got[2].Label)
+	}
+	if got[0].Labels["de"] != "Grafikkarte 1" || got[1].Labels["de"] != "Grafikkarte 2" {
+		t.Errorf("German labels = %q and %q, want them numbered too", got[0].Labels["de"], got[1].Labels["de"])
+	}
+	if gpu["de"] != "Grafikkarte" {
+		t.Errorf("the reading's own labels changed to %q", gpu["de"])
 	}
 }
 
