@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -52,9 +52,10 @@ systemctl is-active --quiet usage-control-power || { echo "the update removed th
 answer /api/metrics > /dev/null
 # The pressure add-on reads /proc/pressure, which a kernel without pressure
 # stall information lacks; it then runs but reports nothing. The kernel add-on
-# reads /proc, which every runner has. All three add-ons are installed, so
-# --addons= below has to remove them all.
-"$folder/install.sh" --addons=power,pressure,kernel
+# reads /proc, which every runner has. The Wi-Fi add-on runs too; a runner
+# without Wi-Fi gets a report without values. All four add-ons are installed,
+# so --addons= below has to remove them all.
+"$folder/install.sh" --addons=power,pressure,kernel,wifi
 systemctl is-active --quiet usage-control-pressure || { journalctl -u usage-control-pressure --no-pager | tail -20 >&2; echo "the pressure add-on is not running" >&2; exit 1; }
 if [[ -f /proc/pressure/cpu ]]; then
   for _ in $(seq 1 10); do
@@ -69,6 +70,12 @@ for _ in $(seq 1 10); do
   sleep 1
 done
 grep -qs '"tcp-established"' /run/usage-control-addons/kernel.json || { echo "the kernel add-on wrote no report" >&2; exit 1; }
+systemctl is-active --quiet usage-control-wifi || { journalctl -u usage-control-wifi --no-pager | tail -20 >&2; echo "the Wi-Fi add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/wifi.json ]] && break
+  sleep 1
+done
+test -f /run/usage-control-addons/wifi.json || { echo "the Wi-Fi add-on wrote no report" >&2; exit 1; }
 "$folder/install.sh" --addons=
 if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-power ]]; then
   echo "--addons= left the power add-on behind" >&2
@@ -80,6 +87,10 @@ if systemctl cat usage-control-pressure > /dev/null 2>&1 || [[ -e /usr/local/bin
 fi
 if systemctl cat usage-control-kernel > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-kernel ]]; then
   echo "--addons= left the kernel add-on behind" >&2
+  exit 1
+fi
+if systemctl cat usage-control-wifi > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-wifi ]]; then
+  echo "--addons= left the Wi-Fi add-on behind" >&2
   exit 1
 fi
 
@@ -118,4 +129,4 @@ if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-p
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power, pressure, kernel, gpu and inodes add-ons and uninstall work."
+echo "Install, update, the power, pressure, kernel, Wi-Fi, gpu and inodes add-ons and uninstall work."

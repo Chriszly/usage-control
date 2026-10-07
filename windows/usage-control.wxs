@@ -23,6 +23,9 @@
   KERNEL=1 installs the kernel add-on, usage-control-kernel.exe, as "Usage
   Control kernel add-on", which reads context switches, interrupts, handles, TCP
   connections and retransmissions.
+  WIFI=1 installs the Wi-Fi add-on, usage-control-wifi.exe, as "Usage
+  Control Wi-Fi add-on", which reads the signal of each connected Wi-Fi
+  adapter.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -51,6 +54,7 @@
     GPU             1 to install the gpu add-on, 0 to remove it in an update
     PRESSURE        1 to install the pressure add-on, 0 to remove it in an update
     KERNEL          1 to install the kernel add-on, 0 to remove it in an update
+    WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update
                     (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
@@ -79,7 +83,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -104,7 +108,7 @@
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
     -->
-    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL ?>
+    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
     <?endforeach?>
 
@@ -161,7 +165,7 @@
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -302,6 +306,35 @@
     </Component>
 
     <!--
+      The Wi-Fi add-on, with WIFI=1, in the same low-privilege account: the
+      Native Wifi API lets any account read the signal of the connections.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='WIFI = "1"'>
+      <File Source="$(AddOns)\usage-control-wifi.exe" Name="usage-control-wifi.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlWifi"
+                      DisplayName="Usage Control Wi-Fi add-on"
+                      Description="Reads the Wi-Fi signal of this computer for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlWifi" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlWifi" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlWifi"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlWifi"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
       The history database, used with WEBSITE=1. Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
@@ -376,6 +409,7 @@
         <Control Id="Gpu" Type="CheckBox" X="20" Y="72" Width="330" Height="15" Property="GPU_BOX" CheckBoxValue="1" Text="&amp;Graphics card: fan, clocks, video engines and power limit" />
         <Control Id="Kernel" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="KERNEL_BOX" CheckBoxValue="1" Text="&amp;Kernel: context switches, interrupts, handles, TCP connections" />
         <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
+        <Control Id="Wifi" Type="CheckBox" X="20" Y="174" Width="330" Height="15" Property="WIFI_BOX" CheckBoxValue="1" Text="&amp;Wi-Fi: signal quality and strength of the connection" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -391,7 +425,7 @@
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
       <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL ?>
+      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
       <?endforeach?>

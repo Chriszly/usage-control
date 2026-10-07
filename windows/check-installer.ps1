@@ -1,8 +1,8 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power, gpu, kernel and pressure add-ons
-# on, checks the tray icon pauses, resumes and stops the service, updates it
-# to a newer version without options and checks the options and the add-ons
-# were kept and the tray icon was closed for the update,
+# installs it with the website and the power, gpu, kernel, pressure and Wi-Fi
+# add-ons on, checks the tray icon pauses, resumes and stops the service,
+# updates it to a newer version without options and checks the options and
+# the add-ons were kept and the tray icon was closed for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -134,8 +134,17 @@ function Assert-PressureAddOn {
     Wait-Until { (Get-Content -Raw "$env:ProgramData\Usage Control\addons\pressure.json") -match '"cpu-queue"' } 'the pressure add-on read the processor queue'
 }
 
-Write-Host 'Installing with the website and the power, gpu, kernel and pressure add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1"
+# The runner has no Wi-Fi, and Windows Server may lack the WLAN API; the
+# add-on then still runs and writes a report without values.
+function Assert-WifiAddOn {
+    $addOn = Get-Service UsageControlWifi -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The Wi-Fi add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlWifi).Status -eq 'Running' } 'the Wi-Fi add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\wifi.json" } 'the Wi-Fi add-on wrote its report'
+}
+
+Write-Host 'Installing with the website and the power, gpu, kernel, pressure and Wi-Fi add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
@@ -143,6 +152,7 @@ Assert-PowerAddOn
 Assert-GpuAddOn
 Assert-KernelAddOn
 Assert-PressureAddOn
+Assert-WifiAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -160,6 +170,7 @@ Assert-PowerAddOn
 Assert-GpuAddOn
 Assert-KernelAddOn
 Assert-PressureAddOn
+Assert-WifiAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
@@ -168,6 +179,7 @@ if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The po
 if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on is still installed' }
 if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on is still installed' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
+if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -185,6 +197,7 @@ if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The po
 if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on was installed without GPU=1' }
 if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on was installed without KERNEL=1' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
+if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on was installed without WIFI=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'
