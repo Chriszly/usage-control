@@ -54,8 +54,9 @@ const (
 	maxClockJitter = 10 * time.Second
 	// keptWithin is how far behind its time the newest minute a device kept
 	// may be: a device keeps each minute within the next one, so up to two
-	// minutes, and more means it keeps none now.
-	keptWithin = 150 * time.Second
+	// minutes, and up to about five when its program just restarted; more
+	// means it keeps none now.
+	keptWithin = 5 * time.Minute
 )
 
 // fetcher fetches the minutes a device keeps of its own usage into the hub's
@@ -82,6 +83,9 @@ type fetcher struct {
 	offset int64
 	// tooOld is when the device was found to keep no minutes.
 	tooOld time.Time
+	// back is when the device last began to answer, as after it was switched
+	// off: it keeps its first minute only a minute or two later.
+	back time.Time
 	// failing is set while fetching fails, so that is logged once.
 	failing bool
 }
@@ -98,7 +102,11 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 	// answers again, the minutes it kept meanwhile follow.
 	measured, ok := f.agent.clockOffset()
 	if !ok {
+		f.back = time.Time{}
 		return true
+	}
+	if f.back.IsZero() {
+		f.back = time.Now()
 	}
 	if moved := measured - time.Duration(f.offset)*time.Second; moved > maxClockJitter || moved < -maxClockJitter {
 		f.offset = int64(measured / time.Second)
@@ -160,7 +168,7 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 	// A device that answers but has kept no minute for a while, as when it
 	// cannot write to its disk, would leave a gap: the recorder stores the
 	// average of its own readings instead.
-	if !answer.More && answer.Now-f.after > int64(keptWithin/time.Second) {
+	if !answer.More && time.Since(f.back) > keptWithin && answer.Now-f.after > int64(keptWithin/time.Second) {
 		return f.failed(ctx, errors.New("the device has kept no minute of its usage for a while"))
 	}
 	if f.failing {
@@ -174,7 +182,10 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 // hub's time on whole minutes, without values that cannot be stored, and the
 // device's time of the last of them, which after becomes once they are
 // stored. The device is not trusted to keep to its side: minutes must be in
-// order, a good part of a minute apart and not in its future.
+// order, a good part of a minute apart and not in its future. A minute in the
+// hub's future, where a clock a few seconds ahead of the hub's or set forward
+// since its last reading puts it, waits for a later fetch with the ones after
+// it.
 func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 	minGap := int64(history.SampleInterval / time.Second / 2)
 	after := f.after
@@ -182,6 +193,10 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 	for _, minute := range answer.Minutes {
 		if minute.Time < after+minGap || minute.Time > answer.Now {
 			continue
+		}
+		at := time.Unix(minute.Time+f.offset, 0).Truncate(history.SampleInterval)
+		if at.After(time.Now()) {
+			break
 		}
 		after = minute.Time
 		values := map[string]float64{}
@@ -193,10 +208,7 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 				values[metric] = value
 			}
 		}
-		// Not in the hub's future, where a clock the device set forward
-		// since its last reading would put it.
-		at := time.Unix(minute.Time+f.offset, 0).Truncate(history.SampleInterval)
-		if len(values) > 0 && !at.After(time.Now()) {
+		if len(values) > 0 {
 			minutes = append(minutes, history.Minute{Time: at.Unix(), Values: values})
 		}
 	}

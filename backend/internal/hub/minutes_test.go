@@ -418,13 +418,49 @@ func TestFetcherLeavesAMinuteToTheRecorderWhenTheDeviceKeepsNone(t *testing.T) {
 	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-11*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries), back: now.Add(-time.Hour)}
 
 	if f.fetch(ctx) {
 		t.Error("fetch() = true for a device that keeps no minutes now, want false, so the recorder stores its own")
 	}
 	if got := storedTimes(t, store, "office-pc"); len(got) != 6 {
 		t.Errorf("stored minutes %v, want the hub's own and the five the device kept", got)
+	}
+}
+
+func TestFetcherWaitsForTheFirstMinuteOfADeviceThatIsBack(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	// The device was switched off for an hour and has just started again,
+	// so it has kept no minute since.
+	device := newMinutesDevice(now.Add(-time.Hour), 10)
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	store := openTestStore(t)
+	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-time.Hour), map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+
+	if !f.fetch(ctx) || f.failing {
+		t.Error("fetch() = false for a device that is back, want true while it keeps its first minute")
+	}
+}
+
+func TestFetcherLeavesAMinuteInTheHubsFutureForTheNextFetch(t *testing.T) {
+	next := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
+	f := &fetcher{after: next - 120, maxValues: 10}
+	answer := MinutesAnswer{Now: next + 1, Minutes: []history.Minute{
+		{Time: next - 60, Values: map[string]float64{"cpu": 1}},
+		{Time: next, Values: map[string]float64{"cpu": 2}}, // in the hub's future
+	}}
+
+	got, after := f.clean(answer)
+
+	if len(got) != 1 || got[0].Time != next-60 || after != next-60 {
+		t.Errorf("clean() = %+v, after %d; want only the minute at %d, and after it, so the next fetch asks for the one at %d again", got, after, next-60, next)
 	}
 }
 
