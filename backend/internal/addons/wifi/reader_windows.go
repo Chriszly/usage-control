@@ -30,7 +30,6 @@ var (
 	wlanFreeMemory     = wlanapi.NewProc("WlanFreeMemory")
 )
 
-
 // NewReader returns what reads each connected wireless interface, through
 // Windows' Native Wifi API in wlanapi.dll. Without the API (Windows Server
 // without its Wireless LAN feature), with the WLAN AutoConfig service

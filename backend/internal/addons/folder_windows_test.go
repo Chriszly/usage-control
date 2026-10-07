@@ -20,6 +20,7 @@ func junction(t *testing.T) (target, link string) {
 		t.Fatal(err)
 	}
 	link = filepath.Join(root, "junction")
+	//nolint:gosec // the test's own temporary folders
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
 		t.Fatalf("mklink /J: %v: %s", err, out)
 	}
