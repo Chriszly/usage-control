@@ -1,5 +1,7 @@
-// Package kernel reads what the Linux kernel is busy with, for the kernel
-// add-on: context switches, interrupts and new processes per second from
+// Package kernel reads what the operating system's kernel is busy with, for
+// the kernel add-on.
+//
+// On Linux it reads context switches, interrupts and new processes per second from
 // /proc/stat, the open files from /proc/sys/fs/file-nr, the sockets and TCP
 // connections in use from /proc/net/sockstat and the TCP retransmissions per
 // second from /proc/net/snmp.
@@ -7,7 +9,10 @@
 // /proc/net shows the network namespace of the process that reads it, so the
 // add-on reads /proc/1/net: the host's init's, which is the host's network
 // both under systemd with PrivateNetwork and in a container that mounts the
-// host's /proc. Other systems have none of these files and get no values.
+// host's /proc.
+//
+// Windows has no /proc; system_windows.go reads the closest values Windows
+// itself offers (see there). Other systems get no values.
 //
 // It only reads; nothing in here changes the machine.
 package kernel
@@ -33,12 +38,17 @@ const (
 	interrupts      = "interrupts"
 	newProcesses    = "new-processes"
 	openFiles       = "open-files"
+	handles         = "handles"
 	sockets         = "sockets"
 	tcpConnections  = "tcp-connections"
+	tcpEstablished  = "tcp-established"
 	retransmissions = "tcp-retransmissions"
 )
 
-var order = []string{contextSwitches, interrupts, newProcesses, openFiles, sockets, tcpConnections, retransmissions}
+var order = []string{
+	contextSwitches, interrupts, newProcesses, openFiles, handles,
+	sockets, tcpConnections, tcpEstablished, retransmissions,
+}
 
 // rates are the values shown per second, from the change of a counter.
 var rates = map[string]bool{contextSwitches: true, interrupts: true, newProcesses: true, retransmissions: true}
@@ -51,17 +61,50 @@ var labels = map[string]struct {
 	interrupts:      {"Interrupts", map[string]string{"de": "Interrupts", "fr": "Interruptions", "es": "Interrupciones"}},
 	newProcesses:    {"New processes", map[string]string{"de": "Neue Prozesse", "fr": "Nouveaux processus", "es": "Procesos nuevos"}},
 	openFiles:       {"Open files", map[string]string{"de": "Offene Dateien", "fr": "Fichiers ouverts", "es": "Archivos abiertos"}},
+	handles:         {"Open handles", map[string]string{"de": "Offene Handles", "fr": "Handles ouverts", "es": "Handles abiertos"}},
 	sockets:         {"Sockets in use", map[string]string{"de": "Belegte Sockets", "fr": "Sockets utilisés", "es": "Sockets en uso"}},
 	tcpConnections:  {"TCP connections", map[string]string{"de": "TCP-Verbindungen", "fr": "Connexions TCP", "es": "Conexiones TCP"}},
+	tcpEstablished:  {"Established TCP connections", map[string]string{"de": "Aufgebaute TCP-Verbindungen", "fr": "Connexions TCP établies", "es": "Conexiones TCP establecidas"}},
 	retransmissions: {"TCP retransmissions", map[string]string{"de": "TCP-Neuübertragungen", "fr": "Retransmissions TCP", "es": "Retransmisiones TCP"}},
 }
 
-// Reader reads the kernel's values and keeps the counters of the previous
-// read for the rates.
-type Reader struct {
-	proc     string
+// Source is what the add-on reads: the values by id at a time.
+type Source interface {
+	Read(now time.Time) map[string]float64
+}
+
+// meter turns counters into values, the rates from the change since the
+// previous call, so the first call leaves them out.
+type meter struct {
 	previous counters
 	at       time.Time
+}
+
+func (m *meter) measure(now time.Time, maps ...counters) map[string]float64 {
+	values := map[string]float64{}
+	totals := counters{}
+	for _, found := range maps {
+		for id, n := range found {
+			if !rates[id] {
+				values[id] = float64(n)
+				continue
+			}
+			totals[id] = n
+			before, ok := m.previous[id]
+			if elapsed := now.Sub(m.at).Seconds(); ok && elapsed > 0 && n >= before {
+				values[id] = float64(n-before) / elapsed
+			}
+		}
+	}
+	m.previous, m.at = totals, now
+	return values
+}
+
+// Reader reads the Linux kernel's values from /proc and keeps the counters
+// of the previous read for the rates.
+type Reader struct {
+	proc  string
+	meter meter
 }
 
 // NewReader returns a Reader for the machine. procDir is where /proc is,
@@ -73,29 +116,12 @@ func NewReader(procDir string) *Reader {
 // Read returns the values by id. Rates are the average since the previous
 // call, so the first call leaves them out.
 func (r *Reader) Read(now time.Time) map[string]float64 {
-	values := map[string]float64{}
-	totals := counters{}
-	maps := []counters{
+	return r.meter.measure(now,
 		parseStat(readText(filepath.Join(r.proc, "stat"))),
 		parseFileNr(readText(filepath.Join(r.proc, "sys", "fs", "file-nr"))),
 		parseSockstat(readText(filepath.Join(r.proc, "1", "net", "sockstat"))),
 		parseSNMP(readText(filepath.Join(r.proc, "1", "net", "snmp"))),
-	}
-	for _, m := range maps {
-		for id, n := range m {
-			if !rates[id] {
-				values[id] = float64(n)
-				continue
-			}
-			totals[id] = n
-			before, ok := r.previous[id]
-			if elapsed := now.Sub(r.at).Seconds(); ok && elapsed > 0 && n >= before {
-				values[id] = float64(n-before) / elapsed
-			}
-		}
-	}
-	r.previous, r.at = totals, now
-	return values
+	)
 }
 
 // Extras returns the values as the group of extras the collector shows.

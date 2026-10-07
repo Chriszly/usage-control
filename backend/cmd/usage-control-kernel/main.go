@@ -1,16 +1,20 @@
 // Command usage-control-kernel is the kernel add-on of usage-control: every
-// few seconds it reads what the Linux kernel is busy with (context switches,
+// few seconds it reads what the kernel is busy with and writes it to the
+// add-on folder (see package addons). On Linux, from /proc: context switches,
 // interrupts and new processes per second, open files, sockets and TCP
-// connections in use, TCP retransmissions per second) and writes it to the
-// add-on folder (see package addons). It needs no privileges. It reads
-// /proc only, so it reports nothing on other systems.
+// connections in use, TCP retransmissions per second. On Windows, from its
+// performance counters, GetPerformanceInfo and GetTcpStatisticsEx: context
+// switches and interrupts per second, open handles, established TCP
+// connections and TCP retransmissions per second. It needs no privileges and
+// reports nothing on other systems.
 //
 // Settings come from environment variables:
 //
 //	ADDONS_DIR  the add-on folder usage-control reads (default
 //	            /run/usage-control-addons, the folder the systemd service
-//	            makes)
-//	HOST_PROC   where the host's /proc is, in a container (default /proc)
+//	            makes; the Windows installer sets it)
+//	HOST_PROC   on Linux, where the host's /proc is, in a container
+//	            (default /proc)
 package main
 
 import (
@@ -24,7 +28,7 @@ import (
 
 func main() {
 	addons.Main("kernel", "UsageControlKernel", func() addons.Read {
-		reader := kernel.NewReader(kernel.HostProc())
+		reader := kernel.NewSystemReader()
 		return func(_ context.Context, now time.Time) []metrics.Extra {
 			return kernel.Extras(reader.Read(now))
 		}
