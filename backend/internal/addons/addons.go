@@ -75,7 +75,7 @@ func Serve(ctx context.Context, name string, read Read) error {
 	if dir == "" {
 		dir = DefaultDir()
 	}
-	if info, err := os.Stat(dir); err != nil {
+	if info, err := os.Stat(dir); err != nil { //nolint:gosec // the add-on folder its setting names
 		return fmt.Errorf("the add-on folder: %w", err)
 	} else if !info.IsDir() {
 		return fmt.Errorf("the add-on folder %s is not a folder", dir)
