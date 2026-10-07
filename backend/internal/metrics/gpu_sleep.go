@@ -9,14 +9,23 @@ import (
 
 // This part tells whether Linux has put a GPU to sleep through runtime power
 // management, as on laptops with a second GPU that only wakes for games.
-// Asking such a GPU for its usage, as nvidia-smi does, wakes it and keeps it
-// awake. It has no build constraint so its tests run on every OS; elsewhere
-// no GPU is found asleep.
+// Asking such a GPU for its usage, as nvidia-smi does, or for its
+// temperature, fan or power in /sys/class/hwmon, wakes it and keeps it awake.
+// It has no build constraint, as the add-ons call it on every OS; elsewhere
+// the /sys files are missing, so no GPU is found asleep.
 
 // isSuspended reports whether the kernel has put a PCI device to sleep, from
 // its power/runtime_status: one small file that does not wake it.
 func isSuspended(device string) bool {
 	return sysfile.Text(filepath.Join(device, "power", "runtime_status")) == "suspended"
+}
+
+// HwmonAsleep reports whether the device of a sensor folder in
+// /sys/class/hwmon, such as an AMD GPU's, sleeps, so its sensors are not
+// read: reading them would wake it. dir is the hwmon folder, or its device
+// folder where the sensors are kept there.
+func HwmonAsleep(dir string) bool {
+	return isSuspended(filepath.Join(dir, "device")) || isSuspended(dir)
 }
 
 // NvidiaSleep tells whether the NVIDIA GPUs sleep, so nvidia-smi is not

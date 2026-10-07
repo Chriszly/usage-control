@@ -285,7 +285,7 @@ func (r *temperatureReader) read(ctx context.Context, now time.Time) []Temperatu
 func readTemperatures(ctx context.Context) []Temperature {
 	// gopsutil returns partial results together with an error when some
 	// sensors cannot be read, so the readings are used even if err is set.
-	readings, _ := sensors.TemperaturesWithContext(ctx)
+	readings, _ := readSensors(ctx)
 	return temperaturesOf(readings)
 }
 

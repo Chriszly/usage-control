@@ -20,13 +20,16 @@ type lastReadings struct {
 }
 
 // get returns the kept readings while they are younger than the interval at
-// now, and otherwise those read returns.
+// now, and otherwise those read returns. Reads come every addons.Interval,
+// a little earlier or later each time, so readings half an Interval short of
+// the interval count as old: otherwise a read that came a moment early would
+// keep them for another whole Interval.
 func (l *lastReadings) get(now time.Time, read func() []Reading) []Reading {
 	interval := l.interval
 	if interval == 0 {
 		interval = addons.ProgramInterval
 	}
-	if l.at.IsZero() || now.Sub(l.at) >= interval {
+	if l.at.IsZero() || now.Sub(l.at) >= interval-addons.Interval/2 {
 		l.readings, l.at = read(), now
 	}
 	return l.readings

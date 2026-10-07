@@ -101,6 +101,22 @@ func TestHwmonPrefersTheAverage(t *testing.T) {
 	}
 }
 
+func TestHwmonReportsASleepingDeviceAtZero(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"hwmon3/name":                        "amdgpu",
+		"hwmon3/power1_average":              "42500000",
+		"hwmon3/device/power/runtime_status": "suspended\n",
+	})
+
+	got := readHwmon(dir)
+
+	want := []Reading{{ID: "hwmon-amdgpu-power1", Label: "amdgpu", Watts: 0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readHwmon() of a sleeping GPU = %+v, want %+v", got, want)
+	}
+}
+
 func TestParsePMICAddsUpTheRails(t *testing.T) {
 	out := `     3V7_WL_SW_A current(0)=0.10000000A
      VDD_CORE_A current(7)=2.00000000A
@@ -138,7 +154,7 @@ func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
 	var last lastReadings
 	start := time.Now()
 
-	for _, after := range []time.Duration{0, 5 * time.Second, addons.ProgramInterval - time.Second} {
+	for _, after := range []time.Duration{0, 5 * time.Second, addons.ProgramInterval - addons.Interval} {
 		if got := last.get(start.Add(after), read); got[0].Watts != 1 {
 			t.Errorf("get() after %v = %v, want the first answer", after, got)
 		}
@@ -158,11 +174,13 @@ func TestLastReadingsAsksThePMICEveryTenSeconds(t *testing.T) {
 	start := time.Now()
 
 	last.get(start, read)
-	if got := last.get(start.Add(pmicInterval-time.Second), read); got[0].Watts != 1 {
+	if got := last.get(start.Add(pmicInterval-addons.Interval), read); got[0].Watts != 1 {
 		t.Errorf("get() within the interval = %v, want the first answer", got)
 	}
-	if got := last.get(start.Add(pmicInterval), read); got[0].Watts != 2 || pmicInterval >= addons.ProgramInterval {
-		t.Errorf("get() after %v = %v, want a new answer before addons.ProgramInterval", pmicInterval, got)
+	// Two reads later, even when that read comes a moment early.
+	early := pmicInterval - 100*time.Millisecond
+	if got := last.get(start.Add(early), read); got[0].Watts != 2 || pmicInterval >= addons.ProgramInterval {
+		t.Errorf("get() after %v = %v, want a new answer before addons.ProgramInterval", early, got)
 	}
 }
 
