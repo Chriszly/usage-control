@@ -76,3 +76,16 @@ func fromCounters(c counters) []metrics.Extra {
 	}
 	return []metrics.Extra{g}
 }
+
+// single returns the one value of a counter that has a single instance, such
+// as _Total or a counter without instances, or nil when there is not exactly
+// one.
+func single(values map[string]float64) *float64 {
+	if len(values) != 1 {
+		return nil
+	}
+	for _, v := range values {
+		return &v
+	}
+	return nil
+}

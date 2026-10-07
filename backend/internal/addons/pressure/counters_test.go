@@ -69,3 +69,15 @@ func TestWindowsIDsDifferFromLinux(t *testing.T) {
 		}
 	}
 }
+
+func TestSingleTakesTheOnlyValue(t *testing.T) {
+	if got := single(map[string]float64{"_Total": 42}); got == nil || *got != 42 {
+		t.Errorf("single(one value) = %v, want 42", got)
+	}
+	if got := single(map[string]float64{}); got != nil {
+		t.Errorf("single(no value) = %v, want nil", *got)
+	}
+	if got := single(map[string]float64{"0 C:": 1, "1 D:": 2}); got != nil {
+		t.Errorf("single(two values) = %v, want nil", *got)
+	}
+}
