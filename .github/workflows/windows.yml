@@ -95,9 +95,11 @@ jobs:
             msi_version="0.0.$GITHUB_RUN_NUMBER"
             bugfix=0
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
-          echo "bugfix=$bugfix" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "msi_version=$msi_version"
+            echo "bugfix=$bugfix"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
