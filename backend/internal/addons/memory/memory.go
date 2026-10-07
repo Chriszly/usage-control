@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -120,20 +121,62 @@ func (r *Reader) Read(now time.Time) []metrics.Extra {
 		}
 	}
 	r.previous, r.previousTime = counters, now
-	return group(items)
+	return grouped(items)
 }
 
-// group returns the group of extras holding items, or nothing without items.
-func group(items []metrics.ExtraItem) []metrics.Extra {
-	if len(items) == 0 {
-		return nil
+// groups are the groups of extras the values are shown in, in their order,
+// each with values of a similar size: a chart is drawn per group and unit,
+// and a few kilobytes of dirty memory or a few major page faults would be a
+// flat line next to gigabytes committed or thousands of page faults. A value
+// whose id no group lists is left out.
+var groups = []struct {
+	id, title string
+	titles    map[string]string
+	ids       []string
+}{
+	{
+		"memory", "Memory details",
+		map[string]string{"de": "Speicherdetails", "fr": "Détails de la mémoire", "es": "Detalles de la memoria"},
+		[]string{"slab", "shared", "page-tables", "pool-paged", "pool-nonpaged"},
+	},
+	{
+		"memory-committed", "Memory: committed",
+		map[string]string{"de": "Speicher: zugesagt", "fr": "Mémoire : engagée", "es": "Memoria: comprometida"},
+		[]string{committed.id},
+	},
+	{
+		"memory-writeback", "Memory: waiting to be written",
+		map[string]string{"de": "Speicher: ungeschrieben", "fr": "Mémoire : pas encore écrite", "es": "Memoria: sin escribir"},
+		[]string{"dirty", "writeback", "modified"},
+	},
+	{
+		"memory-faults", "Memory: page faults",
+		map[string]string{"de": "Speicher: Seitenfehler", "fr": "Mémoire : défauts de page", "es": "Memoria: fallos de página"},
+		[]string{pageFaults.id},
+	},
+	{
+		"memory-disk", "Memory: disk access",
+		map[string]string{"de": "Speicher: Plattenzugriffe", "fr": "Mémoire : accès disque", "es": "Memoria: accesos al disco"},
+		[]string{"major-page-faults", "page-reads", "swap-in", "swap-out", "paged-in", "paged-out"},
+	},
+}
+
+// grouped returns the groups of extras holding items, in their order,
+// leaving out groups without items.
+func grouped(items []metrics.ExtraItem) []metrics.Extra {
+	var extras []metrics.Extra
+	for _, g := range groups {
+		group := metrics.Extra{ID: g.id, Title: g.title, Titles: g.titles}
+		for _, item := range items {
+			if slices.Contains(g.ids, item.ID) {
+				group.Items = append(group.Items, item)
+			}
+		}
+		if len(group.Items) > 0 {
+			extras = append(extras, group)
+		}
 	}
-	return []metrics.Extra{{
-		ID:     "memory",
-		Title:  "Memory details",
-		Titles: map[string]string{"de": "Speicherdetails", "fr": "Détails de la mémoire", "es": "Detalles de la memoria"},
-		Items:  items,
-	}}
+	return extras
 }
 
 // readKeys reads a file of /proc whose lines are a name and a whole number,
