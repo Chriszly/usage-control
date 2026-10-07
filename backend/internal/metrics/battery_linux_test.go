@@ -31,6 +31,13 @@ func TestReadWattsAndHealth(t *testing.T) {
 	if w := readWatts(charge); w == nil || *w != 12 {
 		t.Errorf("readWatts(current_now * voltage_now) = %v, want 12", w)
 	}
+	// A fuel gauge that reports the current as negative while discharging.
+	discharging := t.TempDir()
+	write(discharging, "current_now", "-500000\n")
+	write(discharging, "voltage_now", "5000000\n")
+	if w := readWatts(discharging); w == nil || *w != 2.5 {
+		t.Errorf("readWatts(negative current_now) = %v, want 2.5", w)
+	}
 	if h := readHealth(energy); h == nil || *h != 90 {
 		t.Errorf("readHealth(energy) = %v, want 90", h)
 	}
