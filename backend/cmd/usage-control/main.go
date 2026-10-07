@@ -119,6 +119,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Read before anything starts, so a wrong value stops the program before
+	// the database is opened and the recorders run.
+	checkUpdates, err := boolSettingOr("UPDATE_CHECK", true)
+	if err != nil {
+		return err
+	}
 
 	// Listening comes before the rest of the setup: while another program
 	// holds the port, the Windows service tries again every 10 seconds, and
@@ -131,7 +137,7 @@ func run(ctx context.Context) error {
 
 	collector, err := metrics.NewCollector(context.Background(), diskPaths())
 	if err != nil {
-		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
+		return fmt.Errorf("check DISK_PATHS: %w; %s", err, diskPathsHint(runtime.GOOS, os.Getenv("HOST_PROC") != ""))
 	}
 
 	// stop ends the recorders before the database is closed.
@@ -167,7 +173,7 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
 		}
 		defer func() { _ = store.Close() }()
-		site, wait, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port)
+		site, wait, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port, checkUpdates)
 		if err != nil {
 			return err
 		}
@@ -219,8 +225,9 @@ func run(ctx context.Context) error {
 // page. Each gets a recorder that reads its usage into the history until ctx
 // is done, and one pruner deletes what is older than retention; the returned
 // function waits until they have stopped. Of each device's disks, sensors,
-// network cards and GPUs, the first historyEntries are kept.
-func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int, pagePort string) (server.Site, func(), error) {
+// network cards and GPUs, the first historyEntries are kept. With
+// checkUpdates, a release asks GitHub for a newer one.
+func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.Store, fixed []hub.Device, retention time.Duration, historyEntries int, pagePort string, checkUpdates bool) (server.Site, func(), error) {
 	devicesPassword, err := password.Open(ctx, store.DB())
 	if err != nil {
 		return server.Site{}, nil, err
@@ -266,10 +273,6 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 
 		AllowedHosts: listSetting("ALLOWED_HOSTS"),
 		Minutes:      history.Reader{Store: store, Recent: recent, Device: history.LocalDevice},
-	}
-	checkUpdates, err := boolSettingOr("UPDATE_CHECK", true)
-	if err != nil {
-		return server.Site{}, nil, err
 	}
 	if checker := update.NewChecker(version.Version); checker != nil && checkUpdates {
 		site.Update = checker.Status
@@ -375,6 +378,19 @@ func boolSettingOr(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s is %q; set it to true or false", name, value)
 	}
 	return on, nil
+}
+
+// diskPathsHint tells how to fix a path in DISK_PATHS that cannot be read on
+// goos, in a container or not.
+func diskPathsHint(goos string, container bool) string {
+	switch {
+	case goos == "windows":
+		return `list drives or folders that exist, such as C:\,D:\`
+	case container:
+		return "mount each path read-only in compose.yaml"
+	default:
+		return "list folders that exist, such as /,/mnt/usb"
+	}
 }
 
 // diskPaths returns the paths from DISK_PATHS, or the system disk when it is

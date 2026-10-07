@@ -101,6 +101,21 @@ describe('HubConnection', () => {
     }
   });
 
+  it('gives changes to the devices as long as they take', () => {
+    vi.useFakeTimers();
+    try {
+      client.post('/api/devices', {}).subscribe();
+      const request = http.expectOne('/api/devices');
+
+      vi.advanceTimersByTime(ANSWER_TIMEOUT_MS * 2);
+      expect(request.cancelled).toBe(false);
+      expect(connection.lost()).toBe(false);
+      request.flush({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the time the hub stopped answering', () => {
     get((r) => r.error(new ProgressEvent('error')));
     const since = connection.lostSince();

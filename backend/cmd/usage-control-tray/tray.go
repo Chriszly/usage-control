@@ -189,6 +189,16 @@ func (t texts) addressText(addr netip.Addr, found bool, port string) string {
 	return t.address + ": " + net.JoinHostPort(addr.String(), port)
 }
 
+// hubText is the menu line that opens the hub's page at link. It names the
+// hub's address, since any device on the network can claim to be the hub, so
+// the address is seen before the page is opened.
+func (t texts) hubText(link string) string {
+	if u, err := url.Parse(link); err == nil && u.Host != "" {
+		return t.openHub + " (" + u.Host + ")"
+	}
+	return t.openHub
+}
+
 // askHub asks the service on this PC where the page of the hub that collects
 // from it is. An empty link means no hub has asked yet; an error means the
 // service does not answer.

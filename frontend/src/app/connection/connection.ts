@@ -43,15 +43,17 @@ export const ANSWER_TIMEOUT_MS = 15_000;
  * answer the browser reports status 0, and a proxy in front of the hub 502 or
  * 504; any other status was sent by the hub itself. A request to the API that
  * gets no answer in time is given up with a TimeoutError, which counts as no
- * answer too.
+ * answer too. Only reads are given up: a change to the devices may still be
+ * made after the page gave up on it, and would then look as if it failed.
  */
 export const hubConnectionInterceptor: HttpInterceptorFn = (request, next) => {
   const connection = inject(HubConnection);
   const sent = next(request);
   // The request is sent at once; the time runs until the answer arrives.
-  const limited = request.url.startsWith('/api/')
-    ? sent.pipe(timeout({ each: ANSWER_TIMEOUT_MS }))
-    : sent;
+  const limited =
+    request.method === 'GET' && request.url.startsWith('/api/')
+      ? sent.pipe(timeout({ each: ANSWER_TIMEOUT_MS }))
+      : sent;
   return limited.pipe(
     tap({
       next: (event) => {

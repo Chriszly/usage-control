@@ -182,6 +182,16 @@ func TestAddressText(t *testing.T) {
 	}
 }
 
+func TestHubTextNamesTheHubsAddress(t *testing.T) {
+	text := translations["en"]
+	if got, want := text.hubText("http://192.168.60.5:9393/"), "Open hub (192.168.60.5:9393)"; got != want {
+		t.Errorf("hubText() = %q, want %q", got, want)
+	}
+	if got, want := text.hubText("not a link"), "Open hub"; got != want {
+		t.Errorf("hubText() of an odd link = %q, want %q", got, want)
+	}
+}
+
 func TestLocalAddressIsAPrivateIPv4Address(t *testing.T) {
 	if addr, found := localAddress(); found && (!addr.Is4() || !addr.IsPrivate()) {
 		t.Errorf("localAddress() = %v, want a private IPv4 address or none", addr)
