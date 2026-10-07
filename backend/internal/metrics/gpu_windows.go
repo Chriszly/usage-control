@@ -2,11 +2,8 @@ package metrics
 
 import (
 	"context"
-	"os/exec"
 	"sync"
-	"syscall"
 
-	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/Chriszly/usage-control/backend/internal/pdh"
@@ -85,12 +82,6 @@ func (r *gpuReader) read(context.Context) []GPU {
 // performance counters leave out.
 func (r *gpuReader) temperatures(ctx context.Context) []Temperature {
 	return r.nvidia.temperatures(ctx)
-}
-
-// hideWindow starts a program without a console window, which would flash up
-// every few seconds when usage-control runs without one.
-func hideWindow(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 }
 
 // adapters returns the name and memory size of each GPU, by its LUID. DirectX
