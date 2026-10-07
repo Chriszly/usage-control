@@ -2,6 +2,7 @@ package power
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -26,9 +27,17 @@ func readNvidia(ctx context.Context, program string) []Reading {
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
 	cmd := exec.CommandContext(ctx, program, "--query-gpu=index,uuid,name,power.draw", "--format=csv,noheader,nounits")
 	metrics.HideWindow(cmd)
+	// Once nvidia-smi is killed, wait at most a second for its output to
+	// close, in case a child it started keeps it open.
+	cmd.WaitDelay = time.Second
 	// When one GPU is in an error state, nvidia-smi still prints the others
-	// but exits with an error, so what it printed is read either way.
-	out, _ := cmd.Output()
+	// but exits with an error, so what it printed is read either way, with
+	// its error output, which may hold the message for a GPU it cannot reach.
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		out = append(out, exit.Stderr...)
+	}
 	return parseNvidia(string(out))
 }
 
@@ -44,10 +53,15 @@ func parseNvidia(out string) []Reading {
 	}
 	var gpus []gpu
 	// rows counts the GPUs nvidia-smi printed a row for, also one in an
-	// error state whose row holds only errors, so that the others keep their
-	// key while it fails.
+	// error state whose row holds only errors, and those it cannot reach
+	// (metrics.IsNvidiaLostGPU), so that the others keep their key while it
+	// fails.
 	rows := 0
 	for line := range strings.Lines(out) {
+		if metrics.IsNvidiaLostGPU(line) {
+			rows++
+			continue
+		}
 		fields := strings.Split(line, ",")
 		if len(fields) < 4 {
 			continue

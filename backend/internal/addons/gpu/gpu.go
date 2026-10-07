@@ -10,6 +10,7 @@ package gpu
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os/exec"
 	"regexp"
@@ -108,7 +109,16 @@ func run(ctx context.Context, program string) (string, error) {
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
 	cmd := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits")
 	metrics.HideWindow(cmd)
+	// Once nvidia-smi is killed, wait at most a second for its output to
+	// close, in case a child it started keeps it open.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
+	// The message for a GPU nvidia-smi cannot reach may come on its error
+	// output, which Parse needs too.
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		out = append(out, exit.Stderr...)
+	}
 	return string(out), err
 }
 
@@ -130,12 +140,17 @@ type GPU struct {
 // "0, GPU-1a2b3c4d-…, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2,
 // 350.00". Other lines, such as the message nvidia-smi prints for a GPU in an
 // error state, are left out. Each GPU's Key comes from metrics.NvidiaGPUKey,
-// which counts a GPU in an error state too, as long as nvidia-smi prints a
-// row for it, so the others keep their key while it fails.
+// which counts a GPU in an error state too, by its row or by the message
+// for a GPU nvidia-smi cannot reach (metrics.IsNvidiaLostGPU), so the
+// others keep their key while it fails.
 func Parse(out string) []GPU {
 	var gpus []GPU
 	rows := 0
 	for line := range strings.Lines(out) {
+		if metrics.IsNvidiaLostGPU(line) {
+			rows++
+			continue
+		}
 		parts := strings.Split(line, ",")
 		if len(parts) < 3+len(fields) {
 			continue

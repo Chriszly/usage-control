@@ -146,6 +146,18 @@ func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
 	}
 }
 
+func TestParseNvidiaCountsALostGPU(t *testing.T) {
+	// A GPU nvidia-smi cannot reach gets only a message, no row; GPU 0
+	// keeps the ID it has while both work.
+	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, NVIDIA GeForce RTX 5060 Ti, 18.42\n" +
+		"Unable to determine the device handle for GPU0000:02:00.0: GPU is lost.\n")
+
+	want := []Reading{{ID: "nvidia-1a2b3c4d", Label: "NVIDIA GeForce RTX 5060 Ti", Watts: 18.42}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseNvidia() = %+v, want %+v", got, want)
+	}
+}
+
 func TestParseNvidiaKeepsTheIDOfGPU0WhileTheOtherFails(t *testing.T) {
 	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, NVIDIA GeForce RTX 5060 Ti, 18.42\n" +
 		"Unable to determine the device handle for GPU0000:02:00.0: Unknown Error\n" +
