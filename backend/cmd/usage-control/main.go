@@ -115,6 +115,15 @@ func run(ctx context.Context) error {
 		return err
 	}
 
+	// Listening comes before the rest of the setup: while another program
+	// holds the port, the Windows service tries again every 10 seconds, and
+	// each try would otherwise open the database and the readers anew.
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = listener.Close() }()
+
 	collector, err := metrics.NewCollector(context.Background(), diskPaths())
 	if err != nil {
 		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
@@ -178,7 +187,7 @@ func run(ctx context.Context) error {
 	serveErr := make(chan error, 1)
 	go func() {
 		slog.Info("usage-control listening", "addr", addr)
-		serveErr <- httpServer.ListenAndServe()
+		serveErr <- httpServer.Serve(listener)
 	}()
 
 	select {

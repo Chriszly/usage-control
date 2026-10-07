@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -225,5 +228,69 @@ func TestWithBufferRunsWithoutADatabaseItCannotOpen(t *testing.T) {
 
 	if minutes != nil {
 		t.Errorf("withBuffer() with a database it cannot open = %v, want no minutes instead of failing", minutes)
+	}
+}
+
+// setUpRun points run at a database in a temporary folder and clears the
+// settings that would change what it sets up.
+func setUpRun(t *testing.T, addr string) string {
+	t.Helper()
+	database := filepath.Join(t.TempDir(), "usage-control.db")
+	t.Setenv("LISTEN_ADDR", addr)
+	t.Setenv("DATABASE_PATH", database)
+	t.Setenv("DISK_PATHS", t.TempDir())
+	for _, name := range []string{"PUBLIC_PORT", "RETENTION_DAYS", "HISTORY_MAX_ENTRIES", "HUB_DEVICES", "DATA_ONLY", "BUFFER_HOURS", "RESET_PASSWORD", "UPDATE_CHECK", "ADDONS_DIR", "ALLOWED_HOSTS"} {
+		t.Setenv(name, "")
+	}
+	return database
+}
+
+func TestRunStopsBeforeTheSetupWhenThePortIsTaken(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer func() { _ = taken.Close() }()
+	database := setUpRun(t, taken.Addr().String())
+
+	err = run(context.Background())
+
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) || opErr.Op != "listen" {
+		t.Errorf("run() with a taken port error = %v, want the listen error", err)
+	}
+	if _, statErr := os.Stat(database); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("run() with a taken port opened the database (%v); it should stop before the setup", statErr)
+	}
+}
+
+func TestRunServesUntilStopped(t *testing.T) {
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	addr := free.Addr().String()
+	_ = free.Close()
+	setUpRun(t, addr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan error, 1)
+	go func() { stopped <- run(ctx) }()
+
+	answered := false
+	for range 100 {
+		if response, err := http.Get("http://" + addr + "/api/metrics"); err == nil {
+			_ = response.Body.Close()
+			answered = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	if err := <-stopped; err != nil {
+		t.Errorf("run() error = %v, want nil after it was stopped", err)
+	}
+	if !answered {
+		t.Error("run() did not answer on its port")
 	}
 }
