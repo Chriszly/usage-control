@@ -98,3 +98,20 @@ func TestGPUReaderAsksNvidiaSMIEveryFewSeconds(t *testing.T) {
 		t.Errorf("read() after the interval = %+v after %d runs; want the GeForce from a second run", got, countRuns())
 	}
 }
+
+func TestReadNvidiaSMIKeepsTheHealthyGPUsWhenOneFails(t *testing.T) {
+	// A stand-in for nvidia-smi with one GPU fallen off the bus: it prints
+	// the other and exits with an error.
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	text := "#!/bin/sh\necho 'GeForce, 12, 1024, 8192, 50'\n" +
+		"echo 'Unable to determine the device handle for GPU0000:02:00.0: GPU is lost.'\nexit 15\n"
+	if err := os.WriteFile(script, []byte(text), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+
+	got := readNvidiaSMI(context.Background(), script)
+
+	if len(got) != 1 || got[0].Name != "GeForce" || got[0].UsagePercent != 12 {
+		t.Errorf("readNvidiaSMI() = %+v, want the GeForce", got)
+	}
+}

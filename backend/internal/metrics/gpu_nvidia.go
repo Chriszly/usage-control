@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os/exec"
 	"slices"
@@ -145,7 +146,11 @@ func readNvidiaSMI(ctx context.Context, program string) []GPU {
 	// close, in case a child it started keeps it open.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
-	if err != nil {
+	// When one GPU is in an error state, nvidia-smi still prints the others
+	// but exits with an error, so what it printed is read then too; not
+	// when it was killed, as its output may end in the middle of a line.
+	var exit *exec.ExitError
+	if err != nil && (!errors.As(err, &exit) || ctx.Err() != nil) {
 		return nil
 	}
 	return parseNvidiaSMI(string(out))
