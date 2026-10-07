@@ -16,7 +16,13 @@ func TestServeWritesTheReportAndRemovesItAtTheEnd(t *testing.T) {
 	t.Setenv("ADDONS_DIR", dir)
 	file := filepath.Join(dir, "test.json")
 	value := 1.5
-	read := func(context.Context, time.Time) []metrics.Extra {
+	monotonic := make(chan bool, 1)
+	read := func(_ context.Context, now time.Time) []metrics.Extra {
+		// Round(0) drops the monotonic clock reading, so it differs when now has one.
+		select {
+		case monotonic <- now != now.Round(0):
+		default:
+		}
 		return []metrics.Extra{{ID: "test", Title: "Test", Items: []metrics.ExtraItem{{ID: "a", Label: "A", Unit: metrics.UnitNumber, Value: &value}}}}
 	}
 
@@ -37,6 +43,9 @@ func TestServeWritesTheReportAndRemovesItAtTheEnd(t *testing.T) {
 	}
 	if len(report.Extras) != 1 || report.Extras[0].Items[0].ID != "a" || report.Time.IsZero() {
 		t.Errorf("report = %+v", report)
+	}
+	if !<-monotonic {
+		t.Error("read got a time without the monotonic clock reading, so rates jump when the clock is set")
 	}
 
 	cancel()

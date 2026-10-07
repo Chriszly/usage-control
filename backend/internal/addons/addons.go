@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,15 +24,18 @@ import (
 // rest.
 const Interval = 5 * time.Second
 
-// Read returns an add-on's extras at now.
+// Read returns an add-on's extras at now. now keeps Go's monotonic clock
+// reading, so the time between two reads, which rates are worked out over,
+// does not jump when the wall clock is set.
 type Read func(ctx context.Context, now time.Time) []metrics.Extra
 
 // Main runs the add-on name, which reads with newRead: as the Windows service
 // service when the service manager starts it, and everywhere else until it is
 // interrupted. It writes ADDONS_DIR/<name>.json every Interval and exits the
-// program when it fails. newRead is called once the add-on starts.
+// program when it fails. newRead is called once, when the add-on starts.
 func Main(name, service string, newRead func() Read) {
-	serve := func(ctx context.Context) error { return Serve(ctx, name, newRead()) }
+	read := sync.OnceValue(newRead)
+	serve := func(ctx context.Context) error { return Serve(ctx, name, read()) }
 	ranAsService, err := winservice.Run(service, serve)
 	if !ranAsService && err == nil {
 		err = serve(context.Background())
@@ -75,8 +79,9 @@ func run(ctx context.Context, read Read, file string) {
 	defer ticker.Stop()
 	failing := false
 	for {
-		now := time.Now().UTC()
-		err := metrics.WriteAddOnReport(file, metrics.AddOnReport{Time: now, Extras: read(ctx, now)})
+		// time.Now, not time.Now().UTC(), which drops the monotonic reading.
+		now := time.Now()
+		err := metrics.WriteAddOnReport(file, metrics.AddOnReport{Time: now.UTC(), Extras: read(ctx, now)})
 		switch {
 		case err != nil && !failing:
 			slog.Error("write the add-on's report", "file", file, "error", err)
