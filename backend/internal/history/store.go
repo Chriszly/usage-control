@@ -288,6 +288,7 @@ const (
 // meanwhile, and grow the write-ahead log by as much as it deletes.
 func (s *Store) deleteChunks(ctx context.Context, table, where string, args ...any) (int64, error) {
 	// Each chunk looks its rows up by where and deletes them by primary key.
+	//nolint:gosec // table and where are fixed by the callers; values go in as arguments.
 	query := fmt.Sprintf(`
 		DELETE FROM %[1]s WHERE (device, time, metric) IN (
 			SELECT device, time, metric FROM %[1]s WHERE %[2]s LIMIT %[3]d
