@@ -2,7 +2,6 @@ package processes
 
 import (
 	"errors"
-	"runtime"
 	"time"
 	"unsafe"
 
@@ -16,24 +15,27 @@ import (
 // them all. The argument, where /proc is, does not apply.
 func NewSource(string) Source {
 	var buf []byte
-	start := time.Now()
-	cpus := uint64(runtime.NumCPU()) //nolint:gosec // a count of CPUs is positive
+	// Windows keeps no count of the machine's CPU time, so it is added up from
+	// the idle time and the processes', in their 100 ns units.
+	var sum cpuSum
 	return func(now time.Time) (Sample, bool) {
 		var processes []Process
-		processes, buf = ntProcesses(buf)
+		var idle uint64
+		processes, idle, buf = ntProcesses(buf)
 		if processes == nil {
 			return Sample{}, false
 		}
-		// The machine's CPU time is the time passed on every CPU, in the
-		// 100 ns units of the processes' times.
-		elapsed := uint64(max(0, now.Sub(start).Nanoseconds()/100))
-		return Sample{Processes: processes, Total: elapsed * cpus}, true
+		// A process's start is a FILETIME, 100 ns units since 1601.
+		ft := windows.NsecToFiletime(now.UnixNano())
+		at := uint64(ft.HighDateTime)<<32 | uint64(ft.LowDateTime)
+		return Sample{Processes: processes, Total: sum.add(at, idle, processes), Time: at}, true
 	}
 }
 
-// ntProcesses lists every process, reusing buf, which it returns grown when
-// it was too small. It returns no processes when the call fails.
-func ntProcesses(buf []byte) ([]Process, []byte) {
+// ntProcesses lists every process and the CPUs' idle time, reusing buf,
+// which it returns grown when it was too small. It returns no processes when
+// the call fails.
+func ntProcesses(buf []byte) ([]Process, uint64, []byte) {
 	if len(buf) == 0 {
 		buf = make([]byte, 512*1024)
 	}
@@ -47,28 +49,33 @@ func ntProcesses(buf []byte) ([]Process, []byte) {
 			continue
 		}
 		if err != nil {
-			return nil, buf
+			return nil, 0, buf
 		}
-		return parseNT(buf), buf
+		processes, idle := parseNT(buf)
+		return processes, idle, buf
 	}
-	return nil, buf
+	return nil, 0, buf
 }
 
-// parseNT walks the list NtQuerySystemInformation wrote to buf.
-func parseNT(buf []byte) []Process {
+// parseNT walks the list NtQuerySystemInformation wrote to buf, and returns
+// its processes and the CPUs' idle time.
+func parseNT(buf []byte) ([]Process, uint64) {
 	var processes []Process
+	var idle uint64
 	for offset := 0; offset+int(unsafe.Sizeof(windows.SYSTEM_PROCESS_INFORMATION{})) <= len(buf); {
 		// Each entry starts at an offset Windows gave, within buf.
 		info := (*windows.SYSTEM_PROCESS_INFORMATION)(unsafe.Pointer(&buf[offset])) //nolint:gosec // see above
 		pid := int(info.UniqueProcessID)
+		cpu := uint64(info.UserTime) + uint64(info.KernelTime) //nolint:gosec // times are not negative
 		// PID 0 is the idle time of the CPUs, not a process.
-		if pid != 0 {
-			name := info.ImageName.String()
+		if pid == 0 {
+			idle = cpu
+		} else {
 			processes = append(processes, Process{
 				PID:    pid,
 				Start:  uint64(info.CreateTime), //nolint:gosec // a time after 1601
-				Name:   name,
-				CPU:    uint64(info.UserTime) + uint64(info.KernelTime), //nolint:gosec // times are not negative
+				Name:   info.ImageName.String(),
+				CPU:    cpu,
 				Memory: uint64(info.WorkingSetSize),
 			})
 		}
@@ -77,5 +84,5 @@ func parseNT(buf []byte) []Process {
 		}
 		offset += int(info.NextEntryOffset)
 	}
-	return processes
+	return processes, idle
 }

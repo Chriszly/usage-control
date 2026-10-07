@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 )
 
-// procFS reads processes from a Linux /proc: /proc/stat for the machine's
-// CPU time and /proc/<pid>/stat for each process, which every user may read
-// unless /proc hides other users' processes (hidepid).
+// procFS reads processes from a Linux /proc: /proc/uptime for the time,
+// /proc/stat for the machine's CPU time and /proc/<pid>/stat for each
+// process, which every user may read unless /proc hides other users'
+// processes (hidepid).
 type procFS struct {
 	dir      string
 	pageSize uint64
@@ -25,6 +27,10 @@ func newProcFS(dir string, pageSize int) *procFS {
 // sample reads every process. A process that ends while it is read is left
 // out.
 func (p *procFS) sample() (Sample, bool) {
+	now, ok := parseUptime(p.read(filepath.Join(p.dir, "uptime")))
+	if !ok {
+		return Sample{}, false
+	}
 	total, ok := parseTotal(p.read(filepath.Join(p.dir, "stat")))
 	if !ok {
 		return Sample{}, false
@@ -43,7 +49,7 @@ func (p *procFS) sample() (Sample, bool) {
 			processes = append(processes, process)
 		}
 	}
-	return Sample{Processes: processes, Total: total}, true
+	return Sample{Processes: processes, Total: total, Time: now}, true
 }
 
 // read returns a short file's text in p.buf, which the next read reuses, or
@@ -59,6 +65,26 @@ func (p *procFS) read(path string) []byte {
 		return nil
 	}
 	return p.buf[:n]
+}
+
+// clockTicks is how many clock ticks, the unit of the times in
+// /proc/<pid>/stat, make a second: USER_HZ, which is 100 on every
+// architecture Go runs Linux on.
+const clockTicks = 100
+
+// parseUptime reads the time since boot from /proc/uptime, "350735.47
+// 234388.90" in seconds, in clock ticks: the unit and starting point of a
+// process's start time.
+func parseUptime(text []byte) (uint64, bool) {
+	fields := bytes.Fields(text)
+	if len(fields) == 0 {
+		return 0, false
+	}
+	seconds, err := strconv.ParseFloat(string(fields[0]), 64)
+	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+		return 0, false
+	}
+	return uint64(math.Round(seconds * clockTicks)), true
 }
 
 // parseTotal reads the CPU time of all CPUs together from /proc/stat's first

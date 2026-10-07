@@ -33,6 +33,18 @@ func TestParseTotalAddsUpEveryCPU(t *testing.T) {
 	}
 }
 
+func TestParseUptimeCountsClockTicks(t *testing.T) {
+	ticks, ok := parseUptime([]byte("350735.47 234388.90\n"))
+	if !ok || ticks != 35073547 {
+		t.Errorf("parseUptime() = %v, %v; want 35073547", ticks, ok)
+	}
+	for _, text := range []string{"", "soon 1.00", "-1.00 1.00", "NaN 1.00"} {
+		if _, ok := parseUptime([]byte(text)); ok {
+			t.Errorf("parseUptime(%q) is ok, want false", text)
+		}
+	}
+}
+
 func writeFiles(t *testing.T, root string, files map[string]string) {
 	t.Helper()
 	for name, text := range files {
@@ -54,6 +66,7 @@ func stat(pid, name, ticks, pages string) string {
 func TestProcFSReadsEveryProcess(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
+		"uptime":       "12.34 40.00\n",
 		"stat":         "cpu  10 0 10 80 0 0 0 0 0 0\n",
 		"1/stat":       stat("1", "systemd", "5", "3"),
 		"20/stat":      stat("20", "sshd", "1", "2"),
@@ -67,8 +80,8 @@ func TestProcFSReadsEveryProcess(t *testing.T) {
 
 	got, ok := newProcFS(dir, 4096).sample()
 
-	if !ok || got.Total != 100 || len(got.Processes) != 2 {
-		t.Fatalf("sample() = %+v, %v; want 2 processes and a total of 100", got, ok)
+	if !ok || got.Total != 100 || got.Time != 1234 || len(got.Processes) != 2 {
+		t.Fatalf("sample() = %+v, %v; want 2 processes, a total of 100 at 1234", got, ok)
 	}
 	if got.Processes[0].Name != "systemd" || got.Processes[1].Memory != 2*4096 {
 		t.Errorf("sample() = %+v", got.Processes)
@@ -83,22 +96,27 @@ func values(group metrics.Extra) map[string]float64 {
 	return v
 }
 
+// source returns samples one by one.
+func source(samples ...Sample) Source {
+	next := 0
+	return func(time.Time) (Sample, bool) { next++; return samples[next-1], true }
+}
+
 func TestReaderRanksByCPUSinceThePreviousRead(t *testing.T) {
 	samples := []Sample{
-		{Total: 1000, Processes: []Process{
+		{Total: 1000, Time: 8, Processes: []Process{
 			{PID: 1, Start: 5, Name: "init", CPU: 100, Memory: 10},
 			{PID: 2, Start: 5, Name: "worker", CPU: 500, Memory: 300},
 			{PID: 3, Start: 5, Name: "old", CPU: 900, Memory: 20},
 		}},
-		{Total: 1400, Processes: []Process{
+		{Total: 1400, Time: 12, Processes: []Process{
 			{PID: 1, Start: 5, Name: "init", CPU: 100, Memory: 10},
 			{PID: 2, Start: 5, Name: "worker", CPU: 700, Memory: 300},
 			// PID 3 ended and a new process got its PID.
 			{PID: 3, Start: 9, Name: "worker", CPU: 40, Memory: 200},
 		}},
 	}
-	next := 0
-	r := NewReader(func(time.Time) (Sample, bool) { next++; return samples[next-1], true })
+	r := NewReader(source(samples...))
 
 	first := r.Read(time.Now())
 	if len(first) != 1 || first[0].ID != "processes-memory" {
@@ -120,6 +138,48 @@ func TestReaderRanksByCPUSinceThePreviousRead(t *testing.T) {
 	if len(memory) != 3 || memory[0].ID != "pid-2" || memory[1].ID != "pid-3" || memory[2].ID != "pid-1" ||
 		*memory[0].Value != 300 || memory[0].Unit != metrics.UnitBytes {
 		t.Errorf("memory = %+v, want worker, worker, init", memory)
+	}
+}
+
+func TestReaderWaitsForAProcessItMissed(t *testing.T) {
+	r := NewReader(source(
+		// The server's stat could not be read this time.
+		Sample{Total: 1000, Time: 100, Processes: []Process{{PID: 1, Start: 5, Name: "init", CPU: 10}}},
+		Sample{Total: 1400, Time: 200, Processes: []Process{
+			{PID: 1, Start: 5, Name: "init", CPU: 10},
+			{PID: 2, Start: 50, Name: "server", CPU: 90000},
+			{PID: 3, Start: 150, Name: "job", CPU: 40},
+		}},
+		Sample{Total: 1800, Time: 300, Processes: []Process{
+			{PID: 2, Start: 50, Name: "server", CPU: 90100},
+			{PID: 3, Start: 150, Name: "job", CPU: 80},
+		}},
+	))
+	r.Read(time.Now())
+
+	// The job started after the previous sample, so all its CPU time counts;
+	// the server is older and only went unread, so it waits a sample.
+	if cpu := values(r.Read(time.Now())[0]); len(cpu) != 1 || cpu["pid-3 job"] != 10 {
+		t.Errorf("CPU = %v, want only the new job at 10 %%", cpu)
+	}
+	if cpu := values(r.Read(time.Now())[0]); len(cpu) != 2 || cpu["pid-2 server"] != 25 || cpu["pid-3 job"] != 10 {
+		t.Errorf("CPU = %v, want the server at 25 %% once it was read twice", cpu)
+	}
+}
+
+func TestCPUSumAddsUpIdleAndEveryProcessAsTaskManagerDoes(t *testing.T) {
+	var sum cpuSum
+	if got := sum.add(100, 5000, []Process{{PID: 4, Start: 1, CPU: 300}, {PID: 8, Start: 2, CPU: 700}}); got != 0 {
+		t.Errorf("first add() = %d, want 0", got)
+	}
+	// 600 idle, 100 by PID 4, 50 by PID 9, which started since, and nothing
+	// counted for PID 8, which ended.
+	got := sum.add(200, 5600, []Process{{PID: 4, Start: 1, CPU: 400}, {PID: 9, Start: 150, CPU: 50}})
+	if got != 750 {
+		t.Errorf("add() = %d, want 750", got)
+	}
+	if got := sum.add(300, 5700, []Process{{PID: 4, Start: 1, CPU: 400}}); got != 850 {
+		t.Errorf("add() = %d, want 850, counted on", got)
 	}
 }
 
