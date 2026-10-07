@@ -7,24 +7,21 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 )
 
-// programInterval is how long the readings of a program the add-on starts,
-// vcgencmd and nvidia-smi, are used again. Starting a process costs far more
-// than the file reads of the other values, and the history keeps one average
-// a minute, which a value every half minute still fills.
-const programInterval = 30 * time.Second
-
-// lastReadings keeps a program's readings for programInterval.
+// lastReadings keeps the readings of a program the add-on starts, vcgencmd
+// or nvidia-smi, for addons.ProgramInterval.
 type lastReadings struct {
 	readings []Reading
 	at       time.Time
 }
 
-// get returns the kept readings while they are younger than programInterval
-// at now, and otherwise those read returns.
+// get returns the kept readings while they are younger than
+// addons.ProgramInterval at now, and otherwise those read returns.
 func (l *lastReadings) get(now time.Time, read func() []Reading) []Reading {
-	if l.at.IsZero() || now.Sub(l.at) >= programInterval {
+	if l.at.IsZero() || now.Sub(l.at) >= addons.ProgramInterval {
 		l.readings, l.at = read(), now
 	}
 	return l.readings

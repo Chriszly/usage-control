@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"context"
+	"log/slog"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -26,6 +27,11 @@ const (
 	// values; nvidia-smi goes on in the background and the next reading uses
 	// its answer.
 	nvidiaSMIWait = time.Second
+	// nvidiaSMIStuck is how long past nvidiaSMITimeout a call of nvidia-smi
+	// counts as stuck: a driver that fell off the bus can leave it in a
+	// state that not even a kill ends. Then no GPU is reported rather than
+	// the last answer, which would show a frozen value for good.
+	nvidiaSMIStuck = 5 * time.Second
 )
 
 // nvidiaSMI reads the NVIDIA GPUs through nvidia-smi, which comes with the
@@ -36,13 +42,16 @@ type nvidiaSMI struct {
 	// query asks nvidia-smi; nil runs readNvidiaSMI.
 	query func(ctx context.Context, program string) []GPU
 
-	// mu guards the last answer, gpus, when it came, and running.
+	// mu guards the last answer, gpus, when it came, and the call under way.
 	mu   sync.Mutex
 	gpus []GPU
 	at   time.Time
 	// running is closed when the call of nvidia-smi under way ends; nil
-	// while none is.
+	// while none is. started is when that call started, and stuck whether
+	// it was logged as stuck.
 	running chan struct{}
+	started time.Time
+	stuck   bool
 }
 
 func newNvidiaSMI() *nvidiaSMI {
@@ -54,16 +63,25 @@ func newNvidiaSMI() *nvidiaSMI {
 
 // read returns the NVIDIA GPUs. Once the last answer is nvidiaSMIInterval
 // old, it asks nvidia-smi again in the background and waits up to
-// nvidiaSMIWait for the answer, returning the last one if it takes longer. A
-// nil nvidiaSMI reads none.
+// nvidiaSMIWait for the answer, returning the last one if it takes longer.
+// While a call is stuck (see nvidiaSMIStuck), it returns none and starts no
+// other. A nil nvidiaSMI reads none.
 func (n *nvidiaSMI) read(ctx context.Context) []GPU {
 	if n == nil || n.program == "" {
 		return nil
 	}
 	n.mu.Lock()
 	if n.running == nil && time.Since(n.at) >= nvidiaSMIInterval {
-		n.running = make(chan struct{})
+		n.running, n.started = make(chan struct{}), time.Now()
 		go n.ask(context.WithoutCancel(ctx), n.running)
+	}
+	if n.running != nil && time.Since(n.started) > nvidiaSMITimeout+nvidiaSMIStuck {
+		if !n.stuck {
+			slog.Warn("nvidia-smi does not end; reporting no NVIDIA GPU until it does", "since", n.started)
+			n.stuck = true
+		}
+		n.mu.Unlock()
+		return nil
 	}
 	running := n.running
 	n.mu.Unlock()
@@ -95,6 +113,10 @@ func (n *nvidiaSMI) ask(ctx context.Context, done chan struct{}) {
 
 	n.mu.Lock()
 	n.gpus, n.at, n.running = gpus, time.Now(), nil
+	if n.stuck {
+		slog.Info("nvidia-smi ended again")
+		n.stuck = false
+	}
 	n.mu.Unlock()
 	close(done)
 }
@@ -119,6 +141,9 @@ func readNvidiaSMI(ctx context.Context, program string) []GPU {
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
 	cmd := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits")
 	HideWindow(cmd)
+	// Once nvidia-smi is killed, wait at most a second for its output to
+	// close, in case a child it started keeps it open.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

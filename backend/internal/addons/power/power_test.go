@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 )
 
 func writeFiles(t *testing.T, root string, files map[string]string) {
@@ -134,13 +136,24 @@ func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
 	var last lastReadings
 	start := time.Now()
 
-	for _, after := range []time.Duration{0, 5 * time.Second, programInterval - time.Second} {
+	for _, after := range []time.Duration{0, 5 * time.Second, addons.ProgramInterval - time.Second} {
 		if got := last.get(start.Add(after), read); got[0].Watts != 1 {
 			t.Errorf("get() after %v = %v, want the first answer", after, got)
 		}
 	}
-	if got := last.get(start.Add(programInterval), read); got[0].Watts != 2 || calls != 2 {
+	if got := last.get(start.Add(addons.ProgramInterval), read); got[0].Watts != 2 || calls != 2 {
 		t.Errorf("get() after the interval = %v after %d calls, want a new answer", got, calls)
+	}
+}
+
+func TestParseNvidiaKeepsTheIDOfGPU0WhileTheOtherFails(t *testing.T) {
+	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, NVIDIA GeForce RTX 5060 Ti, 18.42\n" +
+		"Unable to determine the device handle for GPU0000:02:00.0: Unknown Error\n" +
+		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n")
+
+	want := []Reading{{ID: "nvidia-1a2b3c4d", Label: "NVIDIA GeForce RTX 5060 Ti", Watts: 18.42}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseNvidia() = %+v, want %+v, as while both GPUs work", got, want)
 	}
 }
 

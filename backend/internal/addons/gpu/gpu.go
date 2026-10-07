@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -28,11 +29,6 @@ const (
 	// Linux servers, each call starts the driver, which can take more than
 	// a second.
 	nvidiaTimeout = 3 * time.Second
-	// readInterval is how long an answer of nvidia-smi is used again, as
-	// long as the power add-on uses its own: starting a process costs far
-	// more than a file read, and the history keeps one average a minute,
-	// which a value every half minute still fills.
-	readInterval = 30 * time.Second
 )
 
 // fields are the values of query after the index, the UUID and the name.
@@ -58,8 +54,8 @@ type Reader struct {
 	program string
 	// failing is whether the last call failed, so a failure is logged once.
 	failing bool
-	// extras and at are the last answer and when it came; it is used again
-	// for readInterval.
+	// extras is what the last call of nvidia-smi returned, and at when that
+	// was; Read returns extras again until it is addons.ProgramInterval old.
 	extras []metrics.Extra
 	at     time.Time
 }
@@ -79,13 +75,13 @@ func NewReader() *Reader {
 // Read returns the GPUs' values as the group of extras the collector shows,
 // or nothing when nvidia-smi is missing or prints nothing. It gives up after
 // nvidiaTimeout, so a hanging driver does not hold up the next report.
-// nvidia-smi is asked only every readInterval; in between, its last answer
-// is returned.
+// nvidia-smi is asked only every addons.ProgramInterval; in between, its
+// last answer is returned.
 func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
 	}
-	if !r.at.IsZero() && now.Sub(r.at) < readInterval {
+	if !r.at.IsZero() && now.Sub(r.at) < addons.ProgramInterval {
 		return r.extras
 	}
 	r.extras, r.at = r.read(ctx), now
@@ -121,7 +117,10 @@ func run(ctx context.Context, program string) (string, error) {
 type GPU struct {
 	Index string
 	UUID  string
-	Name  string
+	// Key names the GPU in the ids of its values; see metrics.NvidiaGPUKey.
+	// Empty, the index is used.
+	Key  string
+	Name string
 	// Values holds the fields' values by their id: numbers for all but the
 	// performance state, which stays text.
 	Values map[string]string
@@ -130,14 +129,18 @@ type GPU struct {
 // Parse reads the CSV nvidia-smi writes for query, such as
 // "0, GPU-1a2b3c4d-…, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2,
 // 350.00". Other lines, such as the message nvidia-smi prints for a GPU in an
-// error state, are left out.
+// error state, are left out. Each GPU's Key comes from metrics.NvidiaGPUKey,
+// which counts a GPU in an error state too, as long as nvidia-smi prints a
+// row for it, so the others keep their key while it fails.
 func Parse(out string) []GPU {
 	var gpus []GPU
+	rows := 0
 	for line := range strings.Lines(out) {
 		parts := strings.Split(line, ",")
 		if len(parts) < 3+len(fields) {
 			continue
 		}
+		rows++
 		// The name is the only field that could hold a comma.
 		values := parts[len(parts)-len(fields):]
 		gpu := GPU{
@@ -163,14 +166,16 @@ func Parse(out string) []GPU {
 		}
 		gpus = append(gpus, gpu)
 	}
+	for i := range gpus {
+		gpus[i].Key = metrics.NvidiaGPUKey(gpus[i].Index, gpus[i].UUID, rows)
+	}
 	return gpus
 }
 
 // Extras returns the GPUs as the group of extras the collector shows. With
 // more than one GPU, each label starts with the GPU's name and index, so two
-// identical cards can be told apart. The ids name each GPU by
-// metrics.NvidiaGPUKey, so its history stays with the card when the indexes
-// change at boot.
+// identical cards can be told apart. The ids name each GPU by its Key, so its
+// history stays with the card when the indexes change at boot.
 func Extras(gpus []GPU) []metrics.Extra {
 	group := metrics.Extra{
 		ID:     "gpu",
@@ -182,13 +187,17 @@ func Extras(gpus []GPU) []metrics.Extra {
 		if len(gpus) > 1 {
 			prefix = gpu.Name + " (" + gpu.Index + "): "
 		}
+		key := gpu.Key
+		if key == "" {
+			key = gpu.Index
+		}
 		for _, field := range fields {
 			value, ok := gpu.Values[field.id]
 			if !ok {
 				continue
 			}
 			item := metrics.ExtraItem{
-				ID:      idOf(metrics.NvidiaGPUKey(gpu.Index, gpu.UUID, len(gpus)), field.id),
+				ID:      idOf(key, field.id),
 				Label:   prefix + field.label,
 				Labels:  map[string]string{},
 				Unit:    field.unit,

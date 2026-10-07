@@ -79,7 +79,7 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 
 The GPU card appears when usage-control finds a GPU whose usage the system reports to programs without extra rights:
 
-- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs; the temperature of NVIDIA GPUs comes from `nvidia-smi`, which the NVIDIA driver installs, and is shown in the Temperature card under the GPU's name.
+- **Windows:** every GPU, through the counters Task Manager shows, with its own memory. Windows has no GPU temperature for programs; the temperature of NVIDIA GPUs comes from `nvidia-smi`, which the NVIDIA driver installs, and is shown in the Temperature card under the GPU's name. `nvidia-smi` runs at most every 10 seconds, and a reading waits for it at most 1 second, as on Linux (below).
 - **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it; then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image; its answer is reused for 10 seconds. nvidia-smi may take up to 5 seconds, as it can on headless servers without the driver's persistence mode; a reading waits for it at most 1 second and otherwise shows the last answer, while nvidia-smi finishes in the background for the next reading. Intel GPUs report their usage only to programs with extra rights, so they are not shown.
 - **macOS:** not shown.
 

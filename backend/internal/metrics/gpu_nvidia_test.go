@@ -5,6 +5,7 @@ package metrics
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -69,6 +70,44 @@ func TestNvidiaSMIAnswersInTheBackground(t *testing.T) {
 	<-running
 	if got := n.read(context.Background()); len(got) != 1 || got[0].Name != "second" || calls != 2 {
 		t.Errorf("read() after nvidia-smi answered = %+v after %d calls, want its answer", got, calls)
+	}
+}
+
+func TestNvidiaSMIThatDoesNotEndReportsNoGPU(t *testing.T) {
+	release := make(chan struct{})
+	var calls atomic.Int32
+	n := &nvidiaSMI{
+		program: "nvidia-smi",
+		query: func(context.Context, string) []GPU {
+			calls.Add(1)
+			// Stuck: it ignores its context.
+			<-release
+			return []GPU{{Name: "new"}}
+		},
+		gpus: []GPU{{Name: "old"}},
+		at:   time.Now().Add(-nvidiaSMIInterval),
+	}
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := n.read(ended); len(got) != 1 || got[0].Name != "old" {
+		t.Fatalf("read() while nvidia-smi is slow = %+v, want the last answer", got)
+	}
+	n.mu.Lock()
+	n.started = time.Now().Add(-nvidiaSMITimeout - nvidiaSMIStuck - time.Second)
+	running := n.running
+	n.mu.Unlock()
+	if got := n.read(ended); got != nil {
+		t.Errorf("read() while nvidia-smi is stuck = %+v, want no GPU", got)
+	}
+
+	close(release)
+	<-running
+	if calls.Load() != 1 {
+		t.Errorf("nvidia-smi started %d times while stuck, want once", calls.Load())
+	}
+	if got := n.read(context.Background()); len(got) != 1 || got[0].Name != "new" {
+		t.Errorf("read() once nvidia-smi ended = %+v, want its answer", got)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -19,11 +20,11 @@ func TestParseLeavesOutWhatTheGPUDoesNotReport(t *testing.T) {
 	got := Parse(out)
 
 	want := []GPU{
-		{Index: "0", UUID: "GPU-0000aaaa-0000", Name: "NVIDIA GeForce RTX 3090", Values: map[string]string{
+		{Index: "0", UUID: "GPU-0000aaaa-0000", Key: "0000aaaa", Name: "NVIDIA GeForce RTX 3090", Values: map[string]string{
 			"fan": "30", "graphics-clock": "1695", "memory-clock": "9751", "encoder": "12",
 			"decoder": "0", "performance-state": "P2", "power-limit": "350.00",
 		}},
-		{Index: "1", UUID: "GPU-1111aaaa-0000", Name: "NVIDIA RTX A2000 Laptop GPU", Values: map[string]string{
+		{Index: "1", UUID: "GPU-1111aaaa-0000", Key: "1111aaaa", Name: "NVIDIA RTX A2000 Laptop GPU", Values: map[string]string{
 			"graphics-clock": "210", "memory-clock": "405", "performance-state": "P8",
 		}},
 	}
@@ -38,13 +39,25 @@ func TestParseReadsTheGPUsBesideOneInAnErrorState(t *testing.T) {
 	out := "0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00\n" +
 		"Unable to determine the device handle for GPU0000:02:00.0: Unknown Error\n" +
 		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], " +
-		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n" +
+		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n" +
 		"2, GPU-2222aaaa-0000, NVIDIA GeForce RTX 3090, 31, 1700, 9751, 0, 0, P2, 350.00\n"
 
 	got := Parse(out)
 
 	if len(got) != 2 || got[0].Index != "0" || got[1].Index != "2" || got[1].Values["fan"] != "31" {
 		t.Errorf("Parse() = %+v, want GPUs 0 and 2 without the failed one", got)
+	}
+}
+
+func TestParseKeepsTheKeyOfGPU0WhileTheOtherFails(t *testing.T) {
+	ok := "0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00\n"
+	failed := "[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], " +
+		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n"
+	working := Parse(ok + "1, GPU-1111aaaa-0000, NVIDIA GeForce RTX 3090, 31, 1700, 9751, 0, 0, P2, 350.00\n")
+	failing := Parse(ok + failed)
+
+	if len(failing) != 1 || failing[0].Key != "0000aaaa" || failing[0].Key != working[0].Key {
+		t.Errorf("GPU 0 while the other fails = %+v, want the key it has while both work, %q", failing, working[0].Key)
 	}
 }
 
@@ -157,10 +170,10 @@ func TestReadAsksNvidiaSMIEveryInterval(t *testing.T) {
 	answer("35")
 	r.Read(t.Context(), start)
 	answer("50")
-	if got := fan(r.Read(t.Context(), start.Add(readInterval-time.Second))); got != 35 {
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval-time.Second))); got != 35 {
 		t.Errorf("fan within the interval = %v, want the last answer, 35", got)
 	}
-	if got := fan(r.Read(t.Context(), start.Add(readInterval))); got != 50 {
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval))); got != 50 {
 		t.Errorf("fan after the interval = %v, want a new answer, 50", got)
 	}
 }

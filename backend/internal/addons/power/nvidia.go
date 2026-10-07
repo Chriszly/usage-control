@@ -43,11 +43,16 @@ func parseNvidia(out string) []Reading {
 		hasWatts          bool
 	}
 	var gpus []gpu
+	// rows counts the GPUs nvidia-smi printed a row for, also one in an
+	// error state whose row holds only errors, so that the others keep their
+	// key while it fails.
+	rows := 0
 	for line := range strings.Lines(out) {
 		fields := strings.Split(line, ",")
 		if len(fields) < 4 {
 			continue
 		}
+		rows++
 		g := gpu{
 			index: strings.TrimSpace(fields[0]),
 			uuid:  strings.TrimSpace(fields[1]),
@@ -65,7 +70,7 @@ func parseNvidia(out string) []Reading {
 	for _, g := range gpus {
 		if g.hasWatts {
 			readings = append(readings, Reading{
-				ID:    idOf("nvidia", metrics.NvidiaGPUKey(g.index, g.uuid, len(gpus))),
+				ID:    idOf("nvidia", metrics.NvidiaGPUKey(g.index, g.uuid, rows)),
 				Label: g.name,
 				Watts: g.watts,
 			})
