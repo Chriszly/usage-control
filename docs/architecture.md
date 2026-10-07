@@ -69,7 +69,7 @@ What goes over the wire:
 | Hub | The visitor's device | `GET /api/metrics` on port 9393, and a reverse DNS lookup of its address, for its name | when the *Devices* dialog opens |
 | Hub | Each device | `GET /api/metrics`: the device's current usage as JSON, a few kilobytes. The `Usage-Control-Hub-Port` header tells the port of the hub's page; the device remembers it with the hub's address. The `Usage-Control-Hub-Id` header tells the hub's id ([while the hub is away](#while-the-hub-is-away)) | every 5 s |
 | Program on the device | The device | `GET /api/hub`: the hub's page as `{"url": "http://192.168.1.20:9393/"}`, empty until a hub asked; only answered to 127.0.0.1 and ::1 | when needed |
-| Hub | GitHub | `GET https://api.github.com/repos/Chriszly/usage-control/releases/latest` | once a day, at start and every 24 h after; only on releases, never with `DATA_ONLY` |
+| Hub | GitHub | `GET https://api.github.com/repos/Chriszly/usage-control/releases/latest` | once a day, at start and every 24 h after, or an hour after a failed check; only on releases, never with `DATA_ONLY` |
 
 The usage, device, availability and chart polls pause while the tab is hidden and read again at once when it is shown. All traffic on the local network is plain HTTP. Nothing else leaves the network: no telemetry, no account, no cloud service. The daily version check only reads the newest release's tag; nothing is downloaded or installed.
 
@@ -145,7 +145,7 @@ Rules the agent follows:
 - The agent connects directly, never through a proxy, and does not follow redirects.
 - It only connects to addresses on the local network, checked on the address it actually dials, so a host name that resolves to an address outside the network is refused too.
 - A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap. While it stays unreachable, its charts show the chosen range up to its last reading instead of up to now, with a notice that they are not live; once it answers again, they are live again.
-- When the hub itself does not answer the page (no answer at all, none within 15 seconds, or 502/504 from a proxy in front of it), nothing on the page is live, since all values come through the hub. A red banner across the page says so, the hub's button gets a red dot and the other devices a hollow one, as nothing is known about them. The page's usual polls keep asking; the first answer clears the banner.
+- When the hub itself does not answer the page (no answer at all, none within 15 seconds to a read or 30 seconds to a change, or 502/504 from a proxy in front of it), nothing on the page is live, since all values come through the hub. A red banner across the page says so, the hub's button gets a red dot and the other devices a hollow one, as nothing is known about them. The page's usual polls keep asking; the first answer clears the banner.
 - The device's id is its name in lower case with dashes, such as `living-room-pi` for *Living room Pi*. The hub's own device is `local`. The history is stored under the id, so renaming a device starts a new history.
 - Of each device's disks, temperature sensors, network cards and GPUs, the history keeps the first 64 by name (`HISTORY_MAX_ENTRIES`), so a misbehaving device cannot fill the hub's database. The live dashboard shows them all.
 
@@ -178,7 +178,7 @@ When the hub cannot reach a device for a while, because the hub is updated or sw
 
 For every other device, the hub remembers since when it collects from it and every time the device did not answer:
 
-- An outage starts at the first failed reading and is written to the database right away.
+- An outage starts when two readings in a row fail, 5 seconds apart; it then counts from the first of them and is written to the database right away. A single failed reading, as a flaky Wi-Fi drops now and then, is no outage.
 - While it lasts, the page gets its current length from memory. The database copy is updated every 5 minutes, so a crash of the hub loses at most that much of it.
 - When the device answers again, the outage's end is written.
 
@@ -193,7 +193,7 @@ What a time without an answer means depends on the device's kind, picked in the 
 
 The hub records both kinds the same way, so changing the kind later only changes how the times already recorded are shown.
 
-Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. The device leaves the list at once; its data is deleted afterwards in the background, in chunks, so the page is not held up by a long history. Adding a device with the same name meanwhile waits up to 2 seconds for that, then is refused with the problem `removing` (*still being removed; try again in a moment*), so the request never runs into the time limit. If the hub stops meanwhile, the rest of the history ages out with the retention. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
+Removing a device on the page deletes its availability and kind, and its history, unless *Keep its history* is ticked: then all three are kept (the device is listed in `hub_kept`), and adding a device with the same name later continues them, after a restart too. The time it was removed counts as neither available nor offline. Once it was removed longer than the retention, when its history is gone too, its availability and kind are deleted. The device leaves the list at once; its data is deleted afterwards in the background, in chunks, so the page is not held up by a long history. Adding a device with the same name meanwhile waits up to 2 seconds for that, then is refused with the problem `removing` (*still being removed; try again in a moment*), so the request never runs into the time limit. If the hub stops meanwhile, the rest of the history ages out with the retention. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
 
 ## Adding and removing devices
 
@@ -216,7 +216,7 @@ Every change asks for a password:
 
 - The first change chooses it: at least 8 characters, typed twice in the dialog. The password is stored only when that change works.
 - From then on every add, remove or change of kind needs it. It cannot be changed on the page.
-- Only a salt and a PBKDF2-SHA256 hash (600,000 iterations) are stored, in the `password` table. Each wrong password is answered one second late, and checks run one at a time, so guessing over the network is slow.
+- Only a salt and a PBKDF2-SHA256 hash (600,000 iterations) are stored, in the `password` table. Each client (an IP address, or an IPv6 /64 network) checks one password at a time, and a wrong one is answered one second late within that turn, so a client gets at most one guess a second, however many requests it sends at once. The hashes are worked out one at a time, so guesses keep at most one processor core busy. Another client's check waits only for a hash already being worked out, not for the guesser's turn or its one-second wait, so someone guessing does not keep the right password from being checked.
 - If it is forgotten, `RESET_PASSWORD=true` deletes it at the next start; the next change chooses a new one. Unset it right after, or every restart deletes it again.
 
 The requests must be `application/json`. A browser does not send JSON to another site without asking that site first, and usage-control never allows it, so another web page cannot add or remove devices. The site runs on plain HTTP on the local network, so the password guards against accidental changes by people on the network, not against someone who can read its traffic.
@@ -241,7 +241,7 @@ The website and the API answer only the local network. Every request passes thre
 
 1. **The client's address**, from the TCP connection (not a header a client could fake), must be loopback, private (RFC 1918, IPv6 unique local), link-local, or a global IPv6 address in one of the machine's own subnets (home networks with IPv6 from the provider use those). Otherwise: `403 Forbidden`.
 2. **The Host header** must be a name the device knows: an IP address, `localhost`, its hostname, any `.local` name, or a name in `ALLOWED_HOSTS`. Otherwise: `421 Misdirected Request`. This stops DNS rebinding, where a web page from the internet points its own domain at the device's LAN address to read the API through a browser on the LAN.
-3. Responses carry `X-Content-Type-Options: nosniff`, and the website is served without directory listings.
+3. Responses carry `X-Content-Type-Options: nosniff`, and `Content-Security-Policy: frame-ancestors 'none'` with `X-Frame-Options: DENY`, so no other site can show the page in a frame, and the website is served without directory listings.
 
 The hub applies the same address check to its outgoing connections. In Docker, the port is published over IPv4 only (`0.0.0.0:9393`): Docker's proxy would hand IPv6 connections over from its own internal address, which hides the real client.
 
@@ -254,8 +254,8 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/metrics[?device=<id>]` | the device's current usage: version, time, time zone, uptime, CPU, memory, temperatures, disks, network, GPUs, throttling, battery, fans, extras ([fields](data.md#the-snapshot)) | `404` unknown device, `503` another device that has not answered recently |
 | `GET /api/devices` | `{ devices: [{ id, name, address, kind, removable, unreachable, unreachableSince }], passwordSet }` | |
 | `GET /api/devices/suggestion` | `{ address, name, kind }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
-| `POST /api/devices` | body `{ name, address, kind, password }`, `kind` `server` (when left out) or `pc`; `201` with the new device | `400` name, address, kind or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
-| `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES` |
+| `POST /api/devices` | body `{ name, address, kind, password }`, `kind` `server` (when left out) or `pc`; `201` with the new device | `400` name, address, kind or password length, `403` wrong password, `409` name or address and port taken, or a device with the same name still being removed, `415` not JSON, `422` nothing answers at the address (why is only logged), `503` the hub is stopping |
+| `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES`, `503` the hub is stopping |
 | `PUT /api/devices/<id>/kind` | body `{ kind, password }`; `204` | `400` kind, `403` wrong password, `404` unknown device |
 | `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }], lastReading?, extras? }`, at most 360 points per metric. `extras` describes the series of [extras](data.md#extras) by metric. For an unreachable device, `lastReading` is the time of its newest reading, and a range ending later is moved back to end there, keeping its length | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
 | `GET /api/availability?device=<id>` | `{ kind, since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |

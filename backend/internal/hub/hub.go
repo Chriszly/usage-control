@@ -14,13 +14,20 @@ import (
 )
 
 // savedSchema keeps the devices added on the page. Devices from HUB_DEVICES
-// are not stored; they come from the setting at every start.
+// are not stored; they come from the setting at every start. hub_kept lists
+// the devices removed with their history kept, whose availability and kind
+// stay too, for when a device with the same name is added again, until they
+// were removed longer than the retention ago, when the history is gone too.
 const savedSchema = `
 CREATE TABLE IF NOT EXISTS hub_devices (
 	id      TEXT    PRIMARY KEY,
 	name    TEXT    NOT NULL,
 	address TEXT    NOT NULL,
 	added   INTEGER NOT NULL -- Unix time in seconds
+);
+CREATE TABLE IF NOT EXISTS hub_kept (
+	device  TEXT    PRIMARY KEY,
+	removed INTEGER NOT NULL -- Unix time in seconds
 );
 `
 
@@ -101,7 +108,20 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 	// A device dropped from HUB_DEVICES without being added on the page is
 	// gone for good: its availability is deleted, as when it is removed on the
 	// page, while its history ages out with the retention.
-	var kept []string
+	// A device removed with its history kept and now in HUB_DEVICES is
+	// collected from again.
+	for _, device := range fixed {
+		if err := continueKept(ctx, store.DB(), device.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := h.forgetExpired(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	kept, err := h.keptHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, device := range slices.Concat(fixed, saved) {
 		kept = append(kept, device.ID)
 	}
@@ -123,6 +143,20 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 		}
 		h.start(device, false)
 	}
+	h.recording.Go(func() {
+		ticker := time.NewTicker(history.PruneInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				if err := h.forgetExpired(ctx, now); err != nil && ctx.Err() == nil {
+					slog.Error("forget the availability of devices removed longer than the retention ago", "error", err)
+				}
+			}
+		}
+	})
 	return h, nil
 }
 
@@ -163,7 +197,10 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 
 	// Asked before taking mu, so the page is not held up while the device answers.
 	if _, err := askOnce(ctx, device.Address); err != nil {
-		return Device{}, &InputError{Problem: ProblemUnreachable, Message: fmt.Sprintf("no usage-control answers at %s: %v", device.Address, err)}
+		// Only the log says why, so the answer does not tell which ports of
+		// the hub's network are open.
+		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
+		return Device{}, &InputError{Problem: ProblemUnreachable, Message: "no usage-control answers at " + device.Address}
 	}
 
 	h.mu.Lock()
@@ -195,10 +232,28 @@ func (h *Hub) save(ctx context.Context, device Device, kind Kind) error {
 	if err != nil {
 		return err
 	}
+	if err := continueKept(ctx, tx, device.ID); err != nil {
+		return err
+	}
 	if err := storeKind(ctx, tx, device.ID, kind); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// continueKept lets a device removed with its history kept, if device is
+// one, continue its availability, as it is collected from again. The time it
+// was removed was not watched, so since moves on by that much, and the share
+// of time it answered counts only the time it was watched.
+func continueKept(ctx context.Context, db execer, device string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE hub_watched SET since = since + MAX(0, ?2 - (SELECT removed FROM hub_kept WHERE device = ?1))
+		WHERE device = ?1 AND EXISTS (SELECT 1 FROM hub_kept WHERE device = ?1)`, device, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `DELETE FROM hub_kept WHERE device = ?`, device)
+	return err
 }
 
 // SetKind changes what a device is used as, a device from HUB_DEVICES too.
@@ -246,9 +301,13 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		return &InputError{Problem: ProblemFixed, Message: "the device is set in HUB_DEVICES; remove it there"}
 	}
 
+	// Counted before the database is changed, so a shutdown that times out
+	// meanwhile still waits for the rest of the removal.
+	h.recording.Add(1)
 	// Once the device is deleted from the database, the rest follows even
 	// when the page that asked has gone away, so nothing is left half removed.
-	if _, err := h.store.DB().ExecContext(context.WithoutCancel(ctx), `DELETE FROM hub_devices WHERE id = ?`, id); err != nil {
+	if err := h.unsave(context.WithoutCancel(ctx), id, keepHistory); err != nil {
+		h.recording.Done()
 		return err
 	}
 	h.remotes = slices.DeleteFunc(h.remotes, func(r *Remote) bool { return r == remote })
@@ -258,7 +317,8 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		h.removing = map[string]chan struct{}{}
 	}
 	h.removing[id] = removed
-	h.recording.Go(func() {
+	go func() {
+		defer h.recording.Done()
 		defer func() {
 			h.mu.Lock()
 			delete(h.removing, id)
@@ -270,8 +330,87 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		if !keepHistory {
 			h.deleteData(remote)
 		}
-	})
+	}()
 	return nil
+}
+
+// unsave deletes a removed device from the database. With keepHistory, it is
+// noted in hub_kept, so its availability and kind outlast a restart.
+func (h *Hub) unsave(ctx context.Context, id string, keepHistory bool) error {
+	tx, err := h.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM hub_devices WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if keepHistory {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO hub_kept (device, removed) VALUES (?, ?)
+			ON CONFLICT (device) DO UPDATE SET removed = excluded.removed`, id, time.Now().Unix())
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// forgetExpired forgets the availability and kind of the devices removed with
+// their history kept longer than the retention before now, as their history
+// is gone by then too.
+func (h *Hub) forgetExpired(ctx context.Context, now time.Time) error {
+	// Held so a device is not added again while it is forgotten.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	rows, err := h.store.DB().QueryContext(ctx, `SELECT device FROM hub_kept WHERE removed < ?`, now.Add(-h.retention).Unix())
+	if err != nil {
+		return err
+	}
+	var expired []string
+	for rows.Next() {
+		var device string
+		if err := rows.Scan(&device); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		expired = append(expired, device)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, device := range expired {
+		if h.find(device) != nil {
+			// Collected from again; only the note that it was removed goes.
+			if err := continueKept(ctx, h.store.DB(), device); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := forget(ctx, h.store.DB(), device); err != nil {
+			return err
+		}
+		slog.Info("forgot the availability of a device removed longer than the retention ago", "device", device)
+	}
+	return nil
+}
+
+// keptHistory lists the devices removed with their history kept.
+func (h *Hub) keptHistory(ctx context.Context) ([]string, error) {
+	rows, err := h.store.DB().QueryContext(ctx, `SELECT device FROM hub_kept`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var kept []string
+	for rows.Next() {
+		var device string
+		if err := rows.Scan(&device); err != nil {
+			return nil, err
+		}
+		kept = append(kept, device)
+	}
+	return kept, rows.Err()
 }
 
 // deleteData deletes the availability, kind and history of a removed device.
@@ -324,15 +463,16 @@ func (h *Hub) waitRemoved(ctx context.Context, id string, limit time.Duration) e
 // errRemoving refuses a device whose name a device still being removed has.
 var errRemoving = &InputError{Problem: ProblemRemoving, Message: "a device with the same name is still being removed; try again in a moment"}
 
-// errStopping refuses changes once the program stops, so no recorder starts
-// while the others are waited for and the database is closed.
-var errStopping = errors.New("the hub is stopping")
+// ErrStopping refuses changes once the program stops, so no recorder starts
+// while the others are waited for and the database is closed. It is no
+// error of the hub's: the change can be made again once it runs.
+var ErrStopping = errors.New("the hub is stopping")
 
-// stopping returns errStopping once the ctx given to New is done. The caller
+// stopping returns ErrStopping once the ctx given to New is done. The caller
 // holds mu.
 func (h *Hub) stopping() error {
 	if h.ctx.Err() != nil {
-		return errStopping
+		return ErrStopping
 	}
 	return nil
 }

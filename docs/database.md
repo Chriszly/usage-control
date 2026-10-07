@@ -29,13 +29,14 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | `samples_hourly` | the average of each hour per device and metric, with `count`, how many minute values it is over | for the retention |
 | `extra_info` | how each stored [extra](data.md#extras) is described: `device`, `metric`, `info` (title, label and unit as JSON), `written` (Unix seconds) | while the extra has values, or for the retention after it was last written |
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
+| `hub_kept` | per device removed on the page with *Keep its history* ticked: `device`, whose availability and kind are kept too, and `removed` (Unix seconds). Added again, its `since` in `hub_watched` moves on by the time it was removed, so that time is not counted as available | until a device with the same name is added again, or for the retention, after which its availability and kind are deleted too |
 | `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until every hub has fetched it, at most `BUFFER_HOURS` |
 | `buffer_hubs` | data-only devices: per hub, by the id it sends (so a hub whose address changes, as with IPv6 privacy addresses, keeps one row), `fetched`, the newest minute it has, `sent`, the newest handed to it, and `asked`, when it last asked (Unix seconds) | while it is one of the 16 hubs that asked most recently |
 | `buffer_extra_info` | data-only devices: how each of its own [extras](data.md#extras) is described, as `extra_info` without `device` | for `BUFFER_HOURS` after it was last written |
-| `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from |
-| `hub_outages` | per other device, every time it did not answer: `started`, `ended` (Unix milliseconds) | as long as the device is collected from |
+| `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from, or kept with its history |
+| `hub_outages` | per other device, every time it did not answer: `started`, `ended` (Unix milliseconds) | as long as the device is collected from, or kept with its history |
 | `hub_id` | the hub's own id, which it sends to every device, so a device that keeps its minutes for the hub tells it apart from other hubs; made at random once | for good |
-| `hub_device_kinds` | per other device that is a PC or laptop: `device`, `kind` (`pc`); a device without a row is a server or IoT device | as long as the device is collected from |
+| `hub_device_kinds` | per other device that is a PC or laptop: `device`, `kind` (`pc`); a device without a row is a server or IoT device | as long as the device is collected from, or kept with its history |
 | `password` | the salt and PBKDF2-SHA256 hash of the password for changing devices, one row at most | until `RESET_PASSWORD=true` |
 
 `samples` and `samples_hourly` use `(device, time, metric)` as the key, stored without a separate row id, plus an index by time for deleting old rows. The metric names are listed in [What is kept in the history](data.md#what-is-kept-in-the-history). A new metric or a new device needs no change to the tables. Devices from `HUB_DEVICES` are not stored; they are read from the setting at every start. Their kind is stored, though, which is why it is a table of its own rather than a column of `hub_devices`; it also needs no migration, since a database without the table holds servers only.
@@ -70,7 +71,7 @@ A device that did not answer has no values for that time, which shows as a gap i
 
 Changing `RETENTION_DAYS` takes effect at the next start. Shortening it deletes the older values then; lengthening it cannot bring back what was already deleted.
 
-Outages and the list of devices are not bound to the retention: they are kept as long as the device is.
+Outages and the list of devices are not bound to the retention: they are kept as long as the device is. The one exception is a device removed with its history kept: its availability and kind are kept with it, and deleted once it was removed longer than the retention ago, unless a device with the same name was added again, on the page or in `HUB_DEVICES`.
 
 ## Size
 

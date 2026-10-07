@@ -3,7 +3,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DeviceService } from '../devices/devices';
-import { ANSWER_TIMEOUT_MS, HubConnection, hubConnectionInterceptor } from './connection';
+import {
+  ANSWER_TIMEOUT_MS,
+  CHANGE_TIMEOUT_MS,
+  HubConnection,
+  hubConnectionInterceptor,
+} from './connection';
 import { ConnectionBanner } from './connection-banner';
 
 describe('HubConnection', () => {
@@ -96,6 +101,24 @@ describe('HubConnection', () => {
       expect(request.cancelled).toBe(false);
       expect(connection.lost()).toBe(false);
       request.flush('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives changes to the devices more time than reads', () => {
+    vi.useFakeTimers();
+    try {
+      client.post('/api/devices', {}).subscribe({ error: () => undefined });
+      const request = http.expectOne('/api/devices');
+
+      vi.advanceTimersByTime(CHANGE_TIMEOUT_MS - 1);
+      expect(request.cancelled).toBe(false);
+      expect(connection.lost()).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(request.cancelled).toBe(true);
+      expect(connection.lost()).toBe(true);
     } finally {
       vi.useRealTimers();
     }

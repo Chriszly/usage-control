@@ -35,7 +35,9 @@ type Hub interface {
 // change and stays the same after that.
 type Password interface {
 	IsSet(ctx context.Context) (bool, error)
-	Check(ctx context.Context, password string) error
+	// Check checks the password sent from the client at from; each client
+	// checks one at a time.
+	Check(ctx context.Context, from netip.Addr, password string) error
 	Set(ctx context.Context, password string) error
 }
 
@@ -63,7 +65,8 @@ type deviceChanges struct {
 	local Collector
 
 	// mu makes changes happen one at a time, so two first changes cannot
-	// both choose the password.
+	// both choose the password. The password is checked before, so the wait
+	// after a wrong guess does not hold up the changes of others.
 	mu sync.Mutex
 }
 
@@ -165,10 +168,16 @@ func (c *deviceChanges) ownAddresses(ctx context.Context) []netip.Addr {
 // change makes a change once the password is right. Without a password yet,
 // the change chooses it, but only when the change works.
 func (c *deviceChanges) change(w http.ResponseWriter, r *http.Request, given string, makeChange func() (any, error)) {
+	// localNetworkOnly has already read the sender's address.
+	sender, _ := netip.ParseAddrPort(r.RemoteAddr)
+	from := sender.Addr()
+	err := c.password.Check(r.Context(), from, given)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	err := c.password.Check(r.Context(), given)
+	if errors.Is(err, password.ErrNotSet) {
+		// Another change may have chosen it meanwhile.
+		err = c.password.Check(r.Context(), from, given)
+	}
 	choose := errors.Is(err, password.ErrNotSet)
 	if choose {
 		err = password.CheckNew(given)
@@ -225,6 +234,12 @@ func writeProblem(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, problemResponse{problemWrongPassword, "the password is wrong"})
 	case errors.Is(err, password.ErrLength):
 		writeJSON(w, http.StatusBadRequest, problemResponse{problemPasswordLength, err.Error()})
+	case errors.Is(err, hub.ErrStopping):
+		// The program is about to stop; nothing went wrong.
+		http.Error(w, "the hub is stopping; try again once it runs", http.StatusServiceUnavailable)
+	case errors.Is(err, context.Canceled):
+		// The page went away before the change was made.
+		http.Error(w, "the request was cancelled", http.StatusServiceUnavailable)
 	default:
 		slog.Error("change devices", "error", err)
 		http.Error(w, "could not change the devices", http.StatusInternalServerError)

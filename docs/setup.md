@@ -145,7 +145,7 @@ The bear in the taskbar's notification area shows whether Usage Control runs:
 Its menu, opened with a click:
 
 - **Address** shows where other devices reach this PC, such as `192.168.1.23:9393`: the IPv4 address of the network adapter Windows uses for its default route (else the first private one) and the installer's port, looked up again every minute. This is the address to add on the hub's *Devices* dialog
-- **Open hub** opens the page of the hub that collects from this PC. The hub tells the PC its address each time it asks for the usage, so this needs no setup; until a hub has asked, the entry is greyed out
+- **Open hub (address)** opens the page of the hub that collects from this PC, at the address it names. The hub tells the PC its address each time it asks for the usage, so this needs no setup; until a hub has asked, the entry is greyed out. Any device on the local network could claim to be the hub, so check the address before opening it
 - **Open the page on this PC** appears when the PC shows the website itself (`WEBSITE=1`)
 - **Pause** stops collecting until **Resume**. The service starts again with Windows
 - **Stop and exit** stops the service and closes the icon until the next login. The service starts again with Windows
@@ -209,7 +209,7 @@ msiexec /i usage-control-<version>-x64.msi REINSTALL=ALL REINSTALLMODE=m RESET_P
 msiexec /i usage-control-<version>-x64.msi REINSTALL=ALL REINSTALLMODE=m
 ```
 
-Removing a device deletes its history too, unless *Keep its history* is ticked. The history is kept under the device's name, so renaming a device (removing it and adding it under a new name) starts a new history.
+Removing a device deletes its history, availability and kind too, unless *Keep its history* is ticked; adding a device with the same name within `RETENTION_DAYS` then continues them, and the *since* date of its availability moves on by the time it was removed. The history is kept under the device's name, so renaming a device (removing it and adding it under a new name) starts a new history.
 
 Instead of the dialog, devices can be listed on the hub in `HUB_DEVICES`, each as `name=address:port`, separated by commas. They show as *Set in .env* and are removed only there:
 
@@ -277,7 +277,7 @@ docker compose up -d
 
 The history and settings stay in every case. What changed is on the [releases page](https://github.com/Chriszly/usage-control/releases). When a new version changes the database layout, it keeps a copy of the old file first ([details](database.md#updates-to-the-layout)).
 
-On a release, the hub checks GitHub once a day for a newer one, without an account, and the page names it with a link. Nothing is downloaded or installed; updating stays your step. Builds of `main` and data-only devices never check. `UPDATE_CHECK=false` turns it off.
+On a release, the hub checks GitHub once a day for a newer one (an hour after a failed check), without an account, and the page names it with a link. Nothing is downloaded or installed; updating stays your step. Builds of `main` and data-only devices never check. `UPDATE_CHECK=false` turns it off.
 
 **Port change after 0.1.0:** version 0.1.0 and builds before the change listened on 8080. Existing installs keep their port: a Docker install that set `PORT` in `.env`, a Windows install, which remembers the port it was installed with, and a Linux service with `LISTEN_ADDR` in `/etc/usage-control.env`. A Docker install that never set `PORT` moves to 9393 after `git pull` and `docker compose up -d`; set `PORT=8080` in `.env` to stay on the old port, or update the address on the hub's *Devices* dialog.
 
@@ -290,12 +290,12 @@ Deploying to the maintainer's Pi lives in the private settings repository rpi-de
 | A device shows a red dot | The hub has had no answer for 20 seconds. Check that the device is on and usage-control runs on it (`docker compose ps`, `systemctl status usage-control`, or the *Usage Control* service on Windows), and that the address and port on the hub are right |
 | A red banner says the Host Hub is not answering, and the other devices have hollow dots | The page lost its connection to the hub, which all values come through, so nothing on it is live. Check that the hub is on and usage-control runs on it (`docker compose ps` or `systemctl status usage-control`), and that your phone or PC is still on the same network. The page keeps trying and clears the banner by itself as soon as the hub answers |
 | A Windows PC cannot be added or stays red | The network is set to public, so the firewall blocks the port. Switch it to private in the Windows settings |
-| "no usage-control answers at …" when adding | Nothing answered at that address within 4 seconds. Open `http://<address>/api/metrics` from the hub's network to check |
+| "no usage-control answers at …" when adding | Nothing answered at that address within 4 seconds; the hub's log says why. Open `http://<address>/api/metrics` from the hub's network to check |
 | `403 only reachable from the local network` | The request came from outside the local network, or through a proxy. Open the page directly from the LAN. In Docker, check that the port is published as `0.0.0.0:…` (`ss -tlnp` on the host) |
 | `421 Misdirected Request` | The page was opened by a name the device does not know. Use the IP address or a `.local` name, or add the name to `ALLOWED_HOSTS` |
 | Temperature shows as unavailable | The system does not report it to programs, as on most Windows PCs and in containers without the host's `/sys` |
 | No GPU card | No GPU the system reports without extra rights; see [GPUs](data.md#gpus) |
-| The program does not start: "check DISK_PATHS" | A path in `DISK_PATHS` cannot be read. In Docker, mount it read-only in `compose.yaml` first |
+| The program does not start: "check DISK_PATHS" | A path in `DISK_PATHS` cannot be read; the message says which. In Docker, mount it read-only in `compose.yaml` first; on Windows, list drives or folders that exist, such as `C:\,D:\` |
 | The program does not start: "the database was written by a newer version" | An older version was started on a newer database. Start the newer version again, or put the `.backup` copy back ([details](database.md#updates-to-the-layout)) |
 | Some disks, sensors or network cards are missing from the charts | The device reports more than `HISTORY_MAX_ENTRIES` (64) of them; the log says so. Raise it on the hub |
 

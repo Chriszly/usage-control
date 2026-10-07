@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -261,6 +262,36 @@ func TestRunStopsBeforeTheSetupWhenThePortIsTaken(t *testing.T) {
 	}
 	if _, statErr := os.Stat(database); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("run() with a taken port opened the database (%v); it should stop before the setup", statErr)
+	}
+}
+
+func TestRunStopsBeforeTheSetupWhenUpdateCheckIsInvalid(t *testing.T) {
+	database := setUpRun(t, "127.0.0.1:0")
+	t.Setenv("UPDATE_CHECK", "no")
+
+	if err := run(context.Background()); err == nil || !strings.Contains(err.Error(), "UPDATE_CHECK") {
+		t.Errorf("run() with UPDATE_CHECK=no error = %v, want one naming UPDATE_CHECK", err)
+	}
+	if _, statErr := os.Stat(database); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("run() with UPDATE_CHECK=no opened the database (%v); it should stop before the setup", statErr)
+	}
+}
+
+func TestDiskPathsHintFitsThePlatform(t *testing.T) {
+	tests := []struct {
+		goos      string
+		container bool
+		want      string
+	}{
+		{"windows", false, `C:\`},
+		{"linux", true, "compose.yaml"},
+		{"linux", false, "/mnt/usb"},
+		{"darwin", false, "/mnt/usb"},
+	}
+	for _, tt := range tests {
+		if got := diskPathsHint(tt.goos, tt.container); !strings.Contains(got, tt.want) {
+			t.Errorf("diskPathsHint(%q, %v) = %q, want it to mention %q", tt.goos, tt.container, got, tt.want)
+		}
 	}
 }
 

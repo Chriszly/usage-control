@@ -175,6 +175,10 @@ describe('DevicesDialog', () => {
     fixture.detectChanges();
 
     expect(element().textContent).toContain('The password is wrong.');
+    // A change that failed may still have been made, so the list is read again.
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
   it('changes nothing when the password dialog is cancelled', () => {

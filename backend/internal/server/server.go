@@ -262,10 +262,15 @@ func websiteHandler(site fs.FS) http.Handler {
 }
 
 // withHeaders adds the headers every answer carries: browsers are told to
-// trust the Content-Type instead of guessing one from the content.
+// trust the Content-Type instead of guessing one from the content, and not to
+// show the page inside another site's frame, where it could be overlaid to
+// trick a visitor into clicking (frame-ancestors, and X-Frame-Options for
+// older browsers).
 func withHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
 	})
 }
