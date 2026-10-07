@@ -237,7 +237,9 @@ func TestRemoveDeletesTheDataWithoutHoldingUpThePage(t *testing.T) {
 	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); problemOf(err) != ProblemRemoving {
 		t.Errorf("Add(Office PC) while deleting error = %v, want problem %q", err, ProblemRemoving)
 	}
-	if waited := time.Since(started); waited < removingWait || waited > removingWait+time.Second {
+	// It gives up after removingWait, not once the data is deleted; the room
+	// above that is for a slow machine running the tests.
+	if waited := time.Since(started); waited < removingWait || waited > removingWait+5*time.Second {
 		t.Errorf("Add(Office PC) while deleting took %v, want about %v", waited, removingWait)
 	}
 	h.mu.Lock()

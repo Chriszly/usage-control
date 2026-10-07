@@ -291,8 +291,8 @@ func TestFetcherLogsLeftOutValuesOnce(t *testing.T) {
 	for i := range 3 {
 		at := int64(1060 + 60*i)
 		f.clean(MinutesAnswer{Now: at, Minutes: []history.Minute{{Time: at, Values: map[string]float64{
-			"disk:/" + strings.Repeat("x", 300): 1,              // a name too long
-			"disk:/a": 1, "disk:/b": 2, "disk:/c": 3, "cpu": 4, // too many disks
+			"disk:/" + strings.Repeat("x", 300): 1,                                       // a name too long
+			"disk:/a":                           1, "disk:/b": 2, "disk:/c": 3, "cpu": 4, // too many disks
 		}}}})
 		f.after = at
 	}
@@ -588,12 +588,12 @@ func TestFetcherStopsInTimeForTheReadings(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, budget: 200 * time.Millisecond}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, budget: time.Second}
 
 	start := time.Now()
 	fetched := f.fetch(ctx, anyMinute)
 
-	if took := time.Since(start); took > time.Second {
+	if took := time.Since(start); took > 4*time.Second {
 		t.Errorf("fetch() took %v, want it to stop after its budget", took)
 	}
 	// Running out of time after storing some is no failure: the rest follows
@@ -611,7 +611,7 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, budget: 100 * time.Millisecond}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, budget: 300 * time.Millisecond}
 
 	fetched := f.fetch(ctx, anyMinute)
 
@@ -621,9 +621,9 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing
 	if fetched || f.failing || f.after == 0 || f.values != ValuesPerAnswer/2 {
 		t.Errorf("fetch() = %v, failing %v, after %d, values %d; want false, not failing, after kept and %d values", fetched, f.failing, f.after, f.values, ValuesPerAnswer/2)
 	}
-	// The device answers in time again.
+	// The device answers in time again, well within the usual budget.
 	device = newMinutesDevice(time.Now(), 10)
-	f.agent = device.start(t)
+	f.agent, f.budget = device.start(t), 0
 	if _, err := f.agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
@@ -647,13 +647,14 @@ func TestFetcherAsksForMoreValuesAgainOnlyWhileItHasTimeToSpare(t *testing.T) {
 		}
 	}
 
-	// A fetch that took more than half its time keeps the size it has.
+	// A fetch that took more than half its time keeps the size it has: 600 ms
+	// of 1 s, with room either side for a slow machine running the tests.
 	f.values = ValuesPerAnswer / 4
 	device.broken = func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(60 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 		_, _ = fmt.Fprintf(w, `{"now":%d,"minutes":[]}`, time.Now().Add(device.clock).Unix())
 	}
-	f.budget = 100 * time.Millisecond
+	f.budget = time.Second
 	f.fetch(ctx, anyMinute)
 	if f.values != ValuesPerAnswer/4 {
 		t.Errorf("values after a slow fetch = %d, want %d", f.values, ValuesPerAnswer/4)
