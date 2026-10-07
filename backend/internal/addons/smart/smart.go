@@ -59,6 +59,9 @@ type Disk struct {
 	// Unreadable is set for a disk that was read before but cannot be read
 	// now, which may be failing. It has no values then.
 	Unreadable bool
+	// SMARTOff is set for a SATA disk that has SMART switched off, or none,
+	// which has no values either.
+	SMARTOff bool
 }
 
 // device is a disk to read.
@@ -231,6 +234,20 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			failed[d.path] = err
 		}
 	}
+	// A disk read before that cannot be read now may have been unplugged,
+	// such as one swapped out while the machine runs: listing the disks
+	// again drops it instead of showing that it cannot be read until the
+	// next scan.
+	rescan := false
+	for path := range failed {
+		_, shown := last[path]
+		rescan = rescan || shown
+	}
+	if rescan && !scanned && ctx.Err() == nil {
+		if found, err := r.src.list(); err == nil {
+			devices, scanned = found, true
+		}
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -257,6 +274,8 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 				slog.Warn("read the disk's health", "disk", d.name, "error", err)
 				r.warned[d.path] = true
 			}
+			// It was not asleep at this read, so a sleep counts anew.
+			delete(r.asleepSince, d.path)
 			if before, ok := r.disks[d.path]; ok {
 				disks[d.path] = Disk{Name: d.name, Model: before.Model, Serial: before.Serial, Unreadable: true}
 			}

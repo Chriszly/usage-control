@@ -3,8 +3,10 @@ package smart
 import (
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
@@ -46,19 +48,32 @@ var values = []value{
 	},
 }
 
-// The translations of the disk's own check, and of a disk that cannot be
-// read. Only labels have translations, so the label tells whether it passed
+// The translations of the disk's own check, of a disk that cannot be read,
+// and of one with SMART switched off. Only labels have translations, so the label tells whether it passed
 // and the text is a mark that needs none.
 var (
 	passedLabels     = map[string]string{"de": "SMART-Prüfung bestanden", "fr": "Contrôle SMART réussi", "es": "Comprobación SMART superada"}
 	failedLabels     = map[string]string{"de": "SMART-Prüfung NICHT BESTANDEN", "fr": "Contrôle SMART ÉCHOUÉ", "es": "Comprobación SMART FALLIDA"}
 	unreadableLabels = map[string]string{"de": "Kann nicht gelesen werden", "fr": "Ne peut pas être lu", "es": "No se puede leer"}
+	smartOffLabels   = map[string]string{"de": "SMART aus", "fr": "SMART désactivé", "es": "SMART desactivado"}
 )
+
+// defaultMaxEntries is how many values of a group usage-control keeps unless
+// HISTORY_MAX_ENTRIES is set higher.
+const defaultMaxEntries = 64
+
+// warnedTooMany is whether Extras has logged that the disks report more
+// values than defaultMaxEntries.
+var warnedTooMany atomic.Bool
 
 // Extras returns the disks as the group of extras the collector shows: for
 // each disk its overall check and the numbers it reports, each labelled with
 // the disk, such as "Samsung SSD 980 (nvme0): Temperature", or for a disk
-// that cannot be read any more only that, in place of its check.
+// that cannot be read any more or has SMART switched off only that, in place
+// of its check. The values of all disks are in one group, whose id is part of
+// the name their history is kept under; past defaultMaxEntries values, which
+// about 16 SATA disks reach, usage-control leaves out the rest unless
+// HISTORY_MAX_ENTRIES is set higher, which is logged once.
 func Extras(disks []Disk) []metrics.Extra {
 	group := metrics.Extra{
 		ID:     "smart",
@@ -73,11 +88,13 @@ func Extras(disks []Disk) []metrics.Extra {
 		if disk.Model != "" {
 			prefix = disk.Model + " (" + disk.Name + ")"
 		}
-		if disk.Passed != nil || disk.Unreadable {
+		if disk.Passed != nil || disk.Unreadable || disk.SMARTOff {
 			label, labels, text := "SMART check passed", passedLabels, "✓"
 			switch {
 			case disk.Unreadable:
 				label, labels, text = "Cannot be read", unreadableLabels, "✗"
+			case disk.SMARTOff:
+				label, labels, text = "SMART off", smartOffLabels, "–"
 			case !*disk.Passed:
 				label, labels, text = "SMART check FAILED", failedLabels, "✗"
 			}
@@ -107,6 +124,10 @@ func Extras(disks []Disk) []metrics.Extra {
 	}
 	if len(group.Items) == 0 {
 		return nil
+	}
+	if len(group.Items) > defaultMaxEntries && !warnedTooMany.Swap(true) {
+		slog.Warn("the disks report more values than usage-control keeps by default, so those of the last disks are left out; set HISTORY_MAX_ENTRIES higher on this device and its hub to keep them",
+			"values", len(group.Items), "kept", defaultMaxEntries)
 	}
 	return []metrics.Extra{group}
 }
