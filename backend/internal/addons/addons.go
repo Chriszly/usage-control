@@ -36,6 +36,8 @@ type Read func(ctx context.Context, now time.Time) []metrics.Extra
 func Main(name, service string, newRead func() Read) {
 	read := sync.OnceValue(newRead)
 	serve := func(ctx context.Context) error { return Serve(ctx, name, read()) }
+	// A service has no console, so its warnings go to the event log too.
+	winservice.LogWarnings(service)
 	ranAsService, err := winservice.Run(service, serve)
 	if !ranAsService && err == nil {
 		// Only outside the service manager: Go turns a user logging off
@@ -45,7 +47,10 @@ func Main(name, service string, newRead func() Read) {
 		stop()
 	}
 	if err != nil {
-		slog.Error("the add-on stopped", "add-on", name, "error", err)
+		// winservice.Run has written a service's error to the event log already.
+		if !ranAsService {
+			slog.Error("the add-on stopped", "add-on", name, "error", err)
+		}
 		os.Exit(1)
 	}
 }

@@ -166,7 +166,7 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 
 An update closes the tray icon while it replaces it; it comes back at the next login, or right away when the update ran through the wizard. An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
 
-The service writes errors to the Windows event log (*Application*, source *UsageControl*). When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
+The service writes errors to the Windows event log (*Application*, source *UsageControl*); each add-on writes its warnings and errors there too, under its service's name, such as *UsageControlSmart*. When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
 
 Builds of `main` are also available, as artifacts of the *Windows installer* workflow runs (pull requests only build the installers when they change them). Their installers are numbered `0.0.<run>`, which counts as older than any release, so they only install on a PC without a release. The program in them calls itself `dev-<commit>` and does not check for newer releases.
 

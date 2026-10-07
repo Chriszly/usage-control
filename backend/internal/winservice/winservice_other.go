@@ -10,3 +10,6 @@ import "context"
 func Run(string, func(context.Context) error) (bool, error) {
 	return false, nil
 }
+
+// LogWarnings does nothing: only Windows has an event log.
+func LogWarnings(string) {}
