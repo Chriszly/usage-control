@@ -1,8 +1,9 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power, gpu, kernel, pressure and Wi-Fi
-# add-ons on, checks the tray icon pauses, resumes and stops the service,
-# updates it to a newer version without options and checks the options and
-# the add-ons were kept and the tray icon was closed for the update,
+# installs it with the website and the power, gpu, kernel, pressure, Wi-Fi and
+# memory add-ons on, checks the tray icon pauses, resumes and stops the
+# service, updates it to a newer version without options and checks the
+# options and the add-ons were kept and the tray icon was closed for the
+# update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -143,8 +144,23 @@ function Assert-WifiAddOn {
     Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\wifi.json" } 'the Wi-Fi add-on wrote its report'
 }
 
-Write-Host 'Installing with the website and the power, gpu, kernel, pressure and Wi-Fi add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1"
+# The memory add-on reads the Memory performance counters as LocalService;
+# its report holds the committed memory once it could read them.
+function Assert-MemoryAddOn {
+    $addOn = Get-Service UsageControlMemory -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The memory add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlMemory).Status -eq 'Running' } 'the memory add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\memory.json"
+    Wait-Until {
+        try {
+            $items = (Get-Content $report -Raw -ErrorAction Stop | ConvertFrom-Json).extras.items
+            @($items | Where-Object { $_.id -eq 'committed' -and $_.value -gt 0 }).Count -eq 1
+        } catch { $false }
+    } 'the memory add-on wrote the committed memory'
+}
+
+Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi and memory add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
@@ -153,6 +169,7 @@ Assert-GpuAddOn
 Assert-KernelAddOn
 Assert-PressureAddOn
 Assert-WifiAddOn
+Assert-MemoryAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -171,6 +188,7 @@ Assert-GpuAddOn
 Assert-KernelAddOn
 Assert-PressureAddOn
 Assert-WifiAddOn
+Assert-MemoryAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
@@ -180,6 +198,7 @@ if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu 
 if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on is still installed' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on is still installed' }
+if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -198,6 +217,7 @@ if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu 
 if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on was installed without KERNEL=1' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on was installed without WIFI=1' }
+if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on was installed without MEMORY=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'

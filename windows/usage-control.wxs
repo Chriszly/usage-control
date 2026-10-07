@@ -26,6 +26,9 @@
   WIFI=1 installs the Wi-Fi add-on, usage-control-wifi.exe, as "Usage
   Control Wi-Fi add-on", which reads the signal of each connected Wi-Fi
   adapter.
+  MEMORY=1 installs the memory add-on, usage-control-memory.exe, as the
+  service "Usage Control memory add-on", which reads the Memory performance
+  counters.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -55,6 +58,7 @@
     PRESSURE        1 to install the pressure add-on, 0 to remove it in an update
     KERNEL          1 to install the kernel add-on, 0 to remove it in an update
     WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update
+    MEMORY          1 to install the memory add-on, 0 to remove it in an update
                     (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
@@ -83,7 +87,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -108,7 +112,7 @@
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
     -->
-    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
     <?endforeach?>
 
@@ -165,7 +169,7 @@
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -334,6 +338,32 @@
                      Name="TypesSupported" Type="integer" Value="7" />
     </Component>
 
+    <!-- The memory add-on, with MEMORY=1, set up like the power add-on. -->
+    <Component Directory="INSTALLFOLDER" Condition='MEMORY = "1"'>
+      <File Source="$(AddOns)\usage-control-memory.exe" Name="usage-control-memory.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlMemory"
+                      DisplayName="Usage Control memory add-on"
+                      Description="Reads details of this computer's memory for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlMemory" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlMemory" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlMemory"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlMemory"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
     <!--
       The history database, used with WEBSITE=1. Only the service,
       administrators and the system can read or change it. Uninstalling keeps
@@ -408,6 +438,7 @@
         <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER_BOX" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
         <Control Id="Gpu" Type="CheckBox" X="20" Y="72" Width="330" Height="15" Property="GPU_BOX" CheckBoxValue="1" Text="&amp;Graphics card: fan, clocks, video engines and power limit" />
         <Control Id="Kernel" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="KERNEL_BOX" CheckBoxValue="1" Text="&amp;Kernel: context switches, interrupts, handles, TCP connections" />
+        <Control Id="Memory" Type="CheckBox" X="20" Y="140" Width="330" Height="15" Property="MEMORY_BOX" CheckBoxValue="1" Text="&amp;Memory: kernel pools, committed, page faults, paging" />
         <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
         <Control Id="Wifi" Type="CheckBox" X="20" Y="174" Width="330" Height="15" Property="WIFI_BOX" CheckBoxValue="1" Text="&amp;Wi-Fi: signal quality and strength of the connection" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
@@ -425,7 +456,7 @@
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
       <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY ?>
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
       <?endforeach?>
