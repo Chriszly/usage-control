@@ -60,10 +60,12 @@ jobs:
           fi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
 
-      # A tag v1.2.3 builds version 1.2.3; anything else 0.0.<run number>, so
-      # every newer build can be installed over an older one. An installer's
-      # version holds only numbers, so the letters of a bugfix release become
-      # a fourth number: 1.2.3a is 1.2.3.1, 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27.
+      # A tag v1.2.3 builds version 1.2.3. Anything else builds the program as
+      # dev-<commit>, which the update check leaves alone, in an installer of
+      # version 0.0.<run number>, so every newer build can be installed over
+      # an older one. An installer's version holds only numbers, so the
+      # letters of a bugfix release become a fourth number: 1.2.3a is 1.2.3.1,
+      # 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27.
       - name: Version
         id: version
         run: |
@@ -85,8 +87,8 @@ jobs:
               msi_version+=".$number"
             fi
           else
-            version="0.0.$GITHUB_RUN_NUMBER"
-            msi_version="$version"
+            version="dev-${GITHUB_SHA::7}"
+            msi_version="0.0.$GITHUB_RUN_NUMBER"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
