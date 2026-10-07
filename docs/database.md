@@ -29,7 +29,7 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | `samples_hourly` | the average of each hour per device and metric, with `count`, how many minute values it is over | for the retention |
 | `extra_info` | how each stored [extra](data.md#extras) is described: `device`, `metric`, `info` (title, label and unit as JSON), `written` (Unix seconds) | while the extra has values, or for the retention after it was last written |
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
-| `hub_kept` | per device removed on the page with *Keep its history* ticked: `device`, whose availability and kind are kept too | until a device with the same name is added again |
+| `hub_kept` | per device removed on the page with *Keep its history* ticked: `device`, whose availability and kind are kept too, and `removed` (Unix seconds). Added again, its `since` in `hub_watched` moves on by the time it was removed, so that time is not counted as available | until a device with the same name is added again, or for the retention, after which its availability and kind are deleted too |
 | `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until every hub has fetched it, at most `BUFFER_HOURS` |
 | `buffer_hubs` | data-only devices: per hub, by the address it asks from, `fetched`, the newest minute it has, `sent`, the newest handed to it, and `asked`, when it last asked (Unix seconds) | while it is one of the 16 hubs that asked most recently |
 | `buffer_extra_info` | data-only devices: how each of its own [extras](data.md#extras) is described, as `extra_info` without `device` | for `BUFFER_HOURS` after it was last written |

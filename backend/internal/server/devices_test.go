@@ -64,7 +64,7 @@ type fakePassword struct{ password string }
 
 func (f *fakePassword) IsSet(context.Context) (bool, error) { return f.password != "", nil }
 
-func (f *fakePassword) Check(_ context.Context, given string) error {
+func (f *fakePassword) Check(_ context.Context, _ netip.Addr, given string) error {
 	switch {
 	case f.password == "":
 		return password.ErrNotSet
@@ -166,12 +166,12 @@ type slowPassword struct {
 	release  chan struct{}
 }
 
-func (s *slowPassword) Check(ctx context.Context, given string) error {
+func (s *slowPassword) Check(ctx context.Context, from netip.Addr, given string) error {
 	if given != s.password {
 		s.guessing <- struct{}{}
 		<-s.release
 	}
-	return s.fakePassword.Check(ctx, given)
+	return s.fakePassword.Check(ctx, from, given)
 }
 
 func TestAWrongGuessDoesNotHoldUpOtherChanges(t *testing.T) {

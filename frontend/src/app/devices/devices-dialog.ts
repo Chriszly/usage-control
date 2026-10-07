@@ -11,7 +11,17 @@ import {
 } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { EMPTY, Observable, catchError, filter, finalize, of, switchMap, tap } from 'rxjs';
+import {
+  EMPTY,
+  Observable,
+  catchError,
+  filter,
+  finalize,
+  ignoreElements,
+  of,
+  switchMap,
+  tap,
+} from 'rxjs';
 
 import { I18n } from '../i18n/i18n';
 import {
@@ -123,7 +133,9 @@ export class DevicesDialog {
 
   /**
    * Asks for the password, makes the change and reads the list again. Emits
-   * once when the change worked; a refused change shows its problem instead.
+   * once when the change worked; a refused change shows its problem instead,
+   * and the list is read again too, as a change that got no answer may still
+   * have been made.
    */
   private change(
     ask: Omit<PasswordDialogData, 'passwordSet'>,
@@ -148,7 +160,10 @@ export class DevicesDialog {
         ),
         catchError((error: unknown) => {
           this.problem.set(problemMessage(error, this.i18n));
-          return EMPTY;
+          return this.devices.load().pipe(
+            ignoreElements(),
+            catchError(() => EMPTY),
+          );
         }),
         finalize(() => this.busy.set(false)),
       );

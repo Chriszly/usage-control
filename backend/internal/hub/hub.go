@@ -16,7 +16,8 @@ import (
 // savedSchema keeps the devices added on the page. Devices from HUB_DEVICES
 // are not stored; they come from the setting at every start. hub_kept lists
 // the devices removed with their history kept, whose availability and kind
-// stay too, for when a device with the same name is added again.
+// stay too, for when a device with the same name is added again, until they
+// were removed longer than the retention ago, when the history is gone too.
 const savedSchema = `
 CREATE TABLE IF NOT EXISTS hub_devices (
 	id      TEXT    PRIMARY KEY,
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS hub_devices (
 	added   INTEGER NOT NULL -- Unix time in seconds
 );
 CREATE TABLE IF NOT EXISTS hub_kept (
-	device TEXT PRIMARY KEY
+	device  TEXT    PRIMARY KEY,
+	removed INTEGER NOT NULL -- Unix time in seconds
 );
 `
 
@@ -99,6 +101,9 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 	// A device dropped from HUB_DEVICES without being added on the page is
 	// gone for good: its availability is deleted, as when it is removed on the
 	// page, while its history ages out with the retention.
+	if err := h.forgetExpired(ctx, time.Now()); err != nil {
+		return nil, err
+	}
 	kept, err := h.keptHistory(ctx)
 	if err != nil {
 		return nil, err
@@ -124,6 +129,20 @@ func New(ctx context.Context, store *history.Store, fixed []Device, historyEntri
 		}
 		h.start(device, false)
 	}
+	h.recording.Go(func() {
+		ticker := time.NewTicker(history.PruneInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				if err := h.forgetExpired(ctx, now); err != nil && ctx.Err() == nil {
+					slog.Error("forget the availability of devices removed longer than the retention ago", "error", err)
+				}
+			}
+		}
+	})
 	return h, nil
 }
 
@@ -196,6 +215,15 @@ func (h *Hub) save(ctx context.Context, device Device, kind Kind) error {
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES (?, ?, ?, ?)`,
 		device.ID, device.Name, device.Address, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	// A device removed with its history kept continues its availability. The
+	// time it was removed was not watched, so since moves on by that much,
+	// and the share of time it answered counts only the time it was watched.
+	_, err = tx.ExecContext(ctx, `
+		UPDATE hub_watched SET since = since + MAX(0, ?2 - (SELECT removed FROM hub_kept WHERE device = ?1))
+		WHERE device = ?1 AND EXISTS (SELECT 1 FROM hub_kept WHERE device = ?1)`, device.ID, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -298,11 +326,46 @@ func (h *Hub) unsave(ctx context.Context, id string, keepHistory bool) error {
 		return err
 	}
 	if keepHistory {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO hub_kept (device) VALUES (?)`, id); err != nil {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO hub_kept (device, removed) VALUES (?, ?)
+			ON CONFLICT (device) DO UPDATE SET removed = excluded.removed`, id, time.Now().Unix())
+		if err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// forgetExpired forgets the availability and kind of the devices removed with
+// their history kept longer than the retention before now, as their history
+// is gone by then too.
+func (h *Hub) forgetExpired(ctx context.Context, now time.Time) error {
+	// Held so a device is not added again while it is forgotten.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	rows, err := h.store.DB().QueryContext(ctx, `SELECT device FROM hub_kept WHERE removed < ?`, now.Add(-h.retention).Unix())
+	if err != nil {
+		return err
+	}
+	var expired []string
+	for rows.Next() {
+		var device string
+		if err := rows.Scan(&device); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		expired = append(expired, device)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, device := range expired {
+		if err := forget(ctx, h.store.DB(), device); err != nil {
+			return err
+		}
+		slog.Info("forgot the availability of a device removed longer than the retention ago", "device", device)
+	}
+	return nil
 }
 
 // keptHistory lists the devices removed with their history kept.
