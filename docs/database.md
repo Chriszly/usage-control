@@ -31,10 +31,11 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
 | `hub_kept` | per device removed on the page with *Keep its history* ticked: `device`, whose availability and kind are kept too, and `removed` (Unix seconds). Added again, its `since` in `hub_watched` moves on by the time it was removed, so that time is not counted as available | until a device with the same name is added again, or for the retention, after which its availability and kind are deleted too |
 | `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until every hub has fetched it, at most `BUFFER_HOURS` |
-| `buffer_hubs` | data-only devices: per hub, by the address it asks from, `fetched`, the newest minute it has, `sent`, the newest handed to it, and `asked`, when it last asked (Unix seconds) | while it is one of the 16 hubs that asked most recently |
+| `buffer_hubs` | data-only devices: per hub, by the id it sends (so a hub whose address changes, as with IPv6 privacy addresses, keeps one row), `fetched`, the newest minute it has, `sent`, the newest handed to it, and `asked`, when it last asked (Unix seconds) | while it is one of the 16 hubs that asked most recently |
 | `buffer_extra_info` | data-only devices: how each of its own [extras](data.md#extras) is described, as `extra_info` without `device` | for `BUFFER_HOURS` after it was last written |
 | `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from, or kept with its history |
 | `hub_outages` | per other device, every time it did not answer: `started`, `ended` (Unix milliseconds) | as long as the device is collected from, or kept with its history |
+| `hub_id` | the hub's own id, which it sends to every device, so a device that keeps its minutes for the hub tells it apart from other hubs; made at random once | for good |
 | `hub_device_kinds` | per other device that is a PC or laptop: `device`, `kind` (`pc`); a device without a row is a server or IoT device | as long as the device is collected from, or kept with its history |
 | `password` | the salt and PBKDF2-SHA256 hash of the password for changing devices, one row at most | until `RESET_PASSWORD=true` |
 
@@ -58,7 +59,7 @@ flowchart LR
 
 - Ranges up to 30 minutes come from memory, in steps of 5 seconds or more.
 - Longer ranges come from `samples`, in steps of whole minutes.
-- As soon as a step is an hour or more (ranges over 15 days), they come from `samples_hourly`, weighted by `count`, which gives the same averages from 60 times fewer rows.
+- As soon as a step is an hour or more (ranges over 15 days), they come from `samples_hourly`, weighted by `count`, which gives the same averages from 60 times fewer rows. The first step then has the whole step the range starts in.
 - Where memory has a gap of a few missed readings, as after the hub could not reach a device, or does not reach back far enough yet, as after a restart, only the steps of the gap come from the database: each gets the value of its minute there, such as one the hub fetched from the device since. The rest of the range still comes from memory. A minute is stored at its start but averages the readings of the minute before it was stored, so a step right next to a gap can show a value up to about a minute older than its time; it only shapes how the gap is drawn. A short range with no reading in memory at all comes from the database in 1-minute steps, so the chart is never empty.
 - Database answers are kept for up to a minute per device and step, so every open tab and every viewer of the hub share one query.
 

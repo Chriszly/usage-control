@@ -22,3 +22,11 @@ export const DEMO_BUILD = new InjectionToken<DemoBuild>('demo build', {
     commit: typeof DEMO_COMMIT === 'string' ? DEMO_COMMIT : undefined,
   }),
 });
+
+/**
+ * The version the made-up devices report, as the backend would: the release,
+ * else the commit of main, else "dev" for a build that set neither.
+ */
+export function demoVersion(build: DemoBuild): string {
+  return build.release ?? build.commit ?? 'dev';
+}

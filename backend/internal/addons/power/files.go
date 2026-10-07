@@ -5,10 +5,12 @@ import (
 	"hash/crc32"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/addons"
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // lastReadings keeps the readings of a program the add-on starts, vcgencmd
@@ -48,4 +50,15 @@ func idOf(parts ...string) string {
 		id = fmt.Sprintf("%s-%08x", strings.TrimRight(id[:31], "-"), sum)
 	}
 	return id
+}
+
+// readUint reads a file under /sys that holds one whole number, such as a
+// RAPL zone's energy counter. It is false when the file cannot be read or
+// holds no such number; a read that fails for another reason than a missing
+// file, such as a counter only root may read, is logged once.
+func readUint(path string) (uint64, bool) {
+	text, err := sysfile.Read(path)
+	addons.WarnRead(path, err)
+	n, err := strconv.ParseUint(strings.TrimSpace(string(text)), 10, 64)
+	return n, err == nil
 }

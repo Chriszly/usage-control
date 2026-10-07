@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -86,17 +85,30 @@ const clockTicks = 100
 
 // parseUptime reads the time since boot from /proc/uptime, "350735.47
 // 234388.90" in seconds, in clock ticks: the unit and starting point of a
-// process's start time.
+// process's start time. It counts the whole ticks only, never rounding up: a
+// process started in the tick a read rounded up to would count as one that
+// started before and could not be read then, and be left out once.
 func parseUptime(text []byte) (uint64, bool) {
 	fields := bytes.Fields(text)
 	if len(fields) == 0 {
 		return 0, false
 	}
-	seconds, err := strconv.ParseFloat(string(fields[0]), 64)
-	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+	whole, fraction, _ := bytes.Cut(fields[0], []byte("."))
+	seconds, err := strconv.ParseUint(string(whole), 10, 64)
+	if err != nil {
 		return 0, false
 	}
-	return uint64(math.Round(seconds * clockTicks)), true
+	ticks := seconds * clockTicks
+	// The digits after the point, as far as they are whole ticks.
+	scale := uint64(clockTicks / 10)
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' {
+			return 0, false
+		}
+		ticks += uint64(digit-'0') * scale
+		scale /= 10
+	}
+	return ticks, true
 }
 
 // parseTotal reads the CPU time of all CPUs together from /proc/stat's first

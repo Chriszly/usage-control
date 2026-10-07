@@ -11,8 +11,8 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
-// hub is the address a hub asks from.
-const hub = "192.168.1.10"
+// hub is the id a hub sends.
+const hub = "0123456789abcdef0123456789abcdef"
 
 func openTestBuffer(t *testing.T, span time.Duration) *Buffer {
 	t.Helper()
@@ -102,7 +102,7 @@ func TestBufferDeletesOnlyTheMinutesEveryHubHas(t *testing.T) {
 		t.Fatalf("Since() error = %v", err)
 	}
 	// A second hub fetches everything and says it has it.
-	const other = "192.168.1.99"
+	const other = "fedcba9876543210fedcba9876543210"
 	if _, _, err := buffer.Since(ctx, other, time.Unix(0, 0), 10, 1000); err != nil {
 		t.Fatalf("Since() error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestBufferKeepsTheMinutesOfAHubThatIsAway(t *testing.T) {
 		}
 	}
 	// A hub that last asked longer ago than the span, and had none of them.
-	if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES ('192.168.1.99', 0, 0, ?)`, time.Now().Add(-2*time.Hour).Unix()); err != nil {
+	if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES ('fedcba9876543210fedcba9876543210', 0, 0, ?)`, time.Now().Add(-2*time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := buffer.Since(ctx, hub, time.Unix(0, 0), 10, 1000); err != nil {
@@ -174,7 +174,7 @@ func TestBufferKeepsTheHubsThatAskedMostRecently(t *testing.T) {
 	ctx := context.Background()
 	buffer := openTestBuffer(t, time.Hour)
 	for i := range maxBufferHubs + 4 {
-		if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, 0, 0, ?)`, fmt.Sprintf("192.168.1.%d", 100+i), 1000+i); err != nil {
+		if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, 0, 0, ?)`, fmt.Sprintf("%032x", 100+i), 1000+i); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -303,6 +303,49 @@ func TestOpenBufferCreatesOnlyItsTables(t *testing.T) {
 	if want := []string{"buffer", "buffer_extra_info", "buffer_hubs"}; !reflect.DeepEqual(tables, want) {
 		t.Errorf("tables = %v, want only %v", tables, want)
 	}
+}
+
+func TestOpenBufferForgetsHubsKeptByTheirAddress(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "buffer.db")
+	buffer, err := OpenBuffer(ctx, path, time.Hour)
+	if err != nil {
+		t.Fatalf("OpenBuffer() error = %v", err)
+	}
+	for _, name := range []string{"192.168.1.10", "fd00::20", hub} {
+		if _, err := buffer.db.ExecContext(ctx, `INSERT INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, 0, 0, 0)`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = buffer.Close()
+
+	buffer = openBufferAt(t, path)
+	var hubs []string
+	rows, err := buffer.db.QueryContext(ctx, `SELECT hub FROM buffer_hubs`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		hubs = append(hubs, name)
+	}
+	if want := []string{hub}; !reflect.DeepEqual(hubs, want) {
+		t.Errorf("hubs = %v, want only the one kept by its id, %v", hubs, want)
+	}
+}
+
+func openBufferAt(t *testing.T, path string) *Buffer {
+	t.Helper()
+	buffer, err := OpenBuffer(context.Background(), path, time.Hour)
+	if err != nil {
+		t.Fatalf("OpenBuffer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = buffer.Close() })
+	return buffer
 }
 
 func TestOpenBufferFailsWhereTheFileCannotBeWritten(t *testing.T) {

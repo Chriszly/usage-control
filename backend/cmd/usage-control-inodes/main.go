@@ -9,6 +9,9 @@
 //	ADDONS_DIR  the add-on folder usage-control reads (default
 //	            /run/usage-control-addons, the folder the systemd service
 //	            makes)
+//	DOCKER_DIR  Docker's data folder where Docker keeps its data elsewhere
+//	            than /var/lib/docker; what is mounted below it, other than a
+//	            disk, is a container's and left out
 package main
 
 import (

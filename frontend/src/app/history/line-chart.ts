@@ -1,4 +1,4 @@
-import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { DatePipe, NgTemplateOutlet, formatDate } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 
 import { I18n } from '../i18n/i18n';
@@ -18,6 +18,9 @@ export interface ChartLine {
 const WIDTH = 1000;
 const HEIGHT = 100;
 
+/** How many colors the lines take in turn; lines after them are dashed. */
+const COLORS = 8;
+
 /**
  * Draws lines over time, from `from` to `to` (Unix seconds), with one point
  * per `step` seconds. Moving the pointer over it shows every line's value at
@@ -33,6 +36,8 @@ const HEIGHT = 100;
 export class LineChart {
   protected readonly i18n = inject(I18n);
 
+  /** What the chart shows, such as "CPU and memory", for its text alternative. */
+  readonly title = input.required<string>();
   readonly lines = input.required<ChartLine[]>();
   readonly from = input.required<number>();
   readonly to = input.required<number>();
@@ -69,6 +74,18 @@ export class LineChart {
     return this.i18n.t(span <= 8 * 86400 ? 'format.weekdayTime' : 'format.dayMonth');
   });
 
+  /** For screen readers: what the chart shows, of which time, and its lines. */
+  protected readonly summary = computed(() => {
+    const language = this.i18n.language();
+    const format = this.i18n.t('format.dateTime');
+    return this.i18n.t('history.chartSummary', {
+      title: this.title(),
+      from: formatDate(this.from() * 1000, format, language),
+      to: formatDate(this.to() * 1000, format, language),
+      lines: new Intl.ListFormat(language).format(this.lines().map((line) => line.label)),
+    });
+  });
+
   /** The start of the step under the pointer, or null when the pointer is elsewhere. */
   protected readonly hoverTime = signal<number | null>(null);
 
@@ -89,6 +106,11 @@ export class LineChart {
     };
   });
 
+  /** The color of a line by its place, dashed once every color is taken. */
+  protected seriesClass(index: number): string {
+    return `series-${index % COLORS}` + (index >= COLORS ? ' dashed' : '');
+  }
+
   /** A value with the chart's unit, in the page's language. */
   protected format(value: number): string {
     return formatExtra(value, this.unit(), this.i18n.language());
@@ -99,7 +121,8 @@ export class LineChart {
     const fraction = Math.min(1, Math.max(0, (event.clientX - area.left) / area.width));
     const time = this.from() + fraction * (this.to() - this.from());
     const step = this.step();
-    this.hoverTime.set(Math.min(Math.floor(time / step) * step, this.to() - 1));
+    // The right edge belongs to the last step, which starts before `to`.
+    this.hoverTime.set(Math.floor(Math.min(time, this.to() - 1) / step) * step);
   }
 
   protected onPointerLeave(): void {

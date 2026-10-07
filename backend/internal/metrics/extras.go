@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"regexp"
@@ -87,14 +88,15 @@ func ValidID(id string) bool {
 // values each, every title, label and text cut to MaxTextLength characters,
 // and a unit the hub does not know turned into UnitNumber. Groups and values
 // with an id that is invalid or already used, and values without a value for
-// their unit, are left out.
+// their unit, are left out. Where there are more groups or values than kept,
+// the ones that keep a history are kept first, by id: the same ones a hub
+// keeps of the minutes it fetches, which have no order (see history.Keep).
+// The others fill the places left in the order the device listed them. What
+// is kept stays in the order the device listed it.
 func CleanExtras(extras []Extra, maxEntries int) []Extra {
 	var clean []Extra
 	groups := map[string]bool{}
 	for _, group := range extras {
-		if len(clean) == maxEntries {
-			break
-		}
 		if !validID.MatchString(group.ID) || groups[group.ID] {
 			continue
 		}
@@ -110,16 +112,15 @@ func CleanExtras(extras []Extra, maxEntries int) []Extra {
 			Items:  items,
 		})
 	}
-	return clean
+	return first(clean, maxEntries, func(group Extra) string { return group.ID }, func(group Extra) bool {
+		return slices.ContainsFunc(group.Items, func(item ExtraItem) bool { return item.History })
+	})
 }
 
 func cleanItems(items []ExtraItem, maxEntries int) []ExtraItem {
 	var clean []ExtraItem
 	ids := map[string]bool{}
 	for _, item := range items {
-		if len(clean) == maxEntries {
-			break
-		}
 		if !validID.MatchString(item.ID) || ids[item.ID] {
 			continue
 		}
@@ -139,7 +140,33 @@ func cleanItems(items []ExtraItem, maxEntries int) []ExtraItem {
 		ids[item.ID] = true
 		clean = append(clean, item)
 	}
-	return clean
+	return first(clean, maxEntries, func(item ExtraItem) string { return item.ID }, func(item ExtraItem) bool { return item.History })
+}
+
+// first returns n of list, whose ids are unique, in the order of list: the
+// ones that keep a history by id, then the others in the order of list, as
+// an add-on puts the ones that matter most first, such as its top processes.
+func first[T any](list []T, n int, id func(T) string, history func(T) bool) []T {
+	if len(list) <= n {
+		return list
+	}
+	ranked := slices.Clone(list)
+	slices.SortStableFunc(ranked, func(a, b T) int {
+		switch {
+		case history(a) && history(b):
+			return cmp.Compare(id(a), id(b))
+		case history(a):
+			return -1
+		case history(b):
+			return 1
+		}
+		return 0
+	})
+	kept := map[string]bool{}
+	for _, entry := range ranked[:n] {
+		kept[id(entry)] = true
+	}
+	return slices.DeleteFunc(list, func(entry T) bool { return !kept[id(entry)] })
 }
 
 // cleanTranslations keeps the valid translations, in the order of their

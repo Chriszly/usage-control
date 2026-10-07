@@ -2,8 +2,8 @@
 
 @if (lines().length > 1) {
   <ul class="legend">
-    @for (line of lines(); track line.label; let i = $index) {
-      <li><span class="swatch" [class]="'series-' + (i % 8)"></span>{{ line.label }}</li>
+    @for (line of lines(); track $index; let i = $index) {
+      <li><span class="swatch" [class]="seriesClass(i)"></span>{{ line.label }}</li>
     }
   </ul>
 }
@@ -19,13 +19,14 @@
     <svg
       [attr.viewBox]="'0 0 ' + width + ' ' + height"
       preserveAspectRatio="none"
-      aria-hidden="true"
+      role="img"
+      [attr.aria-label]="summary()"
     >
       <line class="grid" x1="0" [attr.x2]="width" y1="0" y2="0" />
       <line class="grid" x1="0" [attr.x2]="width" [attr.y1]="height / 2" [attr.y2]="height / 2" />
       <line class="baseline" x1="0" [attr.x2]="width" [attr.y1]="height" [attr.y2]="height" />
       @for (path of paths(); track $index) {
-        <path [attr.d]="path" [class]="'line series-' + ($index % 8)" />
+        <path [attr.d]="path" [class]="'line ' + seriesClass($index)" />
       }
     </svg>
 
@@ -35,9 +36,9 @@
         <p class="time">
           {{ r.time * 1000 | date: readoutFormat() : undefined : i18n.language() }}
         </p>
-        @for (line of lines(); track line.label; let i = $index) {
+        @for (line of lines(); track $index; let i = $index) {
           <p>
-            <span class="swatch" [class]="'series-' + (i % 8)"></span>
+            <span class="swatch" [class]="seriesClass(i)"></span>
             <strong>
               @if (r.values[i] !== null) {
                 <ng-container *ngTemplateOutlet="formatted; context: { $implicit: r.values[i] }" />

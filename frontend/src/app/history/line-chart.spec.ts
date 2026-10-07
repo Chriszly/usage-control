@@ -7,6 +7,7 @@ describe('LineChart', () => {
 
   function render(lines: ChartLine[]): HTMLElement {
     fixture = TestBed.createComponent(LineChart);
+    fixture.componentRef.setInput('title', 'CPU and memory');
     fixture.componentRef.setInput('lines', lines);
     fixture.componentRef.setInput('from', 0);
     fixture.componentRef.setInput('to', 600);
@@ -64,6 +65,44 @@ describe('LineChart', () => {
     plot.dispatchEvent(new MouseEvent('pointerleave'));
     fixture.detectChanges();
     expect(element.querySelector('.tooltip')).toBeNull();
+  });
+
+  it('shows the values of the last step at the right edge', () => {
+    const element = render([{ label: 'CPU', points: [{ time: 540, value: 30 }] }]);
+    const plot = element.querySelector('.plot') as HTMLElement;
+    plot.getBoundingClientRect = () => ({ left: 0, width: 600 }) as DOMRect;
+
+    plot.dispatchEvent(new MouseEvent('pointermove', { clientX: 600 }));
+    fixture.detectChanges();
+
+    expect(element.querySelector('.tooltip')?.textContent).toContain('30 %');
+  });
+
+  it('tells screen readers what the chart shows', () => {
+    const element = render([
+      { label: 'CPU', points: [] },
+      { label: 'Memory', points: [] },
+    ]);
+
+    const label = element.querySelector('svg')?.getAttribute('aria-label') ?? '';
+    expect(element.querySelector('svg')?.getAttribute('role')).toBe('img');
+    expect(label).toMatch(/^Chart of CPU and memory from .+ to .+: CPU and Memory$/);
+  });
+
+  it('dashes the lines after the eighth and keeps lines of the same name apart', () => {
+    const lines = () => Array.from({ length: 9 }, () => ({ label: 'sda', points: [] }));
+    const element = render(lines());
+    // Angular warns when a list it updates repeats a key.
+    const warn = vi.spyOn(console, 'warn');
+    fixture.componentRef.setInput('lines', lines());
+    fixture.detectChanges();
+    expect(warn).not.toHaveBeenCalled();
+
+    const swatches = element.querySelectorAll('.legend .swatch');
+    expect(swatches.length).toBe(9);
+    expect(swatches[0].classList.contains('dashed')).toBe(false);
+    expect([...swatches[8].classList].sort()).toEqual(['dashed', 'series-0', 'swatch']);
+    expect(element.querySelectorAll('path.dashed').length).toBe(1);
   });
 });
 

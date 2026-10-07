@@ -200,6 +200,7 @@ export const en = {
   'history.diskActivity': 'Disk activity',
   'history.diskRead': '{path} read',
   'history.diskWritten': '{path} written',
+  'history.chartSummary': 'Chart of {title} from {from} to {to}: {lines}',
   'languageSwitcher.label': 'Language',
   'bytes.unit.b': 'B',
   'bytes.unit.kib': 'KiB',

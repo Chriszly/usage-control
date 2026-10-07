@@ -29,6 +29,15 @@
   --color: light-dark(#e34948, #e66767);
 }
 
+/* Lines after the eighth take the colors again, dashed. */
+.line.dashed {
+  stroke-dasharray: 6 5;
+}
+
+.swatch.dashed {
+  background: linear-gradient(to right, var(--color) 40%, transparent 40% 60%, var(--color) 60%);
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;

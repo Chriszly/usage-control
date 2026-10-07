@@ -44,6 +44,8 @@ type Hub struct {
 	// pagePort is the port the hub's page is reachable on, which every
 	// device is told; see PagePortHeader.
 	pagePort string
+	// id is the hub's own id, which every device is told; see HubIDHeader.
+	id string
 	// suggester works out which device the page offers to add.
 	suggester suggester
 	// ctx ends every recorder when the program stops.
@@ -89,11 +91,16 @@ type Remote struct {
 // reachable on.
 func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string) (*Hub, error) {
 	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
-	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema} {
+	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema, idSchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
 		}
 	}
+	id, err := readID(ctx, store.DB())
+	if err != nil {
+		return nil, err
+	}
+	h.id = id
 	saved, err := h.saved(ctx)
 	if err != nil {
 		return nil, err
@@ -514,6 +521,7 @@ func (h *Hub) Wait() {
 func (h *Hub) start(device Device, fixed bool) {
 	agent := NewAgent(device.Address)
 	agent.pagePort = h.pagePort
+	agent.hubID = h.id
 	agent.maxEntries = h.historyEntries
 	if err := watch(h.ctx, h.store.DB(), device.ID, time.Now()); err != nil {
 		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)

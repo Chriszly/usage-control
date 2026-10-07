@@ -7,6 +7,9 @@ package addons
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -63,15 +66,23 @@ func Main(name, service string, newRead func() Read) {
 }
 
 // Serve writes what read returns to the add-on folder until ctx is done, then
-// removes the file, so usage-control stops showing old values at once.
+// removes the file, so usage-control stops showing old values at once. It
+// fails at once when the folder is missing, so the program exits and its
+// service manager can start it again; a write that fails later is logged and
+// tried again at the next interval.
 func Serve(ctx context.Context, name string, read Read) error {
 	dir := os.Getenv("ADDONS_DIR")
 	if dir == "" {
 		dir = DefaultDir()
 	}
+	if info, err := os.Stat(dir); err != nil { //nolint:gosec // the add-on folder its setting names
+		return fmt.Errorf("the add-on folder: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("the add-on folder %s is not a folder", dir)
+	}
 	file := filepath.Join(dir, name+".json")
 	slog.Info("writing to the add-on folder", "file", file)
-	run(ctx, read, file)
+	run(ctx, read, file, Interval)
 	if checkFolder(dir) == nil {
 		_ = os.Remove(file) //nolint:gosec // the add-on's own file, in the folder its setting names
 	}
@@ -86,10 +97,10 @@ func DefaultDir() string {
 	return "/run/usage-control-addons"
 }
 
-// run writes a report every Interval until ctx is done. A failed write is
+// run writes a report every interval until ctx is done. A failed write is
 // logged once and tried again at the next interval.
-func run(ctx context.Context, read Read, file string) {
-	ticker := time.NewTicker(Interval)
+func run(ctx context.Context, read Read, file string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	failing := false
 	for {
@@ -118,4 +129,21 @@ func writeReport(file string, report metrics.AddOnReport) error {
 		return err
 	}
 	return metrics.WriteAddOnReport(file, report)
+}
+
+// readFailures holds the files whose failed read WarnRead has logged.
+var readFailures sync.Map
+
+// WarnRead logs err, the failure to read the file at path, the first time a
+// read of that file fails for another reason than that it does not exist,
+// such as a file only root may read. A missing file is what a machine
+// without the hardware or the kernel feature has, and stays silent; the
+// add-on leaves the file's values out either way.
+func WarnRead(path string, err error) {
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if _, logged := readFailures.LoadOrStore(path, true); !logged {
+		slog.Warn("a file the add-on reads cannot be read, so its values are left out", "file", path, "error", err)
+	}
 }

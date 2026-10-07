@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS buffer (
 	PRIMARY KEY (time, metric)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS buffer_hubs (
-	hub     TEXT    NOT NULL PRIMARY KEY, -- the address the hub asks from
+	hub     TEXT    NOT NULL PRIMARY KEY, -- the id the hub sends
 	fetched INTEGER NOT NULL, -- Unix time of the newest minute the hub has
 	sent    INTEGER NOT NULL, -- Unix time of the newest minute handed to it
 	asked   INTEGER NOT NULL  -- Unix time it last asked
@@ -70,7 +70,9 @@ func OpenBuffer(ctx context.Context, path string, span time.Duration) (*Buffer, 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.ExecContext(ctx, bufferSchema); err != nil {
+	// Hubs used to be kept by the address they ask from; a hub is kept by its
+	// id now, and such a row would keep every minute for the span.
+	if _, err := db.ExecContext(ctx, bufferSchema+`DELETE FROM buffer_hubs WHERE length(hub) != 32 OR hub GLOB '*[^0-9a-f]*';`); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -133,7 +135,7 @@ const maxBufferHubs = 16
 
 // Since returns the oldest minutes after the given time, at most minutes of
 // them and values values in all (one minute at least), and whether more
-// follow. hub is the address of the hub asking, or empty for a request that
+// follow. hub is the id of the hub asking, or empty for a request that
 // is not from a hub. A hub asking after a time tells that it has stored
 // everything up to it. The buffer keeps that per hub, as far as it handed the
 // minutes out to that hub, and deletes the minutes that every hub it knows

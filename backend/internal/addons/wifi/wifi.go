@@ -16,6 +16,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -46,10 +47,12 @@ func File(procDir string) string {
 }
 
 // Read reads the wireless statistics in file, or returns nothing when there
-// are none.
+// are none. A failure other than a missing file, which a machine without
+// Wi-Fi has, is logged once.
 func Read(file string) []Reading {
 	text, err := os.ReadFile(file) //nolint:gosec // the host's /proc/1/net/wireless, below the folder HOST_PROC names
 	if err != nil {
+		addons.WarnRead(file, err)
 		return nil
 	}
 	return parse(string(text))

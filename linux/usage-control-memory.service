@@ -42,8 +42,9 @@ ProtectHostname=yes
 # No socket of any kind: as root it could otherwise connect to the Unix
 # sockets of services such as Docker or systemd and have them act for it.
 RestrictAddressFamilies=none
-# systemd before 249 (as on Raspberry Pi OS bullseye) ignores "none", so the
-# call that opens a socket is denied as well.
+# The call that opens a socket is denied as well, so this does not rest on
+# how systemd reads "none": before 249 (as on Raspberry Pi OS bullseye) it
+# warns that it does not know the word, though it still allows no family.
 SystemCallFilter=~socket
 # A denied call fails instead of ending the program.
 SystemCallErrorNumber=EPERM
