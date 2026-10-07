@@ -147,6 +147,7 @@ jobs:
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/winservice-tests.exe ./internal/winservice
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/smart-tests.exe ./internal/addons/smart
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/power-tests.exe ./internal/addons/power
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -177,6 +178,9 @@ jobs:
           dist\tests\metrics-tests.exe '-test.v' '-test.run=GPU'
           if ($LASTEXITCODE -ne 0) { exit 1 }
           dist\tests\winservice-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Only the Windows tests: the others read testdata next to the package.
+          dist\tests\smart-tests.exe '-test.v' '-test.run=Windows'
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Only the Windows reading: the other power tests are the same on Linux.
           dist\tests\power-tests.exe '-test.v' '-test.run=Windows'

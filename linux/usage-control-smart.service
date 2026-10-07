@@ -1,9 +1,9 @@
-# The smart add-on of usage-control: reads the health of the disks through
-# smartctl (smartmontools, installed separately) and writes it to
+# The smart add-on of usage-control: reads the health of the SATA and NVMe
+# disks straight from them, with nothing else to install, and writes it to
 # /run/usage-control-addons, which usage-control shows.
 # install.sh puts it in /etc/systemd/system when the add-on is picked.
 [Unit]
-Description=Usage Control smart add-on: reads the disks' health through smartctl (install smartmontools); runs as root with raw disk access only
+Description=Usage Control smart add-on: reads the disks' health (SMART); runs as root with read-only disk access only
 Documentation=https://github.com/Chriszly/usage-control
 PartOf=usage-control.service
 After=usage-control.service
@@ -20,11 +20,11 @@ Restart=on-failure
 RestartSec=5
 
 # Runs as root because only root may open the disks, with only the two
-# capabilities SMART commands need: CAP_SYS_RAWIO lets smartctl pass ATA and
-# SCSI commands to SATA, SAS and USB disks, CAP_SYS_ADMIN lets it send the
-# NVMe admin command that reads an NVMe disk's health log. smartctl only reads:
-# it opens the disks read-only, and only SATA/SCSI disks and NVMe controllers
-# are reachable at all. It writes nothing but its folder and needs no network.
+# capabilities the disk commands need: CAP_SYS_RAWIO lets it pass ATA commands
+# to SATA disks (SG_IO), CAP_SYS_ADMIN lets it send the NVMe admin command
+# that reads an NVMe disk's health log. It sends only commands that read, opens
+# the disks read-only, and only SATA/SCSI disks and NVMe controllers are
+# reachable at all. It writes nothing but its folder and needs no network.
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN

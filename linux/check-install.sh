@@ -56,8 +56,8 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
   exit 1
 fi
 
-# The smart add-on runs and writes its report also where smartmontools or
-# disks with SMART values are missing, as they may be on a CI machine.
+# The smart add-on runs and writes its report also where no disk answers
+# SMART commands, as on a CI machine's virtual disks.
 "$folder/install.sh" --addons=smart
 systemctl is-active --quiet usage-control-smart || { journalctl -u usage-control-smart --no-pager | tail -20 >&2; echo "the smart add-on is not running" >&2; exit 1; }
 for _ in $(seq 1 10); do

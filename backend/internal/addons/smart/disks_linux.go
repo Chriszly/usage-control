@@ -1,0 +1,276 @@
+//go:build linux
+
+package smart
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strings"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+)
+
+// linuxSource reads the disks Linux lists in /sys/block: SATA disks through
+// SG_IO, which passes ATA commands to them, and NVMe disks through the NVMe
+// admin command that reads a log page. Both need root's capabilities
+// CAP_SYS_RAWIO and CAP_SYS_ADMIN.
+type linuxSource struct {
+	// sys and dev are /sys and /dev, other folders in tests.
+	sys, dev string
+}
+
+func newSource() source {
+	return linuxSource{sys: "/sys", dev: "/dev"}
+}
+
+var (
+	sataName = regexp.MustCompile(`^sd[a-z]+$`)
+	nvmeName = regexp.MustCompile(`^(nvme[0-9]+)n[0-9]+$`)
+	nvmeCtrl = regexp.MustCompile(`^nvme[0-9]+$`)
+)
+
+// list returns the SATA (sd*) and NVMe (nvme*n*) disks in /sys/block,
+// without removable and virtual ones. An NVMe disk is read through its
+// controller, such as nvme0 for nvme0n1, once for all its namespaces.
+func (s linuxSource) list() ([]device, error) {
+	block := filepath.Join(s.sys, "block")
+	entries, err := os.ReadDir(block)
+	if err != nil {
+		return nil, err
+	}
+	devices := []device{}
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		match := nvmeName.FindStringSubmatch(name)
+		if !sataName.MatchString(name) && match == nil {
+			continue
+		}
+		if s.text(filepath.Join(block, name, "removable")) == "1" {
+			continue
+		}
+		// Virtual disks such as loop devices sit below /devices/virtual, as
+		// do NVMe namespaces with native multipath, which are real disks.
+		target, err := filepath.EvalSymlinks(filepath.Join(block, name))
+		if err != nil || (strings.Contains(target, "/devices/virtual/") && !strings.Contains(target, "/nvme-subsystem/")) {
+			continue
+		}
+		d := device{name: name, path: filepath.Join(s.dev, name)}
+		if match != nil {
+			ctrl := s.controller(filepath.Join(block, name, "device"), match[1])
+			d = device{
+				name: ctrl, path: filepath.Join(s.dev, ctrl), nvme: true,
+				model: s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "model")),
+			}
+		} else {
+			d.model = s.text(filepath.Join(block, name, "device", "model"))
+		}
+		if !seen[d.path] {
+			seen[d.path] = true
+			devices = append(devices, d)
+		}
+	}
+	return devices, nil
+}
+
+// controller returns the NVMe controller of a namespace from its device
+// link: the controller itself, or with native multipath its subsystem,
+// whose first controller is taken. guess is taken when neither works.
+func (s linuxSource) controller(link, guess string) string {
+	target, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return guess
+	}
+	if base := filepath.Base(target); nvmeCtrl.MatchString(base) {
+		return base
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return guess
+	}
+	for _, entry := range entries {
+		if nvmeCtrl.MatchString(entry.Name()) {
+			return entry.Name()
+		}
+	}
+	return guess
+}
+
+// text reads a sysfs file, or "" when it is missing.
+func (s linuxSource) text(path string) string {
+	b, err := os.ReadFile(path) //nolint:gosec // a file below /sys, named from /sys/block
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func (s linuxSource) read(d device) (Disk, error) {
+	// Read-only: the commands sent only read, and Linux lets the
+	// capabilities send them through a disk opened read-only.
+	fd, err := unix.Open(d.path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return Disk{}, err
+	}
+	defer unix.Close(fd) //nolint:errcheck // opened read-only
+	if d.nvme {
+		log, err := nvmeGetLogPage(fd, nvmeHealthLog, nvmeHealthLogSize)
+		if err != nil {
+			return Disk{}, err
+		}
+		return parseNVMeHealth(log)
+	}
+	return readATA(func(c ataCommand) (ataResult, []byte, error) { return sgATA(fd, c) })
+}
+
+// sgIOHdr is struct sg_io_hdr of <scsi/sg.h>.
+type sgIOHdr struct {
+	interfaceID    int32
+	dxferDirection int32
+	cmdLen         uint8
+	mxSbLen        uint8
+	iovecCount     uint16
+	dxferLen       uint32
+	dxferp         unsafe.Pointer
+	cmdp           unsafe.Pointer
+	sbp            unsafe.Pointer
+	timeout        uint32
+	flags          uint32
+	packID         int32
+	usrPtr         unsafe.Pointer
+	status         uint8
+	maskedStatus   uint8
+	msgStatus      uint8
+	sbLenWr        uint8
+	hostStatus     uint16
+	driverStatus   uint16
+	resid          int32
+	duration       uint32
+	info           uint32
+}
+
+const (
+	sgIO          = 0x2285
+	sgDxferNone   = -1
+	sgDxferFromDv = -3
+	// sgTimeout is how long one command may take, in milliseconds.
+	sgTimeout = 15000
+	// scsiCheckCondition is the SCSI status that comes with sense data.
+	scsiCheckCondition = 0x02
+)
+
+// errNoAnswer is returned when a disk answered a command without the
+// registers that hold the answer.
+var errNoAnswer = errors.New("the disk did not return its registers")
+
+// sgATA sends an ATA command to a SATA disk as ATA PASS-THROUGH (16) through
+// SG_IO, and returns the registers it answered with (for a command without
+// data) or the sector it returned.
+//
+//nolint:gosec // SG_IO takes pointers, which need unsafe.
+func sgATA(fd int, c ataCommand) (ataResult, []byte, error) {
+	cdb := c.cdb()
+	sense := make([]byte, 32)
+	hdr := sgIOHdr{
+		interfaceID:    'S',
+		dxferDirection: sgDxferNone,
+		cmdLen:         uint8(len(cdb)),
+		mxSbLen:        uint8(len(sense)),
+		cmdp:           unsafe.Pointer(&cdb[0]),
+		sbp:            unsafe.Pointer(&sense[0]),
+		timeout:        sgTimeout,
+	}
+	var data []byte
+	if c.dataIn {
+		data = make([]byte, 512)
+		hdr.dxferDirection = sgDxferFromDv
+		hdr.dxferLen = uint32(len(data))
+		hdr.dxferp = unsafe.Pointer(&data[0])
+	}
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), sgIO, uintptr(unsafe.Pointer(&hdr)))
+	runtime.KeepAlive(cdb)
+	runtime.KeepAlive(sense)
+	runtime.KeepAlive(data)
+	if errno != 0 {
+		return ataResult{}, nil, errno
+	}
+	if hdr.hostStatus != 0 {
+		return ataResult{}, nil, fmt.Errorf("SG_IO host status %#x", hdr.hostStatus)
+	}
+	result, ok := parseATASense(sense[:hdr.sbLenWr])
+	if ok && result.status&ataStatusError != 0 {
+		return ataResult{}, nil, fmt.Errorf("the disk refused the command %#x (error %#x)", c.command, result.err)
+	}
+	switch {
+	case c.dataIn && hdr.status == 0:
+		return result, data, nil
+	case c.dataIn:
+		return ataResult{}, nil, fmt.Errorf("SCSI status %#x", hdr.status)
+	case !ok && hdr.status == scsiCheckCondition:
+		return ataResult{}, nil, fmt.Errorf("SCSI status %#x without the registers", hdr.status)
+	case !ok:
+		return ataResult{}, nil, errNoAnswer
+	}
+	return result, nil, nil
+}
+
+// nvmeAdminCmd is struct nvme_passthru_cmd of <linux/nvme_ioctl.h>.
+type nvmeAdminCmd struct {
+	opcode      uint8
+	flags       uint8
+	rsvd1       uint16
+	nsid        uint32
+	cdw2        uint32
+	cdw3        uint32
+	metadata    uint64
+	addr        uint64
+	metadataLen uint32
+	dataLen     uint32
+	cdw10       uint32
+	cdw11       uint32
+	cdw12       uint32
+	cdw13       uint32
+	cdw14       uint32
+	cdw15       uint32
+	timeoutMs   uint32
+	result      uint32
+}
+
+const (
+	// nvmeIoctlAdminCmd is NVME_IOCTL_ADMIN_CMD, _IOWR('N', 0x41, struct
+	// nvme_passthru_cmd).
+	nvmeIoctlAdminCmd = 0xC0484E41
+	nvmeGetLogPageOp  = 0x02
+	nvmeAllNamespaces = 0xFFFFFFFF
+)
+
+// nvmeGetLogPage reads a log page of an NVMe controller with the admin
+// command Get Log Page.
+//
+//nolint:gosec // the NVMe ioctl takes pointers, which need unsafe.
+func nvmeGetLogPage(fd int, id uint8, size int) ([]byte, error) {
+	data := make([]byte, size)
+	cmd := nvmeAdminCmd{
+		opcode:  nvmeGetLogPageOp,
+		nsid:    nvmeAllNamespaces,
+		addr:    uint64(uintptr(unsafe.Pointer(&data[0]))),
+		dataLen: uint32(size),
+		// The number of dwords minus 1, and the log page.
+		cdw10:     uint32(size/4-1)<<16 | uint32(id),
+		timeoutMs: sgTimeout,
+	}
+	r, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), nvmeIoctlAdminCmd, uintptr(unsafe.Pointer(&cmd)))
+	runtime.KeepAlive(data)
+	if errno != 0 {
+		return nil, errno
+	}
+	if r != 0 {
+		return nil, fmt.Errorf("NVMe status %#x", r)
+	}
+	return data, nil
+}

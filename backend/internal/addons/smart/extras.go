@@ -56,11 +56,10 @@ func Extras(disks []Disk) []metrics.Extra {
 		Titles: map[string]string{"de": "Laufwerkszustand", "fr": "Santé des disques", "es": "Salud de los discos"},
 	}
 	for _, disk := range disks {
-		name := strings.TrimPrefix(disk.Name, "/dev/")
-		id := idOf(name)
-		prefix := name
+		id := idOf(disk.Name)
+		prefix := disk.Name
 		if disk.Model != "" {
-			prefix = disk.Model + " (" + name + ")"
+			prefix = disk.Model + " (" + disk.Name + ")"
 		}
 		if disk.Passed != nil {
 			text := "passed"
@@ -108,7 +107,7 @@ func labelled(prefix string, labels map[string]string) map[string]string {
 
 var notInID = regexp.MustCompile(`[^a-z0-9]+`)
 
-// idOf turns a device name such as "sda" or "bus/0" into the start of an id:
+// idOf turns a device name such as "sda" or "Disk 0" into the start of an id:
 // lowercase letters and digits joined by "-", short enough that the longest
 // value id still fits in 40 characters.
 func idOf(name string) string {
