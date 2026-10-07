@@ -153,6 +153,7 @@ jobs:
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/kernel-tests.exe ./internal/addons/kernel
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/wifi-tests.exe ./internal/addons/wifi
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/memory-tests.exe ./internal/addons/memory
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/processes-tests.exe ./internal/addons/processes
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -196,6 +197,9 @@ jobs:
           dist\tests\wifi-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
           dist\tests\memory-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Only the Windows listing: the other processes tests are the same on Linux.
+          dist\tests\processes-tests.exe '-test.v' '-test.run=Windows'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
   installer:

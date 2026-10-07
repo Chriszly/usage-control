@@ -817,6 +817,59 @@ function containersAddOn(names: string[]): Extra[] {
   ];
 }
 
+/**
+ * What the processes add-on reports: the busiest processes by CPU and by memory, each as [pid, name], busiest
+ * first. Their values come from values() as "extra:processes-cpu/pid-<pid>" and "extra:processes-memory/pid-<pid>".
+ */
+function processesAddOn(cpu: [number, string][], memory: [number, string][]): Extra[] {
+  const items = (processes: [number, string][], unit: 'percent' | 'bytes') => {
+    const seen: Record<string, number> = {};
+    return processes.map(([pid, name]) => {
+      seen[name] = (seen[name] ?? 0) + 1;
+      const label = seen[name] > 1 ? `${name} (${seen[name]})` : name;
+      return { id: `pid-${pid}`, label, unit, history: false };
+    });
+  };
+  return [
+    {
+      id: 'processes-cpu',
+      title: 'Top processes by CPU',
+      titles: {
+        de: 'Prozesse mit der meisten CPU-Last',
+        fr: 'Processus les plus gourmands en CPU',
+        es: 'Procesos con más uso de CPU',
+      },
+      items: items(cpu, 'percent'),
+    },
+    {
+      id: 'processes-memory',
+      title: 'Top processes by memory',
+      titles: {
+        de: 'Prozesse mit dem meisten Arbeitsspeicher',
+        fr: 'Processus les plus gourmands en mémoire',
+        es: 'Procesos con más uso de memoria',
+      },
+      items: items(memory, 'bytes'),
+    },
+  ];
+}
+
+/** The values of the processes add-on: each process's share of cpu, and its memory, keyed by pid. */
+function processValues(
+  cpu: number,
+  shares: Record<number, number>,
+  memory: Record<number, number>,
+): Values {
+  const values: Values = {};
+  for (const [pid, share] of Object.entries(shares)) {
+    values[`extra:processes-cpu/pid-${pid}`] = cpu * share;
+  }
+  for (const [pid, bytes] of Object.entries(memory)) {
+    values[`extra:processes-memory/pid-${pid}`] = bytes;
+  }
+  return values;
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -857,6 +910,24 @@ const piHub: DemoMachine = {
       ['udp', 68, '0.0.0.0'],
       ['udp', 5353, '0.0.0.0, ::'],
     ]),
+    ...processesAddOn(
+      [
+        [812, 'usage-control'],
+        [655, 'dockerd'],
+        [1432, 'pihole-FTL'],
+        [610, 'containerd'],
+        [1, 'systemd'],
+        [433, 'systemd-journald'],
+      ],
+      [
+        [655, 'dockerd'],
+        [1432, 'pihole-FTL'],
+        [812, 'usage-control'],
+        [610, 'containerd'],
+        [433, 'systemd-journald'],
+        [1, 'systemd'],
+      ],
+    ),
   ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
@@ -911,6 +982,11 @@ const piHub: DemoMachine = {
       ...kernelValues(t, step, 900, cpu, 1),
       ...memoryValues(t, step, 140, 8 * GB, cpu / 100),
       'extra:ports/count': 4,
+      ...processValues(
+        cpu,
+        { 812: 0.3, 655: 0.18, 1432: 0.12, 610: 0.08, 1: 0.03, 433: 0.02 },
+        { 655: 92e6, 1432: 61e6, 812: 38e6, 610: 34e6, 433: 21e6, 1: 12e6 },
+      ),
     };
   },
 };
@@ -1375,6 +1451,24 @@ const linuxServer: DemoMachine = {
         values: ['temperature', 'power-on-hours', 'media-errors', 'used'],
       },
     ]),
+    ...processesAddOn(
+      [
+        [48213, 'cc1plus'],
+        [48207, 'cc1plus'],
+        [48190, 'cc1plus'],
+        [47950, 'ld'],
+        [2210, 'dockerd'],
+        [3304, 'java'],
+      ],
+      [
+        [3304, 'java'],
+        [5120, 'postgres'],
+        [2210, 'dockerd'],
+        [48213, 'cc1plus'],
+        [48207, 'cc1plus'],
+        [1890, 'containerd'],
+      ],
+    ),
   ],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -1423,6 +1517,18 @@ const linuxServer: DemoMachine = {
       'extra:smart/s69enx0t123456a-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
       'extra:smart/s69enx0t123456a-media-errors': 0,
       'extra:smart/s69enx0t123456a-used': 4,
+      ...processValues(
+        cpu,
+        { 48213: 0.22, 48207: 0.2, 48190: 0.17, 47950: 0.08, 2210: 0.03, 3304: 0.02 },
+        {
+          3304: 8.2 * GB,
+          5120: 3.1 * GB,
+          2210: 0.9 * GB + 0.4 * GB * build,
+          48213: 0.15 * GB + 0.6 * GB * build,
+          48207: 0.15 * GB + 0.5 * GB * build,
+          1890: 0.2 * GB,
+        },
+      ),
     };
   },
 };

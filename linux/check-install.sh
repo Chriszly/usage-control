@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart -u usage-control-containers --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart -u usage-control-containers -u usage-control-processes --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -161,9 +161,10 @@ fi
 
 # The inodes add-on runs next to them and reports at least the root
 # filesystem; the power add-on stays installed. The memory add-on runs next
-# to them too, all writing to the shared add-on folder. The kernel and memory
-# add-ons stay for the uninstall to remove.
-"$folder/install.sh" --addons=power,inodes,kernel,memory
+# to them too, all writing to the shared add-on folder, and the processes
+# add-on lists the busiest processes, the CPU ones from its second read on.
+# The kernel, memory and processes add-ons stay for the uninstall to remove.
+"$folder/install.sh" --addons=power,inodes,kernel,memory,processes
 systemctl is-active --quiet usage-control-inodes || { journalctl -u usage-control-inodes --no-pager | tail -20 >&2; echo "the inodes add-on is not running" >&2; exit 1; }
 for _ in $(seq 1 10); do
   grep -qs '"label":"/"' /run/usage-control-addons/inodes.json && break
@@ -177,6 +178,13 @@ for _ in $(seq 1 10); do
   sleep 1
 done
 grep -q '"id":"committed"' /run/usage-control-addons/memory.json || { echo "the memory add-on wrote no report" >&2; exit 1; }
+systemctl is-active --quiet usage-control-processes || { journalctl -u usage-control-processes --no-pager | tail -20 >&2; echo "the processes add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 15); do
+  grep -qs '"id":"processes-cpu"' /run/usage-control-addons/processes.json && break
+  sleep 1
+done
+grep -q '"id":"processes-memory"' /run/usage-control-addons/processes.json || { echo "the processes add-on reported no processes by memory" >&2; exit 1; }
+grep -q '"id":"processes-cpu"' /run/usage-control-addons/processes.json || { echo "the processes add-on reported no processes by CPU" >&2; exit 1; }
 # Once power has written its report, it must be able to write it again.
 for _ in $(seq 1 10); do
   [[ -f /run/usage-control-addons/power.json ]] && break
@@ -192,10 +200,11 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on can no 
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
   systemctl cat usage-control-inodes > /dev/null 2>&1 || systemctl cat usage-control-kernel > /dev/null 2>&1 ||
-  systemctl cat usage-control-memory > /dev/null 2>&1 ||
+  systemctl cat usage-control-memory > /dev/null 2>&1 || systemctl cat usage-control-processes > /dev/null 2>&1 ||
   [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /usr/local/bin/usage-control-inodes ||
-  -e /usr/local/bin/usage-control-kernel || -e /usr/local/bin/usage-control-memory || -e /etc/usage-control.env ]]; then
+  -e /usr/local/bin/usage-control-kernel || -e /usr/local/bin/usage-control-memory ||
+  -e /usr/local/bin/usage-control-processes || -e /etc/usage-control.env ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, containers, gpu, smart, inodes and memory add-ons and uninstall work."
+echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, containers, gpu, smart, inodes, memory and processes add-ons and uninstall work."
