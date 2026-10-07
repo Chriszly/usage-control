@@ -20,6 +20,9 @@ type rangeCache struct {
 
 	mu      sync.Mutex
 	answers map[rangeKey]rangeAnswer
+	// forgotten counts the calls of forget, so an answer read from the
+	// database before one is not kept after it.
+	forgotten uint64
 }
 
 type rangeKey struct {
@@ -39,23 +42,30 @@ func newRangeCache() rangeCache {
 	return rangeCache{now: time.Now, answers: map[rangeKey]rangeAnswer{}}
 }
 
-// get returns the answer kept for the range, if it still serves.
-func (c *rangeCache) get(device string, from, to time.Time, step time.Duration) ([]Series, bool) {
+// get returns the answer kept for the range, if it still serves. When it
+// does not, it returns the count of forget calls so far, for put.
+func (c *rangeCache) get(device string, from, to time.Time, step time.Duration) ([]Series, bool, uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	answer, ok := c.answers[rangeKey{device, step}]
 	if !ok || answer.from != stepOf(from, step) || answer.to != stepOf(to, step) || c.now().Sub(answer.at) >= cacheFor {
-		return nil, false
+		return nil, false, c.forgotten
 	}
-	return answer.series, true
+	return answer.series, true, c.forgotten
 }
 
 // put keeps the answer for the range and forgets the answers too old to
 // serve, so the cache holds at most one answer per device and step in use.
-func (c *rangeCache) put(device string, from, to time.Time, step time.Duration, series []Series) {
+// forgotten is what get returned before the answer was read: when forget
+// was called since, the answer may have values deleted meanwhile, and is not
+// kept.
+func (c *rangeCache) put(device string, from, to time.Time, step time.Duration, series []Series, forgotten uint64) {
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if forgotten != c.forgotten {
+		return
+	}
 	for key, answer := range c.answers {
 		if now.Sub(answer.at) >= cacheFor {
 			delete(c.answers, key)
@@ -68,6 +78,7 @@ func (c *rangeCache) put(device string, from, to time.Time, step time.Duration, 
 func (c *rangeCache) forget(device string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.forgotten++
 	for key := range c.answers {
 		if key.device == device {
 			delete(c.answers, key)

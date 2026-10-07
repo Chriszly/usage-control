@@ -33,7 +33,7 @@ func TestRecorderStoresTheAverageOfItsReadings(t *testing.T) {
 
 	recorder.read(ctx)
 	recorder.read(ctx)
-	recorder.store(ctx, now.Add(-time.Minute), now)
+	recorder.store(ctx, now.Add(-time.Minute), now, recorder.minuteOf(now))
 
 	got, err := store.Range(ctx, LocalDevice, now.Add(-time.Hour), now.Add(time.Second), time.Second)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestRecorderStoresUnderItsDevice(t *testing.T) {
 	}
 
 	recorder.read(ctx)
-	recorder.store(ctx, now.Add(-time.Minute), now)
+	recorder.store(ctx, now.Add(-time.Minute), now, recorder.minuteOf(now))
 
 	local, err := store.Range(ctx, LocalDevice, now.Add(-time.Hour), now.Add(time.Second), time.Second)
 	if err != nil || len(local) != 0 {
@@ -83,11 +83,11 @@ func TestRecorderLeavesStoringToFetchWhenItCan(t *testing.T) {
 			Recent:    &Recent{},
 			Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
 			Device:    "living-room-pi",
-			Fetch:     func(context.Context) bool { calls++; return fetched },
+			Fetch:     func(context.Context, time.Time) bool { calls++; return fetched },
 		}
 
 		recorder.read(ctx)
-		recorder.store(ctx, now.Add(-time.Minute), now)
+		recorder.store(ctx, now.Add(-time.Minute), now, recorder.minuteOf(now))
 
 		got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Second), time.Second)
 		if err != nil || calls != 1 || (len(got) == 0) != fetched {
@@ -102,13 +102,13 @@ func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
 	now := time.Now().Truncate(time.Minute).Add(20 * time.Second)
 	for name, c := range map[string]struct {
 		last  time.Time
-		fetch func(context.Context) bool
+		fetch func(context.Context, time.Time) bool
 		want  bool
 	}{
 		"in a new minute":                   {last: now.Truncate(time.Minute).Add(-time.Minute), want: true},
 		"before storing any":                {want: true},
 		"in the minute stored last":         {last: now.Truncate(time.Minute)},
-		"for a device the hub fetches from": {fetch: func(context.Context) bool { return true }},
+		"for a device the hub fetches from": {fetch: func(context.Context, time.Time) bool { return true }},
 	} {
 		store := openTestStore(t)
 		recorder := &Recorder{
@@ -197,6 +197,67 @@ func TestUntilStoreWaitsForTheSameSecondOfAMinute(t *testing.T) {
 	}
 }
 
+func TestRecorderStoresUnderTheMinuteItWasDueFor(t *testing.T) {
+	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
+	for _, lag := range []time.Duration{0, fetchLag} {
+		recorder := &Recorder{}
+		if lag != 0 {
+			recorder.Fetch = func(context.Context, time.Time) bool { return true }
+		}
+		// Due for the minute before minute, whatever the clock shows when the
+		// timer fires.
+		wait, due := recorder.next(minute.Add(-40*time.Second), time.Time{})
+		if want := minute.Add(-time.Minute); !due.Equal(want) || wait != 40*time.Second+storeAt+lag-time.Minute {
+			t.Errorf("lag %v: next() = %v, %v; want %v, at its storeAt", lag, wait, due, want)
+		}
+		// The clock was set back by half a minute after it stored that
+		// minute: the next one is due, not the same one again.
+		stored := minute.Add(-time.Minute)
+		at := stored.Add(storeAt + lag - 30*time.Second)
+		if wait, due := recorder.next(at, stored); !due.Equal(minute) || !at.Add(wait).Equal(minute.Add(storeAt+lag)) {
+			t.Errorf("lag %v: next() after the clock went back = %v, %v; want %v at its storeAt", lag, wait, due, minute)
+		}
+		// The clock was set forward by half a minute: the minute it shows is
+		// due next, after the one it stored.
+		at = stored.Add(storeAt + lag + 30*time.Second)
+		if _, due := recorder.next(at, stored); !due.Equal(minute) {
+			t.Errorf("lag %v: next() after the clock went forward = %v; want %v", lag, due, minute)
+		}
+	}
+}
+
+func TestRecorderStoresUnderTheMinuteTheClockShowsAfterAJump(t *testing.T) {
+	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
+	for _, lag := range []time.Duration{0, fetchLag} {
+		recorder := &Recorder{}
+		if lag != 0 {
+			recorder.Fetch = func(context.Context, time.Time) bool { return true }
+		}
+		at := minute.Add(storeAt + lag)
+		last := minute.Add(-time.Minute)
+		// On time, or with the clock set by some seconds: the minute it was due for.
+		for _, off := range []time.Duration{0, 20 * time.Second, -20 * time.Second} {
+			if got, ok := recorder.storedUnder(at.Add(off), minute, last); !ok || !got.Equal(minute) {
+				t.Errorf("lag %v, off %v: storedUnder() = %v, %v; want %v", lag, off, got, ok, minute)
+			}
+		}
+		// The clock jumped hours forward, as by NTP after a start from a saved
+		// time or a resume from suspend: the minute the clock shows.
+		later := at.Add(3 * time.Hour)
+		if got, ok := recorder.storedUnder(later, minute, last); !ok || !got.Equal(minute.Add(3*time.Hour)) {
+			t.Errorf("lag %v: storedUnder() after a jump forward = %v, %v; want %v", lag, got, ok, minute.Add(3*time.Hour))
+		}
+		// Hours back: before the minute stored last, so nothing is stored.
+		if got, ok := recorder.storedUnder(at.Add(-3*time.Hour), minute, last); ok {
+			t.Errorf("lag %v: storedUnder() after a jump back = %v, true; want nothing stored", lag, got)
+		}
+		// The next minute is due after the one the clock shows.
+		if _, due := recorder.next(later, minute.Add(3*time.Hour)); !due.Equal(minute.Add(3*time.Hour + time.Minute)) {
+			t.Errorf("lag %v: next() after a jump forward = %v, want %v", lag, due, minute.Add(3*time.Hour+time.Minute))
+		}
+	}
+}
+
 func TestRecorderOfAnotherDeviceStoresUnderTheMinuteBefore(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -207,11 +268,11 @@ func TestRecorderOfAnotherDeviceStoresUnderTheMinuteBefore(t *testing.T) {
 		Recent:    &Recent{},
 		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-30 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
 		Device:    "living-room-pi",
-		Fetch:     func(context.Context) bool { return false },
+		Fetch:     func(context.Context, time.Time) bool { return false },
 	}
 	recorder.read(ctx)
 
-	recorder.store(ctx, now.Add(-time.Minute), now)
+	recorder.store(ctx, now.Add(-time.Minute), now, recorder.minuteOf(now))
 
 	got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
 	if want := now.Truncate(time.Minute).Add(-time.Minute).Unix(); err != nil || len(got) == 0 || got[0].Points[0].Time != want {

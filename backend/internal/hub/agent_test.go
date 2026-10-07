@@ -79,21 +79,23 @@ func TestAgentOnlyConnectsToTheLocalNetwork(t *testing.T) {
 	}
 }
 
-func TestAgentTellsTheHubsPagePort(t *testing.T) {
-	sent := make(chan string, 1)
+func TestAgentTellsTheHubsPagePortAndID(t *testing.T) {
+	sent := make(chan http.Header, 1)
 	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sent <- r.Header.Get(PagePortHeader)
+		sent <- r.Header
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer device.Close()
 	agent := NewAgent(strings.TrimPrefix(device.URL, "http://"))
 	agent.pagePort = "9393"
+	agent.hubID = "0123456789abcdef0123456789abcdef"
 
 	if _, err := agent.Collect(context.Background()); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if got := <-sent; got != "9393" {
-		t.Errorf("%s = %q, want 9393", PagePortHeader, got)
+	got := <-sent
+	if got.Get(PagePortHeader) != "9393" || got.Get(HubIDHeader) != agent.hubID {
+		t.Errorf("%s = %q, %s = %q; want 9393 and %s", PagePortHeader, got.Get(PagePortHeader), HubIDHeader, got.Get(HubIDHeader), agent.hubID)
 	}
 }
 

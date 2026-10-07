@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -28,9 +27,10 @@ type MinuteSource interface {
 // on this machine's clock, with how the extras among them are described.
 // Asking with after tells that the hub has stored everything up to it, so
 // after may not be later than this machine's time: there are no minutes
-// after it yet. A hub sends hub.PagePortHeader with every request; it is told
-// apart from other hubs by the address it asks from. A request without the
-// header is not from a hub, so it reads the minutes but deletes none.
+// after it yet. A hub sends its id as hub.HubIDHeader with every request,
+// which tells it apart from other hubs. A request without a valid id is not
+// from a hub, or from a hub of a version that sends none, so it reads the
+// minutes but deletes none, and the buffer keeps them for its span.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
@@ -64,22 +64,13 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 	}
 }
 
-// hubAsking returns the address of the hub a request is from, or empty for
-// a request that is not from a hub.
+// hubAsking returns the id of the hub a request is from, or empty for a
+// request that is not from a hub.
 func hubAsking(r *http.Request) string {
-	if r.Header.Get(hub.PagePortHeader) == "" {
-		return ""
+	if id := r.Header.Get(hub.HubIDHeader); hub.ValidHubID(id) {
+		return id
 	}
-	return askedFrom(r)
-}
-
-// askedFrom returns the address a request came from, without its port, which
-// changes from one connection to the next.
-func askedFrom(r *http.Request) string {
-	if sender, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
-		return sender.Addr().Unmap().WithZone("").String()
-	}
-	return r.RemoteAddr
+	return ""
 }
 
 // extrasAmong returns how the extras among minutes are described, or nil

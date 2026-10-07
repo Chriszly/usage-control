@@ -51,6 +51,8 @@ type Agent struct {
 	client     *http.Client
 	// pagePort is sent as PagePortHeader; empty sends none.
 	pagePort string
+	// hubID is sent as HubIDHeader; empty sends none.
+	hubID string
 	// maxEntries is how many groups of extras, and values in each, are kept
 	// of an answer.
 	maxEntries int
@@ -146,6 +148,9 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 	}
 	if a.pagePort != "" {
 		request.Header.Set(PagePortHeader, a.pagePort)
+	}
+	if a.hubID != "" {
+		request.Header.Set(HubIDHeader, a.hubID)
 	}
 	response, err := a.client.Do(request)
 	if err != nil {
