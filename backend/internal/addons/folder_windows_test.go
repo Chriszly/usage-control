@@ -27,16 +27,46 @@ func junction(t *testing.T) (target, link string) {
 	return target, link
 }
 
-func TestWindowsCheckFolderRefusesJunctions(t *testing.T) {
+func TestWindowsOpenFolderRefusesJunctions(t *testing.T) {
 	target, link := junction(t)
-	if err := checkFolder(target); err != nil {
-		t.Errorf("checkFolder(a plain folder) error = %v, want nil", err)
+	folder, err := openFolder(target)
+	if err != nil {
+		t.Errorf("openFolder(a plain folder) error = %v, want nil", err)
+	} else {
+		_ = folder.Close()
 	}
-	if err := checkFolder(link); err == nil {
-		t.Error("checkFolder(a junction) error = nil, want an error")
+	if folder, err := openFolder(link); err == nil {
+		_ = folder.Close()
+		t.Error("openFolder(a junction) error = nil, want an error")
 	}
-	if err := checkFolder(filepath.Join(link, "below")); err == nil {
-		t.Error("checkFolder(a folder below a junction) error = nil, want an error")
+	if folder, err := openFolder(filepath.Join(link, "below")); err == nil {
+		_ = folder.Close()
+		t.Error("openFolder(a folder below a junction) error = nil, want an error")
+	}
+}
+
+// The folder is checked once it is open, and the add-on writes through it.
+// While it is open, Windows refuses to rename it (os.OpenRoot opens it
+// without FILE_SHARE_DELETE), so it cannot be swapped for a junction between
+// the check and the write: this is what the check rests on.
+func TestWindowsTheOpenFolderCannotBeSwapped(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "addons")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	folder, err := openFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = folder.Close() }()
+	if err := os.Rename(dir, dir+"-moved"); err == nil {
+		t.Fatal("renaming the open add-on folder worked, so it could be swapped for a junction")
+	}
+	if err := metrics.WriteAddOnReport(folder, "test.json", metrics.AddOnReport{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "test.json")); err != nil {
+		t.Errorf("the report is not in the folder: %v", err)
 	}
 }
 

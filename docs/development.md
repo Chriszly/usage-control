@@ -96,14 +96,14 @@ bash ci/check-no-secrets.sh
 | `vulnerabilities.yml` | every night, the updates that fix known vulnerabilities on main (`ci/fix-vulnerabilities.sh`), as one pull request; fails when a vulnerability has no fix yet |
 | `demo.yml` | publishes the demo of a release to the root of GitHub Pages when the release is published, and the demo of main to `main/` on every merge to main that changes the frontend |
 
-A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own.
+A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own. Pre-release tags, such as `1.0.4-rc1`, are not supported: the release workflows fail on them before they publish anything.
 
 The version counts the pull requests merged since the last release, in order:
 
 - Each feature raises the last number: `1.0.3` becomes `1.0.4`. The tenth feature raises the middle one instead: `1.0.9` becomes `1.1.0`.
 - Each bugfix adds a letter or moves it on: `1.0.4` becomes `1.0.4a`, then `1.0.4b`; after `z` comes `aa`. The next feature drops the letters again.
 
-Docker images and the update check use the version as it is. A Windows installer's version may only hold numbers, so its letters become a fourth number: `1.0.4h` is `1.0.4.8` in Windows' list of apps, and still installs over `1.0.4`.
+Docker images and the update check use the version as it is. A Windows installer's version may only hold numbers, so its letters become a fourth number: `1.0.4h` is `1.0.4.8` in Windows' list of apps, and still installs over `1.0.4`. Windows Installer compares only the first three numbers, so the installer also remembers the fourth and refuses to install an older bugfix of the same version, such as `1.0.4g`, over a newer one.
 
 ## Repository
 

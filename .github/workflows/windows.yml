@@ -3,13 +3,15 @@ name: Windows installer
 # Builds the Windows programs (the service and the tray icon) and runs the
 # Windows-only tests on every pull request. The installers
 # (usage-control-<version>-x64.msi and -arm64.msi) are built on main, on
-# version tags, and on pull requests that change the installer or the tray
-# icon (windows/, this workflow, backend/cmd/usage-control-tray or
-# backend/cmd/tray-icons); that job also checks on a Windows machine that the
-# x64 one installs, starts the service and the tray icon and keeps its options
-# across an update (windows/check-installer.ps1). Main keeps the installers as
-# a workflow artifact; a version tag (v1.2.3 or 1.2.3) also attaches them to
-# that GitHub release.
+# version tags, and on pull requests that change the installer or a program
+# it installs or the code they run as services (windows/, this workflow,
+# backend/cmd, backend/internal/addons, winservice, pdh or
+# metrics/addons*.go); that job also checks on a Windows machine that the
+# x64 one installs, starts the service, the add-ons and the tray icon and
+# keeps its options across an update (windows/check-installer.ps1), which
+# takes a few minutes. Main keeps the
+# installers as a workflow artifact; a version tag (v1.2.3 or 1.2.3) also
+# attaches them to that GitHub release.
 on:
   pull_request:
   push:
@@ -39,6 +41,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       msi_version: ${{ steps.version.outputs.msi_version }}
+      bugfix: ${{ steps.version.outputs.bugfix }}
       installer: ${{ steps.changes.outputs.installer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,15 +50,15 @@ jobs:
           # is the base branch, so the PR's changes are the diff to HEAD^1.
           fetch-depth: 2
 
-      # Pull requests only build the installers when they change them or the
-      # tray icon they install.
+      # Pull requests only build the installers when they change them, a
+      # program they install, or the add-on and service code those share.
       - name: Does this change the installer
         id: changes
         run: |
           set -euo pipefail
           installer=true
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] &&
-            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/(usage-control-tray|tray-icons)/)'; then
+            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/|backend/internal/(addons|winservice|pdh)/|backend/internal/metrics/addons[^/]*\.go$)'; then
             installer=false
           fi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
@@ -65,7 +68,9 @@ jobs:
       # version 0.0.<run number>, so every newer build can be installed over
       # an older one. An installer's version holds only numbers, so the
       # letters of a bugfix release become a fourth number: 1.2.3a is 1.2.3.1,
-      # 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27.
+      # 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27. That number is also the
+      # installer's Bugfix, which keeps an older bugfix from replacing a newer
+      # one; it is 0 without letters.
       - name: Version
         id: version
         run: |
@@ -73,25 +78,29 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version="${GITHUB_REF_NAME#v}"
             if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)([a-z]*)$ ]]; then
-              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional)." >&2
+              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional). Pre-release tags such as v1.2.3-rc1 are not supported." >&2
               exit 1
             fi
             msi_version="${BASH_REMATCH[1]}"
             letters="${BASH_REMATCH[2]}"
+            bugfix=0
             if [[ -n "$letters" ]]; then
-              number=0
               for ((i = 0; i < ${#letters}; i++)); do
                 code="$(printf '%d' "'${letters:i:1}")"
-                number=$((number * 26 + code - 96))
+                bugfix=$((bugfix * 26 + code - 96))
               done
-              msi_version+=".$number"
+              msi_version+=".$bugfix"
             fi
           else
             version="dev-${GITHUB_SHA::7}"
             msi_version="0.0.$GITHUB_RUN_NUMBER"
+            bugfix=0
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "msi_version=$msi_version"
+            echo "bugfix=$bugfix"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -216,6 +225,7 @@ jobs:
     env:
       VERSION: ${{ needs.programs.outputs.version }}
       MSI_VERSION: ${{ needs.programs.outputs.msi_version }}
+      BUGFIX: ${{ needs.programs.outputs.bugfix }}
     defaults:
       run:
         shell: pwsh
@@ -241,7 +251,7 @@ jobs:
         run: |
           foreach ($arch in @{ x64 = 'amd64'; arm64 = 'arm64' }.GetEnumerator()) {
             wix build windows\usage-control.wxs -arch $arch.Key `
-              -d Version=$env:MSI_VERSION -d Binary=dist\$($arch.Value)\usage-control.exe `
+              -d Version=$env:MSI_VERSION -d Bugfix=$env:BUGFIX -d Binary=dist\$($arch.Value)\usage-control.exe `
               -d TrayBinary=dist\$($arch.Value)\usage-control-tray.exe -d AddOns=dist\$($arch.Value)\addons `
               -d Icon=dist\usage-control.ico `
               -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `
@@ -253,13 +263,15 @@ jobs:
       # The check updates to a newer version, so it also gets an installer
       # with the next bugfix version, which is not published. A bugfix only
       # changes the fourth number, which Windows Installer leaves out when it
-      # compares versions, so this also checks that it still replaces the old one.
+      # compares versions, so this also checks that it still replaces the old
+      # one, and that the old one then refuses to replace it.
       - name: Install, update and uninstall it
         run: |
           $version = [version]$env:MSI_VERSION
-          $newer = "$($version.Major).$($version.Minor).$($version.Build).$([Math]::Max($version.Revision, 0) + 1)"
+          $bugfix = [int]$env:BUGFIX + 1
+          $newer = "$($version.Major).$($version.Minor).$($version.Build).$bugfix"
           wix build windows\usage-control.wxs -arch x64 `
-            -d Version=$newer -d Binary=dist\amd64\usage-control.exe `
+            -d Version=$newer -d Bugfix=$bugfix -d Binary=dist\amd64\usage-control.exe `
             -d TrayBinary=dist\amd64\usage-control-tray.exe -d AddOns=dist\amd64\addons `
             -d Icon=dist\usage-control.ico `
             -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext `

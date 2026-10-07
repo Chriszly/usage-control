@@ -83,8 +83,9 @@ func Serve(ctx context.Context, name string, read Read) error {
 	file := filepath.Join(dir, name+".json")
 	slog.Info("writing to the add-on folder", "file", file)
 	run(ctx, read, file, Interval)
-	if checkFolder(dir) == nil {
-		_ = os.Remove(file) //nolint:gosec // the add-on's own file, in the folder its setting names
+	if folder, err := openFolder(dir); err == nil {
+		_ = folder.Remove(name + ".json")
+		_ = folder.Close()
 	}
 	return nil
 }
@@ -122,13 +123,15 @@ func run(ctx context.Context, read Read, file string, interval time.Duration) {
 	}
 }
 
-// writeReport writes report to file, unless its folder is one add-ons do not
-// write to (see checkFolder).
+// writeReport writes report to file through its folder, unless that folder is
+// one add-ons do not write to (see openFolder).
 func writeReport(file string, report metrics.AddOnReport) error {
-	if err := checkFolder(filepath.Dir(file)); err != nil {
+	folder, err := openFolder(filepath.Dir(file))
+	if err != nil {
 		return err
 	}
-	return metrics.WriteAddOnReport(file, report)
+	defer func() { _ = folder.Close() }()
+	return metrics.WriteAddOnReport(folder, filepath.Base(file), report)
 }
 
 // readFailures holds the files whose failed read WarnRead has logged.
