@@ -21,6 +21,8 @@ Readings are cheap: single file reads rather than scanning every process. Values
 
 CPU usage and disk and network speeds are measured between two readings, so they are averages over the last 2 seconds.
 
+When the network counters cannot be read, as when Windows loses an adapter during the reading or Linux hides the host's first process (`/proc/1`, with `hidepid`), the reading goes on without network cards, and this is logged once; outside a container, Linux then reads the program's own `/proc/net/dev`, which is the same network. On Windows, where reading the temperature sensors is a costly WMI query that usually finds none for the Local Service account, a reading that finds none is tried again only after 10 minutes.
+
 ## The snapshot
 
 `GET /api/metrics` answers with one snapshot. A hub receives the same JSON from each device.
