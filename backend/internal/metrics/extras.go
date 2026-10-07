@@ -1,8 +1,10 @@
 package metrics
 
 import (
+	"maps"
 	"math"
 	"regexp"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -134,13 +136,17 @@ func cleanItems(items []ExtraItem, maxEntries int) []ExtraItem {
 	return clean
 }
 
+// cleanTranslations keeps the valid translations, in the order of their
+// language codes, so the same ones are kept on every read when there are too
+// many.
 func cleanTranslations(texts map[string]string) map[string]string {
 	var clean map[string]string
-	for language, text := range texts {
+	for _, language := range slices.Sorted(maps.Keys(texts)) {
 		if len(clean) == maxTranslations {
 			break
 		}
-		if !validLanguage.MatchString(language) {
+		text := texts[language]
+		if text == "" || !validLanguage.MatchString(language) {
 			continue
 		}
 		if clean == nil {

@@ -12,6 +12,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
@@ -63,6 +64,8 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 }
 
 // Extras returns the readings as the group of extras the collector shows.
+// Labels that occur more than once, such as two GPUs of the same model, are
+// numbered in every language, so each row can be told apart.
 func Extras(readings []Reading) []metrics.Extra {
 	if len(readings) == 0 {
 		return nil
@@ -72,18 +75,38 @@ func Extras(readings []Reading) []metrics.Extra {
 		Title:  "Power",
 		Titles: map[string]string{"de": "Leistungsaufnahme", "fr": "Consommation", "es": "Consumo"},
 	}
-	for _, r := range readings {
+	names := make([]string, len(readings))
+	for i, r := range readings {
+		names[i] = r.Label
+	}
+	numbered := metrics.NumberDuplicates(names)
+	for i, r := range readings {
 		watts := r.Watts
+		label, labels := numberLabels(r.Label, r.Labels, numbered[i])
 		group.Items = append(group.Items, metrics.ExtraItem{
 			ID:      r.ID,
-			Label:   r.Label,
-			Labels:  r.Labels,
+			Label:   label,
+			Labels:  labels,
 			Unit:    metrics.UnitWatts,
 			Value:   &watts,
 			History: true,
 		})
 	}
 	return []metrics.Extra{group}
+}
+
+// numberLabels gives the labels in other languages the number that numbered
+// added to the English label.
+func numberLabels(label string, labels map[string]string, numbered string) (string, map[string]string) {
+	if numbered == label || len(labels) == 0 {
+		return numbered, labels
+	}
+	suffix := strings.TrimPrefix(numbered, label)
+	out := make(map[string]string, len(labels))
+	for lang, text := range labels {
+		out[lang] = text + suffix
+	}
+	return numbered, out
 }
 
 // HostSys returns where /sys is: HOST_SYS in a container that mounts the
