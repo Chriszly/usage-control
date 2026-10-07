@@ -17,10 +17,16 @@ type rapl struct {
 	// previous is each zone's counter at the previous read, by folder.
 	previous map[string]uint64
 	at       time.Time
+	// wallSince is how far the wall clock went from at to now, which a test
+	// sets to a sleep of its own.
+	wallSince func(now, at time.Time) time.Duration
 }
 
 func newRAPL(dir string) *rapl {
-	return &rapl{dir: dir}
+	return &rapl{dir: dir, wallSince: func(now, at time.Time) time.Duration {
+		// Round(0) drops the monotonic reading, so Sub compares the wall clocks.
+		return now.Round(0).Sub(at.Round(0))
+	}}
 }
 
 // read returns the average power of each zone since the previous read.
@@ -31,11 +37,11 @@ func (r *rapl) read(now time.Time) []Reading {
 	var readings []Reading
 	elapsed := now.Sub(r.at)
 	seconds := elapsed.Seconds()
-	if slept(elapsed, now.Round(0).Sub(r.at.Round(0))) {
+	if slept(elapsed, r.wallSince(now, r.at)) {
 		seconds = 0
 	}
 	for _, zone := range zones {
-		energy, ok := sysfile.Uint(filepath.Join(zone, "energy_uj"))
+		energy, ok := readUint(filepath.Join(zone, "energy_uj"))
 		if !ok {
 			continue
 		}
