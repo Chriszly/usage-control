@@ -52,6 +52,10 @@ const (
 	// with each reading, it varies by a second or two, which would now and
 	// then put a minute in the place of the one before or after it.
 	maxClockJitter = 10 * time.Second
+	// keptWithin is how far behind its time the newest minute a device kept
+	// may be: a device keeps each minute within the next one, so up to two
+	// minutes, and more means it keeps none now.
+	keptWithin = 150 * time.Second
 )
 
 // fetcher fetches the minutes a device keeps of its own usage into the hub's
@@ -124,8 +128,9 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		f.after = min(newest.Unix()-f.offset, deviceNow-int64(maxClockJitter/time.Second))
 	}
 
+	var answer MinutesAnswer
 	for range maxAnswersPerFetch {
-		var answer MinutesAnswer
+		answer = MinutesAnswer{}
 		err := f.agent.get(ctx, fmt.Sprintf("%s?after=%d", f.agent.minutesURL, f.after), maxMinutesBytes, &answer)
 		var status *statusError
 		if errors.As(err, &status) && status.Code == http.StatusNotFound {
@@ -147,14 +152,20 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		if err != nil {
 			return f.failed(ctx, err)
 		}
-		if f.failing {
-			f.failing = false
-			slog.Info("fetching the minutes of the device works again", "device", f.device)
-		}
 		// Asking again when nothing was new would get the same answer.
 		if !answer.More || f.after == previous {
 			break
 		}
+	}
+	// A device that answers but has kept no minute for a while, as when it
+	// cannot write to its disk, would leave a gap: the recorder stores the
+	// average of its own readings instead.
+	if !answer.More && answer.Now-f.after > int64(keptWithin/time.Second) {
+		return f.failed(ctx, errors.New("the device has kept no minute of its usage for a while"))
+	}
+	if f.failing {
+		f.failing = false
+		slog.Info("fetching the minutes of the device works again", "device", f.device)
 	}
 	return true
 }
@@ -182,8 +193,10 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 				values[metric] = value
 			}
 		}
-		if len(values) > 0 {
-			at := time.Unix(minute.Time+f.offset, 0).Truncate(history.SampleInterval)
+		// Not in the hub's future, where a clock the device set forward
+		// since its last reading would put it.
+		at := time.Unix(minute.Time+f.offset, 0).Truncate(history.SampleInterval)
+		if len(values) > 0 && !at.After(time.Now()) {
 			minutes = append(minutes, history.Minute{Time: at.Unix(), Values: values})
 		}
 	}
@@ -193,9 +206,12 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 // failed ends a fetch that failed. When it ran out of time, or the program is
 // stopping, the rest follows next time. Otherwise it logs the failure, unless
 // the previous fetch failed too, and returns false, so the recorder stores
-// the average of its own readings for this minute; the next fetch starts after
-// the newest minute the hub has, so the device's minute for the same time is
-// not stored as well.
+// the average of its own readings for this minute. The next fetch goes on
+// from where this one stopped, so the minutes the device kept meanwhile are
+// not lost; one it kept for a minute the recorder stored is not stored again.
+// Only when the device refuses where the hub goes on from, after its clock
+// went back further than the hub measured, does the next fetch start again
+// from the newest minute the hub has.
 func (f *fetcher) failed(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return true
@@ -204,7 +220,10 @@ func (f *fetcher) failed(ctx context.Context, err error) bool {
 		f.failing = true
 		slog.Error("fetch the minutes of the device; storing the average of the hub's own readings meanwhile", "device", f.device, "error", err)
 	}
-	f.after = 0
+	var status *statusError
+	if errors.As(err, &status) && status.Code == http.StatusBadRequest {
+		f.after = 0
+	}
 	return false
 }
 

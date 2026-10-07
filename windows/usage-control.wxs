@@ -204,7 +204,8 @@
     </Component>
 
     <!--
-      The history database, used with WEBSITE=1. Only the service,
+      The database: the history with WEBSITE=1, otherwise the minutes kept for
+      a hub that cannot reach this PC (BUFFER_HOURS). Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
     -->

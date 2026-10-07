@@ -359,12 +359,12 @@ func TestFetcherLeavesAMinuteItCannotFetchToTheRecorder(t *testing.T) {
 		}
 		f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
 
-		if f.fetch(ctx) || f.after != 0 {
-			t.Errorf("%s: fetch() = true, after %d; want false, so the recorder stores the minute, and after unset", name, f.after)
+		if f.fetch(ctx) {
+			t.Errorf("%s: fetch() = true, want false, so the recorder stores the minute", name)
 		}
 
 		// The recorder stores the minute; once the device answers again, the
-		// hub takes what follows it.
+		// hub still takes every minute the device kept, but keeps its own.
 		ownMinute := now.Truncate(time.Minute).Add(-2 * time.Minute)
 		if err := store.Add(ctx, "office-pc", ownMinute, map[string]float64{history.MetricCPU: 50}); err != nil {
 			t.Fatalf("Add() error = %v", err)
@@ -373,9 +373,58 @@ func TestFetcherLeavesAMinuteItCannotFetchToTheRecorder(t *testing.T) {
 		if !f.fetch(ctx) {
 			t.Errorf("%s: fetch() once the device answers = false, want true", name)
 		}
-		if first := device.asked[1]; first < ownMinute.Add(device.clock).Unix()-1 {
-			t.Errorf("%s: asked after %d, want after the minute the recorder stored, %d", name, first, ownMinute.Add(device.clock).Unix())
+		if device.asked[1] != device.asked[0] {
+			t.Errorf("%s: asked after %d once the device answers, want after %d as before the failure", name, device.asked[1], device.asked[0])
 		}
+		if got, want := storedTimes(t, store, "office-pc"), minutesFrom(now.Truncate(time.Minute).Add(-8*time.Minute), now.Truncate(time.Minute).Add(-time.Minute)); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s: stored minutes %v, want every one from the hub's newest on, %v", name, got, want)
+		}
+		got, err := store.Range(ctx, "office-pc", ownMinute, ownMinute.Add(time.Minute), time.Minute)
+		if err != nil || len(got) != 1 || got[0].Points[0].Value != 50 {
+			t.Errorf("%s: Range() = %+v, %v; want the recorder's own minute kept", name, got, err)
+		}
+	}
+}
+
+func TestFetcherStartsAgainWhenTheDeviceRefusesAfter(t *testing.T) {
+	ctx := context.Background()
+	device := newMinutesDevice(time.Now(), 10)
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	device.broken = func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "after is later than this device's time", http.StatusBadRequest)
+	}
+
+	if f.fetch(ctx) || f.after != 0 {
+		t.Errorf("fetch() after a refusal: after = %d, want 0, so the next fetch works it out again", f.after)
+	}
+}
+
+func TestFetcherLeavesAMinuteToTheRecorderWhenTheDeviceKeepsNone(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	device := newMinutesDevice(now, 10)
+	// The device answers, but has kept nothing for the last five minutes,
+	// as when it cannot write to its disk.
+	device.minutes = device.minutes[:5]
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	store := openTestStore(t)
+	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-11*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+
+	if f.fetch(ctx) {
+		t.Error("fetch() = true for a device that keeps no minutes now, want false, so the recorder stores its own")
+	}
+	if got := storedTimes(t, store, "office-pc"); len(got) != 6 {
+		t.Errorf("stored minutes %v, want the hub's own and the five the device kept", got)
 	}
 }
 

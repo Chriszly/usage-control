@@ -89,8 +89,10 @@ func (r *Recorder) read(ctx context.Context) {
 		r.failing = false
 		slog.Info("reading usage for the history works again", "device", r.Device)
 	}
-	// A reading shared with a hub or a page may come round twice.
-	if newest, ok := r.Recent.Newest(); ok && snapshot.Time.Unix() <= newest.Unix() {
+	// A reading shared with a hub or a page may come round twice. Only the
+	// same one is skipped: after the clock was set back, every new reading
+	// is older than the newest, and none would be kept until it caught up.
+	if newest, ok := r.Recent.Newest(); ok && snapshot.Time.Unix() == newest.Unix() {
 		return
 	}
 	v, dropped := values(snapshot, r.MaxEntries)
