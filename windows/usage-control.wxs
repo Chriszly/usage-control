@@ -280,19 +280,18 @@
       </Dialog>
 
       <!--
-        Which add-ons to install. Each add-on has a slot of its own, 34 high,
-        starting at Y 55: a box and one line of text below it. Slots: 0 power,
-        1 gpu, 2 processes, 3 ports, 4 free.
+        Which add-ons to install, one box each with what it tracks in its
+        text. Slot i is at Y = 55 + 17 * i, ten slots up to the bottom line.
+        Slots: 0 power, 1 gpu, 2 processes, 3 ports, 4 kernel, 5 memory,
+        6 pressure, 7 wifi, 8 smart, 9 free.
       -->
       <Dialog Id="AddOnsDlg" Width="370" Height="270" Title="[ProductName] Setup">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
         <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
-        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power" />
-        <Control Id="PowerText" Type="Text" X="38" Y="71" Width="310" Height="12" NoPrefix="yes" Text="How much power the NVIDIA graphics card draws." />
-        <Control Id="Processes" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="PROCESSES" CheckBoxValue="1" Text="P&amp;rocesses" />
-        <Control Id="ProcessesText" Type="Text" X="38" Y="139" Width="310" Height="12" NoPrefix="yes" Text="The ten processes using the most CPU and memory." />
+        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power: what the NVIDIA graphics card draws" />
+        <Control Id="Processes" Type="CheckBox" X="20" Y="89" Width="330" Height="15" Property="PROCESSES" CheckBoxValue="1" Text="P&amp;rocesses: the ten using the most CPU and memory" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
