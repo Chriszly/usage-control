@@ -109,7 +109,7 @@ func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 		t.Fatalf("Remove(keepHistory) error = %v", err)
 	}
 	for _, id := range []string{"office-pc", "laptop"} {
-		if err := h.waitRemoved(ctx, id); err != nil {
+		if err := h.waitRemoved(ctx, id, time.Minute); err != nil {
 			t.Fatalf("waitRemoved(%q) error = %v", id, err)
 		}
 	}

@@ -140,6 +140,8 @@ export const de: Messages = {
   'devices.problem.fixed':
     'Dieses Gerät ist in der .env-Datei des Hubs festgelegt. Entferne es dort.',
   'devices.problem.notFound': 'Dieses Gerät wurde bereits entfernt.',
+  'devices.problem.removing':
+    'Ein Gerät mit diesem Namen wird gerade noch entfernt. Versuche es gleich noch einmal.',
   'devices.problem.demo':
     'Dies ist eine Demo, darum können keine Geräte hinzugefügt, entfernt oder geändert werden.',
   'devices.problem.other': 'Die Geräte konnten nicht geändert werden. Versuche es noch einmal.',

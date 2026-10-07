@@ -139,6 +139,8 @@ export const en = {
     'No usage-control answers at this address. Is it running, and is the address on the local network?',
   'devices.problem.fixed': "This device is set in the hub's .env file. Remove it there.",
   'devices.problem.notFound': 'This device has been removed already.',
+  'devices.problem.removing':
+    'A device with this name is still being removed. Try again in a moment.',
   'devices.problem.demo': "This is a demo, so devices can't be added, removed or changed.",
   'devices.problem.other': 'The devices could not be changed. Try again.',
   'passwordDialog.enterTitle': 'Enter the password',
