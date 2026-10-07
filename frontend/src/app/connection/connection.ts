@@ -1,6 +1,6 @@
 import { HttpErrorResponse, HttpInterceptorFn, HttpResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { tap } from 'rxjs';
+import { TimeoutError, tap, timeout } from 'rxjs';
 
 /**
  * Whether the hub the page was loaded from still answers. All values, those of
@@ -30,13 +30,29 @@ export class HubConnection {
 }
 
 /**
+ * How long the hub has to answer a request to the API. The server cuts off an
+ * answer after 10 seconds, so a request still open after 15 got no answer:
+ * without a limit, a hub that lost power while the browser kept a connection
+ * to it open leaves the request hanging for many minutes, and the polls that
+ * wait for it never notice the hub is gone.
+ */
+export const ANSWER_TIMEOUT_MS = 15_000;
+
+/**
  * Tells the HubConnection whether each request reached the hub. Without an
  * answer the browser reports status 0, and a proxy in front of the hub 502 or
- * 504; any other status was sent by the hub itself.
+ * 504; any other status was sent by the hub itself. A request to the API that
+ * gets no answer in time is given up with a TimeoutError, which counts as no
+ * answer too.
  */
 export const hubConnectionInterceptor: HttpInterceptorFn = (request, next) => {
   const connection = inject(HubConnection);
-  return next(request).pipe(
+  const sent = next(request);
+  // The request is sent at once; the time runs until the answer arrives.
+  const limited = request.url.startsWith('/api/')
+    ? sent.pipe(timeout({ each: ANSWER_TIMEOUT_MS }))
+    : sent;
+  return limited.pipe(
     tap({
       next: (event) => {
         if (event instanceof HttpResponse) {
@@ -44,7 +60,10 @@ export const hubConnectionInterceptor: HttpInterceptorFn = (request, next) => {
         }
       },
       error: (error: unknown) => {
-        if (error instanceof HttpErrorResponse && [0, 502, 504].includes(error.status)) {
+        if (
+          error instanceof TimeoutError ||
+          (error instanceof HttpErrorResponse && [0, 502, 504].includes(error.status))
+        ) {
           connection.failed();
         } else {
           connection.answered();
