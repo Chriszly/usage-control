@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS password (
 type Password struct {
 	db *sql.DB
 
-	// mu lets one check run at a time, so wrong guesses wait for each other.
+	// mu lets one hash be worked out at a time, so many guesses at once
+	// keep one processor core busy at most.
 	mu sync.Mutex
 }
 
@@ -78,9 +79,6 @@ func (p *Password) IsSet(ctx context.Context) (bool, error) {
 // Check checks password against the stored one. It returns ErrNotSet when
 // none has been chosen yet.
 func (p *Password) Check(ctx context.Context, password string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	var salt, hash []byte
 	err := p.db.QueryRowContext(ctx, `SELECT salt, hash FROM password WHERE id = 1`).Scan(&salt, &hash)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -90,11 +88,15 @@ func (p *Password) Check(ctx context.Context, password string) error {
 		return err
 	}
 
+	p.mu.Lock()
 	given, err := derive(password, salt)
+	p.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	if subtle.ConstantTimeCompare(given, hash) != 1 {
+		// Waited without holding mu, so a wrong guess does not hold up the
+		// checks of others.
 		time.Sleep(failureDelay)
 		return ErrWrong
 	}

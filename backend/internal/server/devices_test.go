@@ -159,6 +159,41 @@ func TestChangesNeedThePassword(t *testing.T) {
 	}
 }
 
+// slowPassword holds every wrong guess until release is closed.
+type slowPassword struct {
+	fakePassword
+	guessing chan struct{}
+	release  chan struct{}
+}
+
+func (s *slowPassword) Check(ctx context.Context, given string) error {
+	if given != s.password {
+		s.guessing <- struct{}{}
+		<-s.release
+	}
+	return s.fakePassword.Check(ctx, given)
+}
+
+func TestAWrongGuessDoesNotHoldUpOtherChanges(t *testing.T) {
+	devices := &fakeHub{}
+	pw := &slowPassword{fakePassword: fakePassword{password: "correct horse"}, guessing: make(chan struct{}), release: make(chan struct{})}
+	handler := newChangeHandler(devices, pw)
+
+	guessed := make(chan int)
+	go func() {
+		guessed <- send(handler, http.MethodDelete, "/api/devices/nas", `{"password":"wrong"}`).Code
+	}()
+	<-pw.guessing
+
+	if rec := send(handler, http.MethodDelete, "/api/devices/office-pc", `{"password":"correct horse"}`); rec.Code != http.StatusNoContent {
+		t.Errorf("status while a wrong guess is checked = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	close(pw.release)
+	if code := <-guessed; code != http.StatusForbidden {
+		t.Errorf("status of the wrong guess = %d, want %d", code, http.StatusForbidden)
+	}
+}
+
 func TestAFailedFirstChangeChoosesNoPassword(t *testing.T) {
 	pw := &fakePassword{}
 	handler := newChangeHandler(&fakeHub{err: &hub.InputError{Problem: hub.ProblemUnreachable, Message: "no answer"}}, pw)
@@ -170,6 +205,28 @@ func TestAFailedFirstChangeChoosesNoPassword(t *testing.T) {
 	}
 	if pw.password != "" {
 		t.Errorf("password = %q, want none chosen", pw.password)
+	}
+}
+
+func TestRefusedChangesAnswerWithTheirStatus(t *testing.T) {
+	tests := []struct {
+		err  error
+		want int
+	}{
+		{&hub.InputError{Problem: hub.ProblemNameTaken}, http.StatusConflict},
+		{&hub.InputError{Problem: hub.ProblemAddressTaken}, http.StatusConflict},
+		{&hub.InputError{Problem: hub.ProblemFixed}, http.StatusConflict},
+		{&hub.InputError{Problem: hub.ProblemRemoving}, http.StatusConflict},
+		{&hub.InputError{Problem: hub.ProblemNotFound}, http.StatusNotFound},
+		{&hub.InputError{Problem: hub.ProblemName}, http.StatusBadRequest},
+		{hub.ErrStopping, http.StatusServiceUnavailable},
+	}
+	for _, tt := range tests {
+		handler := newChangeHandler(&fakeHub{err: tt.err}, &fakePassword{password: "correct horse"})
+		rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
+		if rec.Code != tt.want {
+			t.Errorf("%#v: status = %d, want %d", tt.err, rec.Code, tt.want)
+		}
 	}
 }
 

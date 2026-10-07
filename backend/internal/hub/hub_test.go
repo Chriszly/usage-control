@@ -259,11 +259,11 @@ func TestNoChangesOnceTheHubStops(t *testing.T) {
 	stop()
 	h.Wait()
 
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, errStopping) {
-		t.Errorf("Add() once stopped error = %v, want errStopping", err)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, ErrStopping) {
+		t.Errorf("Add() once stopped error = %v, want ErrStopping", err)
 	}
-	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, errStopping) {
-		t.Errorf("Remove() once stopped error = %v, want errStopping", err)
+	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, ErrStopping) {
+		t.Errorf("Remove() once stopped error = %v, want ErrStopping", err)
 	}
 	if got := ids(h.Remotes()); len(got) != 1 {
 		t.Errorf("devices once stopped = %q, want the one added before", got)
@@ -362,6 +362,44 @@ func TestRemoveForgetsTheKind(t *testing.T) {
 	}
 	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindServer {
 		t.Errorf("kind after removing = %q, %v; want none stored", kind, err)
+	}
+}
+
+func TestKeepingTheHistoryKeepsAvailabilityAndKindAcrossRestarts(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := store.DB().Exec(`INSERT INTO hub_outages (device, started, ended) VALUES ('laptop', ?, ?)`, now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Remove(ctx, "laptop", true); err != nil {
+		t.Fatalf("Remove(keepHistory) error = %v", err)
+	}
+	if err := h.waitRemoved(ctx, "laptop", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
+
+	again := openTestHub(t, store, nil)
+	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindPC {
+		t.Errorf("kind after a restart = %q, %v; want %q kept", kind, err, KindPC)
+	}
+	if availability, err := readAvailability(ctx, store.DB(), "laptop"); err != nil || availability.Outages != 1 {
+		t.Errorf("availability after a restart = %+v, %v; want the outage kept", availability, err)
+	}
+
+	// Added again, the device continues them and is no longer listed as kept.
+	if _, err := again.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() again error = %v", err)
+	}
+	if kept, err := again.keptHistory(ctx); err != nil || len(kept) != 0 {
+		t.Errorf("kept devices after adding again = %q, %v; want none", kept, err)
+	}
+	if availability, err := readAvailability(ctx, store.DB(), "laptop"); err != nil || availability.Outages != 1 {
+		t.Errorf("availability after adding again = %+v, %v; want the outage continued", availability, err)
 	}
 }
 

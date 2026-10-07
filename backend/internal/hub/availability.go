@@ -67,6 +67,7 @@ func forget(ctx context.Context, db *sql.DB, device string) error {
 		`DELETE FROM hub_outages WHERE device = ?`,
 		`DELETE FROM hub_watched WHERE device = ?`,
 		`DELETE FROM hub_device_kinds WHERE device = ?`,
+		`DELETE FROM hub_kept WHERE device = ?`,
 	} {
 		if _, err := db.ExecContext(ctx, query, device); err != nil {
 			return err
@@ -76,7 +77,8 @@ func forget(ctx context.Context, db *sql.DB, device string) error {
 }
 
 // forgetOthers deletes the availability and kind of every device but the kept ones:
-// the devices dropped from HUB_DEVICES without being added on the page.
+// the devices dropped from HUB_DEVICES without being added on the page, and
+// the ones removed on the page without keeping their history.
 func forgetOthers(ctx context.Context, db *sql.DB, kept []string) error {
 	rows, err := db.QueryContext(ctx, `SELECT device FROM hub_watched UNION SELECT device FROM hub_outages UNION SELECT device FROM hub_device_kinds`)
 	if err != nil {
@@ -148,6 +150,9 @@ type watchedAgent struct {
 
 	// mu guards the outage, which Collect changes and ongoing reads.
 	mu sync.Mutex
+	// firstFailed is when the newest reading failed, while the one before it
+	// answered: a single failed reading is not an outage yet.
+	firstFailed time.Time
 	// outageStart is when the device stopped answering; zero while it answers.
 	outageStart time.Time
 	// lastFailed is the newest failed reading of the outage.
@@ -161,7 +166,9 @@ type watchedAgent struct {
 
 // Collect asks the device for its usage and notes an outage when it does not
 // answer: in the database when it starts, every noteInterval while it lasts
-// and when it ends, and in memory at every failed reading.
+// and when it ends, and in memory at every failed reading. A single failed
+// reading, as on a flaky Wi-Fi, is no outage: one starts at the second failed
+// reading in a row, and then counts from the first.
 func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := w.agent.Collect(ctx)
 	if ctx.Err() != nil {
@@ -172,9 +179,16 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	switch {
+	case err == nil:
+		w.firstFailed = time.Time{}
+	case w.outageStart.IsZero() && w.firstFailed.IsZero():
+		w.firstFailed = now
+		return snapshot, err
+	}
+	switch {
 	case err != nil && w.outageStart.IsZero():
-		w.outageStart = now
-		if earliest := w.lastEnd.Truncate(time.Millisecond).Add(time.Millisecond); now.Before(earliest) {
+		w.outageStart = w.firstFailed
+		if earliest := w.lastEnd.Truncate(time.Millisecond).Add(time.Millisecond); w.outageStart.Before(earliest) {
 			w.outageStart = earliest
 		}
 		w.lastFailed = now
