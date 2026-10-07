@@ -46,6 +46,7 @@ func openCounters() (*counterReader, error) {
 		}
 	}
 	if len(r.counters) == 0 {
+		query.Close()
 		return nil, fmt.Errorf("no counter of the Memory object")
 	}
 	return r, nil
