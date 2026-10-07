@@ -91,7 +91,8 @@ type fetcher struct {
 	failing bool
 }
 
-// fetch stores the minutes the device has after the newest one the hub has.
+// fetch stores the minutes the device has after the newest one fetched, or,
+// when it starts again, from a few minutes before the newest one the hub has.
 // It returns false when the device does not answer now, is too old to keep
 // its minutes, or answers but its minutes cannot be fetched, so the recorder
 // stores the average of its own readings instead; a device minute for the
@@ -117,10 +118,11 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 	}
 	// The device's time as of its newest reading. A clock that went back has
 	// its new minutes before the ones the hub has, so those would never be
-	// fetched: the hub starts again from its newest minute at the new time.
+	// fetched: the hub starts again from shortly before its newest minute, at
+	// the new time.
 	deviceNow := time.Now().Add(-measured).Unix()
 	if f.after > deviceNow {
-		slog.Info("the clock of the device went back; fetching its minutes from the newest one the hub has, at the device's new time", "device", f.device)
+		slog.Info("the clock of the device went back; fetching its minutes again from shortly before the newest one the hub has, at the device's new time", "device", f.device)
 		f.after = 0
 	}
 
@@ -238,7 +240,7 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 // not lost; one it kept for a minute the recorder stored is not stored again.
 // Only when the device refuses where the hub goes on from, after its clock
 // went back further than the hub measured, does the next fetch start again
-// from the newest minute the hub has.
+// from shortly before the newest minute the hub has.
 func (f *fetcher) failed(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return true
