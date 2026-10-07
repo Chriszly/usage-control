@@ -171,7 +171,7 @@ An update closes the tray icon while it replaces it; it comes back at the next l
 
 The service writes its warnings and errors to the Windows event log (*Application*, source *UsageControl*), and each add-on writes its own there too, under its service's name, such as *UsageControlSmart*. When it cannot serve, for example because another program holds the port right after a reboot, it keeps running and tries again every 10 seconds.
 
-Builds of `main` are also available, as artifacts of the *Windows installer* workflow runs (pull requests only build the installers when they change them). Their installers are named after the commit, such as `usage-control-dev-1a2b3c4-x64.msi`, and numbered `0.0.<run>` inside, which counts as older than any release, so they only install on a PC without a release. The program in them calls itself `dev-<commit>` and does not check for newer releases.
+Builds of `main` are also available, as artifacts of the *Windows installer* workflow runs (pull requests only build the installers when they change them or the programs and add-ons they install). Their installers are named after the commit, such as `usage-control-dev-1a2b3c4-x64.msi`, and numbered `0.0.<run>` inside, which counts as older than any release, so they only install on a PC without a release. The program in them calls itself `dev-<commit>` and does not check for newer releases.
 
 ## 3. Add another Linux machine
 

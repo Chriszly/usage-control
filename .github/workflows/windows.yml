@@ -3,13 +3,14 @@ name: Windows installer
 # Builds the Windows programs (the service and the tray icon) and runs the
 # Windows-only tests on every pull request. The installers
 # (usage-control-<version>-x64.msi and -arm64.msi) are built on main, on
-# version tags, and on pull requests that change the installer or the tray
-# icon (windows/, this workflow, backend/cmd/usage-control-tray or
-# backend/cmd/tray-icons); that job also checks on a Windows machine that the
-# x64 one installs, starts the service and the tray icon and keeps its options
-# across an update (windows/check-installer.ps1). Main keeps the installers as
-# a workflow artifact; a version tag (v1.2.3 or 1.2.3) also attaches them to
-# that GitHub release.
+# version tags, and on pull requests that change the installer or a program
+# it installs or the code they run as services (windows/, this workflow,
+# backend/cmd, backend/internal/addons, winservice or pdh); that job also
+# checks on a Windows machine that the x64 one installs, starts the service,
+# the add-ons and the tray icon and keeps its options across an update
+# (windows/check-installer.ps1), which takes a few minutes. Main keeps the
+# installers as a workflow artifact; a version tag (v1.2.3 or 1.2.3) also
+# attaches them to that GitHub release.
 on:
   pull_request:
   push:
@@ -47,15 +48,15 @@ jobs:
           # is the base branch, so the PR's changes are the diff to HEAD^1.
           fetch-depth: 2
 
-      # Pull requests only build the installers when they change them or the
-      # tray icon they install.
+      # Pull requests only build the installers when they change them, a
+      # program they install, or the add-on and service code those share.
       - name: Does this change the installer
         id: changes
         run: |
           set -euo pipefail
           installer=true
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] &&
-            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/(usage-control-tray|tray-icons)/)'; then
+            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/|backend/internal/(addons|winservice|pdh)/)'; then
             installer=false
           fi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
