@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
@@ -16,6 +18,7 @@ import (
 type HistoryReader interface {
 	Range(ctx context.Context, from, to time.Time) ([]history.Series, time.Duration, error)
 	Newest(ctx context.Context) (time.Time, bool, error)
+	ExtraInfo(ctx context.Context) (map[string]history.ExtraInfo, error)
 }
 
 // historyResponse is the body of GET /api/history. Times are Unix seconds.
@@ -28,6 +31,8 @@ type historyResponse struct {
 	// LastReading is set for a device that is not answering: when its newest
 	// reading is from. The range then ends there instead of now.
 	LastReading int64 `json:"lastReading,omitempty"`
+	// Extras describes the series of extras, by metric.
+	Extras map[string]history.ExtraInfo `json:"extras,omitempty"`
 }
 
 // historyHandler serves GET /api/history?from=<unix seconds>&to=<unix seconds>:
@@ -73,6 +78,13 @@ func historyHandler(d Device, retention time.Duration) http.HandlerFunc {
 			return
 		}
 
+		series, extras, err := extrasOf(r.Context(), reader, series)
+		if err != nil {
+			slog.Error("read how the extras are described", "device", d.ID, "error", err)
+			http.Error(w, "could not read the history", http.StatusInternalServerError)
+			return
+		}
+
 		writeJSON(w, http.StatusOK, historyResponse{
 			From:          from,
 			To:            to,
@@ -80,6 +92,39 @@ func historyHandler(d Device, retention time.Duration) http.HandlerFunc {
 			RetentionDays: int(retention / (24 * time.Hour)),
 			Series:        series,
 			LastReading:   lastReading,
+			Extras:        extras,
 		})
 	}
+}
+
+// extrasOf returns the descriptions of the extras among series, or nil when
+// there are none, so devices without extras need no lookup. Series of extras
+// whose description is missing are left out, as the page could not tell what
+// they are.
+func extrasOf(ctx context.Context, reader HistoryReader, series []history.Series) ([]history.Series, map[string]history.ExtraInfo, error) {
+	if !slices.ContainsFunc(series, isExtra) {
+		return series, nil, nil
+	}
+	info, err := reader.ExtraInfo(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A new slice, as series may be shared with a cache.
+	shown := make([]history.Series, 0, len(series))
+	extras := map[string]history.ExtraInfo{}
+	for _, s := range series {
+		if isExtra(s) {
+			description, ok := info[s.Metric]
+			if !ok {
+				continue
+			}
+			extras[s.Metric] = description
+		}
+		shown = append(shown, s)
+	}
+	return shown, extras, nil
+}
+
+func isExtra(s history.Series) bool {
+	return strings.HasPrefix(s.Metric, history.MetricExtra+":")
 }

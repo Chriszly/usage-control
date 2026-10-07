@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { LOCAL_DEVICE } from '../devices/devices';
+import { Extra, ExtraInfo } from './extras';
 
 /** The usage of the machine at one point in time, as served by GET /api/metrics. */
 export interface Snapshot {
@@ -53,6 +54,8 @@ export interface Snapshot {
   battery?: Battery;
   /** Only reported where Linux knows the fans, such as a Raspberry Pi 5. */
   fans?: Fan[];
+  /** Values beyond the ones above, which the device describes itself; missing when it has none. */
+  extras?: Extra[];
 }
 
 export interface Fan {
@@ -163,6 +166,8 @@ export interface History {
    * in Unix seconds. The range then ends there instead of now.
    */
   lastReading?: number;
+  /** Describes the series of extras ("extra:<group>/<value>"), by metric. */
+  extras?: Record<string, ExtraInfo>;
 }
 
 /**
@@ -170,7 +175,7 @@ export interface History {
  * or a kind followed by the disk, sensor or interface it belongs to: "disk:/"
  * (percent), "disk.read:/" or "disk.write:/" (bytes per second), "temperature:cpu_thermal" (°C),
  * "network.receive:eth0" or "network.send:eth0" (bytes per second), "gpu:AMD GPU" or
- * "gpu.memory:AMD GPU" (percent).
+ * "gpu.memory:AMD GPU" (percent), or an extra such as "extra:pressure/cpu" (as History.extras describes).
  */
 export interface Series {
   metric: string;

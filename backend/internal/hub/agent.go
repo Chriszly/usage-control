@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/history"
 	"github.com/Chriszly/usage-control/backend/internal/lan"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
@@ -45,6 +46,9 @@ type Agent struct {
 	client     *http.Client
 	// pagePort is sent as PagePortHeader; empty sends none.
 	pagePort string
+	// maxEntries is how many groups of extras, and values in each, are kept
+	// of an answer.
+	maxEntries int
 
 	mu       sync.Mutex
 	latest   metrics.Snapshot
@@ -60,6 +64,7 @@ func NewAgent(address string) *Agent {
 	return &Agent{
 		url:        "http://" + address + "/api/metrics",
 		minutesURL: "http://" + address + MinutesPath,
+		maxEntries: history.DefaultMaxEntries,
 		client: &http.Client{
 			Timeout: requestTimeout,
 			Transport: &http.Transport{
@@ -118,8 +123,13 @@ func (a *Agent) fresh() bool {
 // ask asks the device for its current usage.
 func (a *Agent) ask(ctx context.Context) (metrics.Snapshot, error) {
 	var snapshot metrics.Snapshot
-	err := a.get(ctx, a.url, maxResponseBytes, &snapshot)
-	return snapshot, err
+	if err := a.get(ctx, a.url, maxResponseBytes, &snapshot); err != nil {
+		return metrics.Snapshot{}, err
+	}
+	// The extras are shown and stored as the device describes them, so they
+	// are cut down to what is safe for that first.
+	snapshot.Extras = metrics.CleanExtras(snapshot.Extras, a.maxEntries)
+	return snapshot, nil
 }
 
 // get asks the device at url and reads its JSON answer, of at most limit

@@ -44,6 +44,9 @@ type Snapshot struct {
 	// Fans is only reported where Linux knows the fans, such as on a
 	// Raspberry Pi 5 with its cooling fan.
 	Fans []Fan `json:"fans,omitempty"`
+	// Extras are values beyond the fields above, described well enough that
+	// a hub can show them without knowing them; see Extra.
+	Extras []Extra `json:"extras,omitempty"`
 }
 
 // CPU is the processor usage across all cores and of each core. The clock,
@@ -83,6 +86,8 @@ type Temperature struct {
 type Collector struct {
 	// Name is reported as the Snapshot's Name.
 	Name string
+	// AddOns are read for the Snapshot's Extras; nil reads none.
+	AddOns *AddOns
 
 	diskPaths      []string
 	gpus           *gpuReader
@@ -175,6 +180,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 		Throttling:   readThrottling(c.throttlingFile),
 		Battery:      c.batteries.read(),
 		Fans:         readFans(c.fans),
+		Extras:       c.AddOns.Read(now),
 	}, nil
 }
 
@@ -231,7 +237,7 @@ func temperaturesOf(readings []sensors.TemperatureStat) []Temperature {
 		temperatures = append(temperatures, Temperature{Sensor: r.SensorKey, Celsius: r.Temperature})
 		names = append(names, r.SensorKey)
 	}
-	for i, name := range numberDuplicates(names) {
+	for i, name := range NumberDuplicates(names) {
 		temperatures[i].Sensor = name
 	}
 	return temperatures

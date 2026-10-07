@@ -5,7 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DeviceService } from '../devices/devices';
 import { History } from '../metrics/metrics';
 import { translate } from '../i18n/i18n';
-import { HistoryCharts, chartsOf, refreshIntervalMs } from './history';
+import { HistoryCharts, chartsOf, extraChartsOf, refreshIntervalMs } from './history';
 
 const NOW = new Date('2026-10-02T20:00:00Z');
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -279,5 +279,54 @@ describe('chartsOf with GPUs', () => {
 
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'GPU']);
     expect(charts[1].lines.map((l) => l.label)).toEqual(['AMD GPU', 'AMD GPU memory']);
+  });
+});
+
+describe('extraChartsOf', () => {
+  const points = [{ time: 60, value: 2 }];
+
+  it('draws one chart per group and unit, as the device describes them', () => {
+    const charts = extraChartsOf(
+      [
+        { metric: 'extra:pressure/cpu', points },
+        { metric: 'extra:pressure/memory', points },
+        { metric: 'extra:pressure/stalls', points },
+        { metric: 'extra:pressure/undescribed', points },
+      ],
+      {
+        'extra:pressure/cpu': {
+          title: 'Pressure',
+          titles: { de: 'Druck' },
+          label: 'CPU',
+          unit: 'percent',
+        },
+        'extra:pressure/memory': {
+          title: 'Pressure',
+          label: 'Memory',
+          labels: { de: 'Speicher' },
+          unit: 'percent',
+        },
+        'extra:pressure/stalls': { title: 'Pressure', label: 'Stalls', unit: 'perSecond' },
+      },
+      'de',
+    );
+
+    expect(charts).toEqual([
+      {
+        title: 'Druck',
+        unit: 'percent',
+        max: 100,
+        lines: [
+          { label: 'CPU', points },
+          { label: 'Speicher', points },
+        ],
+      },
+      {
+        title: 'Pressure · Stalls',
+        unit: 'perSecond',
+        max: undefined,
+        lines: [{ label: 'Stalls', points }],
+      },
+    ]);
   });
 });

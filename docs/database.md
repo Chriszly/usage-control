@@ -27,6 +27,7 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | --- | --- | --- |
 | `samples` | one row per device, minute and metric: `device`, `time` (Unix seconds), `metric`, `value` | for the retention |
 | `samples_hourly` | the average of each hour per device and metric, with `count`, how many minute values it is over | for the retention |
+| `extra_info` | how each stored [extra](data.md#extras) is described: `device`, `metric`, `info` (title, label and unit as JSON), `written` (Unix seconds) | while the extra has values, or for the retention after it was last written |
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
 | `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until the hub has fetched it, at most `BUFFER_HOURS` |
 | `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from |
@@ -77,7 +78,7 @@ Each kept value is one row per minute plus one per hour. As a guide, measured wi
 | 15 (a Raspberry Pi) | about 1.5 MB | about 45 MB | about 550 MB |
 | 30 (a PC with more disks and cards) | about 3 MB | about 90 MB | about 1.1 GB |
 
-A hub's file is the sum over its devices. A data-only device's buffer holds only minutes, no hours, and normally just one; while the hub cannot reach it, it grows by a little less than a history's day per day, up to `BUFFER_HOURS`: about 3 MB for a PC's 24 hours, about 20 MB for a week. `HISTORY_MAX_ENTRIES` (default 64) caps how many disks, sensors, network cards and GPUs each a device can add, so one device with hundreds of virtual network cards cannot fill the disk.
+A hub's file is the sum over its devices. A data-only device's buffer holds only minutes, no hours, and normally just one; while the hub cannot reach it, it grows by a little less than a history's day per day, up to `BUFFER_HOURS`: about 3 MB for a PC's 24 hours, about 20 MB for a week. `HISTORY_MAX_ENTRIES` (default 64) caps how many disks, sensors, network cards and GPUs each a device can add, and how many groups of extras and values per group, so one device with hundreds of virtual network cards cannot fill the disk. Each extra with `history: true` counts as one more value per device.
 
 Deleted rows leave free pages in the file, which SQLite reuses for new values; the file does not shrink on its own.
 

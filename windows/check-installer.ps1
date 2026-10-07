@@ -1,7 +1,8 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website on, checks the tray icon pauses, resumes and
-# stops the service, updates it to a newer version without options and checks
-# the options were kept and the tray icon was closed for the update,
+# installs it with the website and the power add-on on, checks the tray icon
+# pauses, resumes and stops the service, updates it to a newer version
+# without options and checks the options and the add-on were kept and the
+# tray icon was closed for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -103,11 +104,19 @@ function Assert-Tray {
     Start-Service UsageControl
 }
 
-Write-Host 'Installing with the website on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7"
+function Assert-PowerAddOn {
+    $addOn = Get-Service UsageControlPower -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The power add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlPower).Status -eq 'Running' } 'the power add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\power.json" } 'the power add-on wrote its report'
+}
+
+Write-Host 'Installing with the website and the power add-on on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
+Assert-PowerAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -121,10 +130,12 @@ $installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion
     Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' })
 if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
+Assert-PowerAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
+if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -138,6 +149,7 @@ if ($metrics.disks.Count -lt 1) { throw 'The system disk is missing from the met
 $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it should be off" }
 Assert-FirewallPort 9393
+if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on was installed without POWER=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'

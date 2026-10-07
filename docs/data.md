@@ -40,6 +40,7 @@ CPU usage and disk and network speeds are measured between two readings, so they
 | `throttling` | Raspberry Pi only: undervoltage, frequency capping and throttling, now and since boot |
 | `battery` | `percent`, `pluggedIn`, `watts`, `healthPercent` |
 | `fans` | per fan: `name`, `rpm` |
+| `extras` | values beyond the fields above, which the device describes itself; see [Extras](#extras) |
 
 Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so every name stands for one sensor in the history.
 
@@ -80,6 +81,34 @@ The GPU card appears when usage-control finds a GPU whose usage the system repor
 - **Linux:** AMD GPUs with usage, memory and temperature, and the Raspberry Pi's VideoCore GPU with usage, read from `/sys`. The Pi's GPU shares the main memory and its temperature is the Pi's CPU temperature, so only usage is shown. Older Raspberry Pi kernels do not report it; then the card stays hidden. NVIDIA GPUs show up when `nvidia-smi` is installed, which is not the case in the Docker image; its answer is reused for 4 seconds. Intel GPUs report their usage only to programs with extra rights, so they are not shown.
 - **macOS:** not shown.
 
+## Extras
+
+`extras` lets a device report values the hub does not know yet: a hub shows and stores them as the device describes them, so a device running a newer version can add metrics without the hub being updated first. A hub running a version from before extras ignores the field.
+
+Each extra is a group shown as one card:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | the group's name, such as `pressure`: lowercase letters, digits, `-` and `_`, up to 40 characters |
+| `title`, `titles` | the card's title in English, and in other languages by language code (`de`, `fr`, `es`, `en-US`) |
+| `items` | the values: `id` (as above), `label` and `labels` (like `title` and `titles`), `unit`, then `value`, or `text` for the unit `text`, and `history: true` to keep its history |
+
+Units: `percent`, `celsius`, `bytes`, `bytesPerSecond`, `watts`, `milliseconds`, `perSecond`, `number` and `text`. A unit the hub does not know is shown as a plain number.
+
+Example:
+
+```json
+"extras": [{
+  "id": "pressure", "title": "Pressure", "titles": { "de": "Auslastungsdruck" },
+  "items": [
+    { "id": "cpu", "label": "CPU", "unit": "percent", "value": 1.5, "history": true },
+    { "id": "kernel", "label": "Kernel", "unit": "text", "text": "6.12.48" }
+  ]
+}]
+```
+
+Before showing or storing another device's extras, the hub keeps at most `HISTORY_MAX_ENTRIES` groups and as many values per group, cuts titles, labels and texts to 80 characters, and leaves out groups and values with an invalid or repeated `id` and values without a value. The page draws one chart per group and unit of the values with `history: true`.
+
 ## What is kept in the history
 
 The charts and the database keep a subset of the snapshot: the values that make sense as a line over time. Everything else is only shown live.
@@ -96,6 +125,7 @@ The charts and the database keep a subset of the snapshot: the values that make 
 | `network.receive:<card>`, `network.send:<card>` | bytes per second | network card |
 | `gpu:<name>` | % | GPU |
 | `gpu.memory:<name>` | % used | GPU with its own memory |
+| `extra:<group>/<value>` | the extra's own unit | extra value with `history: true` |
 
 Examples: `disk:/`, `network.receive:eth0`, `temperature:cpu_thermal`. Adding a metric needs no change to the database: every value is a row with its name.
 

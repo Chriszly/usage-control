@@ -10,7 +10,7 @@ import { Observable, delay, mergeMap, of, throwError, timer } from 'rxjs';
 
 import { Availability, DeviceList, LOCAL_DEVICE, Suggestion } from '../app/devices/devices';
 import { History, Series } from '../app/metrics/metrics';
-import { DemoMachine, FLEET, offlineSince, snapshotOf } from './fleet';
+import { DemoMachine, FLEET, extraInfoOf, offlineSince, snapshotOf } from './fleet';
 
 /** How many days of history the demo hub keeps; more than 30 shows the "All" range. */
 export const DEMO_RETENTION_DAYS = 90;
@@ -149,8 +149,19 @@ export function history(machine: DemoMachine, from: number, to: number): History
       points.set(metric, line);
     }
   }
-  const series: Series[] = [...points].map(([metric, values]) => ({ metric, points: values }));
-  return { from, to, stepSeconds: step, retentionDays: DEMO_RETENTION_DAYS, series };
+  // Like the backend, only extras that ask for it keep their history.
+  const extras = extraInfoOf(machine);
+  const series: Series[] = [...points]
+    .filter(([metric]) => !metric.startsWith('extra:') || metric in extras)
+    .map(([metric, values]) => ({ metric, points: values }));
+  return {
+    from,
+    to,
+    stepSeconds: step,
+    retentionDays: DEMO_RETENTION_DAYS,
+    series,
+    ...(machine.extras ? { extras } : {}),
+  };
 }
 
 /**

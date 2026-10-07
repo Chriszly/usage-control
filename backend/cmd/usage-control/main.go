@@ -27,6 +27,8 @@
 //	UPDATE_CHECK    false to stop asking GitHub once a day whether a newer
 //	                release exists, which the page then tells (default true;
 //	                only releases check, and never with DATA_ONLY)
+//	ADDONS_DIR      folder the installed add-ons write their reports to, which
+//	                are shown as extras (default none: no add-ons)
 //	ALLOWED_HOSTS   comma-separated names this device answers to besides its
 //	                IP addresses, localhost, its hostname and .local names,
 //	                such as a name from the router's DNS (default none)
@@ -56,14 +58,19 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/update"
 	"github.com/Chriszly/usage-control/backend/internal/version"
 	"github.com/Chriszly/usage-control/backend/internal/web"
+	"github.com/Chriszly/usage-control/backend/internal/winservice"
 )
 
 func main() {
 	// Installed on Windows, the service manager starts the program and tells
 	// it when to stop; everywhere else it runs until it is interrupted.
-	ranAsService, err := runAsService(run)
+	ranAsService, err := winservice.Run("UsageControl", run)
 	if !ranAsService && err == nil {
-		err = run(context.Background())
+		// Only outside the service manager: Go turns a user logging off
+		// Windows into SIGTERM, which would stop the service for good.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		err = run(ctx)
+		stop()
 	}
 	if err != nil {
 		slog.Error("usage-control stopped", "error", err)
@@ -71,8 +78,8 @@ func main() {
 	}
 }
 
-// run serves the website, or with DATA_ONLY only the usage data, until parent is done or the program is interrupted.
-func run(parent context.Context) error {
+// run serves the website, or with DATA_ONLY only the usage data, until ctx is done.
+func run(ctx context.Context) error {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = ":9393"
@@ -113,10 +120,15 @@ func run(parent context.Context) error {
 		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
 	}
 
-	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	// stop ends the recorders before the database is closed.
+	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 
 	collector.Name = ownName()
+	if dir := os.Getenv("ADDONS_DIR"); dir != "" {
+		collector.AddOns = &metrics.AddOns{Dir: dir, MaxEntries: historyEntries}
+		slog.Info("showing the values of the add-ons", "folder", dir)
+	}
 
 	// One sampler reads the usage for every page, hub and the recorder.
 	sampler := metrics.NewSampler(collector)

@@ -372,6 +372,21 @@
       </div>
     }
 
+    <!-- Values beyond the fixed ones, which the device describes itself, so newer devices' values show too. -->
+    @for (group of s.extras; track group.id) {
+      <div class="card">
+        <h2>{{ extraText(group.title, group.titles) }}</h2>
+        @for (item of group.items; track item.id) {
+          <p class="sensor">
+            <span class="label" [title]="extraText(item.label, item.labels)">{{
+              extraText(item.label, item.labels)
+            }}</span
+            ><span>{{ extraValue(item) }}</span>
+          </p>
+        }
+      </div>
+    }
+
     @if (s.timeZone; as zone) {
       <div class="card">
         <h2>{{ i18n.t('dashboard.time') }}</h2>

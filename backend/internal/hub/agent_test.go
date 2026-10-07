@@ -84,3 +84,22 @@ func TestAgentTellsTheHubsPagePort(t *testing.T) {
 		t.Errorf("%s = %q, want 9393", PagePortHeader, got)
 	}
 }
+
+func TestAgentCleansTheExtrasOfTheAnswer(t *testing.T) {
+	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"time":"2001-01-01T00:00:00Z","extras":[
+			{"id":"pressure","title":"Pressure","items":[{"id":"cpu","label":"CPU","unit":"percent","value":2,"history":true}]},
+			{"id":"Not valid","title":"x","items":[{"id":"a","label":"A","unit":"number","value":1}]}
+		]}`))
+	}))
+	defer device.Close()
+	agent := NewAgent(strings.TrimPrefix(device.URL, "http://"))
+
+	got, err := agent.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if len(got.Extras) != 1 || got.Extras[0].ID != "pressure" || *got.Extras[0].Items[0].Value != 2 {
+		t.Errorf("Extras = %+v, want only the valid group", got.Extras)
+	}
+}

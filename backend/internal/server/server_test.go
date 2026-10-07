@@ -271,6 +271,13 @@ type fakeHistory struct {
 	from, to time.Time
 	// newest is when the newest reading is from; zero when there is none.
 	newest time.Time
+	// series is what Range returns; nil returns one CPU value.
+	series []history.Series
+	extras map[string]history.ExtraInfo
+}
+
+func (f *fakeHistory) ExtraInfo(context.Context) (map[string]history.ExtraInfo, error) {
+	return f.extras, nil
 }
 
 func (f *fakeHistory) Newest(context.Context) (time.Time, bool, error) {
@@ -279,6 +286,9 @@ func (f *fakeHistory) Newest(context.Context) (time.Time, bool, error) {
 
 func (f *fakeHistory) Range(_ context.Context, from, to time.Time) ([]history.Series, time.Duration, error) {
 	f.from, f.to = from, to
+	if f.series != nil {
+		return f.series, time.Minute, nil
+	}
 	return []history.Series{{Metric: history.MetricCPU, Points: []history.Point{{Time: from.Unix(), Value: 12.5}}}}, 4 * time.Minute, nil
 }
 
@@ -432,5 +442,37 @@ func TestUpdateTellsANewerRelease(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("update = %+v, want %+v", got, want)
+	}
+}
+
+func TestHistoryDescribesTheExtras(t *testing.T) {
+	points := []history.Point{{Time: time.Now().Unix(), Value: 1}}
+	described := history.ExtraInfo{Title: "Pressure", Label: "CPU", Unit: metrics.UnitPercent}
+	reader := &fakeHistory{
+		series: []history.Series{
+			{Metric: history.MetricCPU, Points: points},
+			{Metric: "extra:pressure/cpu", Points: points},
+			{Metric: "extra:pressure/unknown", Points: points},
+		},
+		extras: map[string]history.ExtraInfo{"extra:pressure/cpu": described, "extra:other/x": {}},
+	}
+	handler := newHandler(device(fakeCollector{}, reader), 30*24*time.Hour, site)
+	to := time.Now().Unix()
+
+	rec := get(handler, fmt.Sprintf("/api/history?from=%d&to=%d", to-3600, to), "10.0.0.5:5000")
+
+	var got historyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	metricNames := []string{}
+	for _, s := range got.Series {
+		metricNames = append(metricNames, s.Metric)
+	}
+	if !reflect.DeepEqual(metricNames, []string{history.MetricCPU, "extra:pressure/cpu"}) {
+		t.Errorf("series = %v, want the CPU and the described extra", metricNames)
+	}
+	if want := map[string]history.ExtraInfo{"extra:pressure/cpu": described}; !reflect.DeepEqual(got.Extras, want) {
+		t.Errorf("extras = %+v, want %+v", got.Extras, want)
 	}
 }

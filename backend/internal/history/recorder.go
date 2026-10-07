@@ -48,6 +48,8 @@ type Recorder struct {
 	// dropped is set once a reading had more entries than are kept, so that
 	// is logged once too.
 	dropped bool
+	// extraInfo writes how the device's extras are described.
+	extraInfo extraInfoWriter
 }
 
 // Run records until ctx is cancelled. Failures are logged and the next
@@ -96,6 +98,13 @@ func (r *Recorder) read(ctx context.Context) {
 		r.dropped = true
 		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
 			"device", r.Device, "kept", r.MaxEntries)
+	}
+	// Only a history keeps how the extras are described; a hub reads that
+	// from a data-only device's own answers.
+	if store, ok := r.Store.(*Store); ok {
+		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras), snapshot.Time); err != nil {
+			slog.Error("store how the extras are described", "device", r.Device, "error", err)
+		}
 	}
 	r.Recent.Add(snapshot.Time, v)
 }

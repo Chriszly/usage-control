@@ -73,6 +73,12 @@ describe('niceCeiling', () => {
     expect(niceCeiling(0, 'celsius')).toBe(10);
   });
 
+  it('rounds other values up to 1, 2 or 5 times a power of ten', () => {
+    expect(niceCeiling(3.2, 'watts')).toBe(5);
+    expect(niceCeiling(140, 'number')).toBe(200);
+    expect(niceCeiling(0, 'perSecond')).toBe(1);
+  });
+
   it('rounds network speeds up to a power of two', () => {
     expect(niceCeiling(300 * 1024, 'bytesPerSecond')).toBe(512 * 1024);
     expect(niceCeiling(0, 'bytesPerSecond')).toBe(1024);

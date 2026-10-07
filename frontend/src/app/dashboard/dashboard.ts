@@ -9,6 +9,7 @@ import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../device
 import { I18n } from '../i18n/i18n';
 import { EvenColumns } from '../layout/even-columns';
 import { BytesPipe } from '../metrics/bytes.pipe';
+import { ExtraItem, formatExtra, localized } from '../metrics/extras';
 import {
   MetricsService,
   NetworkInterface,
@@ -154,6 +155,18 @@ export class Dashboard {
       .filter((n) => total(n) > 0)
       .sort((a, b) => total(b) - total(a) || a.name.localeCompare(b.name));
     return { shown, idle: s.network.length - shown.length };
+  }
+
+  /** A title or label of an extra in the page's language. */
+  protected extraText(text: string, texts?: Record<string, string>): string {
+    return localized(text, texts, this.i18n.language());
+  }
+
+  /** The value of an extra with its unit, in the page's language. */
+  protected extraValue(item: ExtraItem): string {
+    return item.unit === 'text' || item.value === undefined
+      ? (item.text ?? '')
+      : formatExtra(item.value, item.unit, this.i18n.language());
   }
 
   /** A number in the page's language, for text parameters (the number pipe may return null). */

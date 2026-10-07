@@ -45,7 +45,7 @@
       [class.alone]="charts().length === 1"
       [class.stale]="connection.lost()"
     >
-      @for (chart of charts(); track chart.title) {
+      @for (chart of charts(); track $index) {
         <div class="card">
           <h3>{{ chart.title }}</h3>
           <app-line-chart
