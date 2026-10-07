@@ -28,6 +28,7 @@ const maxDrives = 32
 
 const (
 	ioctlStorageQueryProperty = 0x002D1400
+	ioctlDiskPerformance      = 0x00070020
 	ioctlATAPassThrough       = 0x0004D02C
 	smartSendDriveCommand     = 0x0007C084
 	smartRcvDriveData         = 0x0007C088
@@ -118,6 +119,25 @@ func (windowsSource) read(d device) (Disk, error) {
 		return parseNVMeHealth(log)
 	}
 	return readATA(func(c ataCommand) (ataResult, []byte, error) { return sendATA(h, c) })
+}
+
+// ioCount asks the disk driver how many reads and writes it passed to the
+// disk, with IOCTL_DISK_PERFORMANCE through a handle without access to the
+// disk's data, which does not wake it. The SMART IOCTLs the add-on sends are
+// not counted there. Where the counters are switched off (diskperf -n) it
+// returns false, and the disk is read every time.
+func (windowsSource) ioCount(d device) (uint64, bool) {
+	h, err := open(d.path, 0)
+	if err != nil {
+		return 0, false
+	}
+	defer windows.CloseHandle(h) //nolint:errcheck // only asked
+	var out [diskPerformanceSize]byte
+	var returned uint32
+	if err := windows.DeviceIoControl(h, ioctlDiskPerformance, nil, 0, &out[0], diskPerformanceSize, &returned, nil); err != nil {
+		return 0, false
+	}
+	return parseDiskPerformance(out[:returned])
 }
 
 // sendATA sends an ATA command to a SATA disk: CHECK POWER MODE as ATA pass

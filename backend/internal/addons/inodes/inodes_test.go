@@ -28,9 +28,14 @@ sshfs#me@host: /mnt/remote fuse.sshfs rw 0 0
 systemd-1 /mnt/auto autofs rw 0 0
 tank/data /tank/data zfs rw 0 0
 /dev/sdc1 /boot/firmware vfat rw 0 0
+tank/docker/4f1c /var/lib/docker/zfs/graph/4f1c zfs rw 0 0
+default/containers/web /var/snap/lxd/common/lxd/storage-pools/default/containers/web zfs rw 0 0
+tank/incus/c1 /var/lib/incus/storage-pools/tank/containers/c1 zfs rw 0 0
+/dev/sdd1 /var/lib/docker ext4 rw 0 0
+/dev/sda1 /srv/usb ext4 rw 0 0
 `
 
-func TestParseMountsKeepsRealFilesystemsOnce(t *testing.T) {
+func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 	got := ParseMounts(table)
 
 	want := []Mount{
@@ -39,6 +44,8 @@ func TestParseMountsKeepsRealFilesystemsOnce(t *testing.T) {
 		{Source: "/dev/sda1", Path: "/mnt/usb disk\\x", Type: "ext4"},
 		{Source: "/dev/sdb1", Path: "/mnt/windows", Type: "fuseblk"},
 		{Source: "tank/data", Path: "/tank/data", Type: "zfs"},
+		{Source: "/dev/sdd1", Path: "/var/lib/docker", Type: "ext4"},
+		{Source: "/dev/sda1", Path: "/srv/usb", Type: "ext4"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseMounts() = %+v, want %+v", got, want)
@@ -101,6 +108,23 @@ func TestReadLeavesOutAFilesystemThatHangs(t *testing.T) {
 			t.Fatal("Read() leaves out /mnt/usb after its statfs returned")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestReadReportsADeviceAtItsFirstMountThatCanBeRead(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "mounts")
+	table := "/dev/sdb1 /mnt/a ext4 rw 0 0\n/dev/sdb1 /mnt/b ext4 rw 0 0\n/dev/sdb1 /mnt/c ext4 rw 0 0\n"
+	if err := os.WriteFile(file, []byte(table), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statfs := func(path string) (uint64, uint64, bool) {
+		return 1000, 250, path != "/mnt/a"
+	}
+
+	got := newReader(file, statfs, time.Second).Read()
+
+	if want := []Usage{{Path: "/mnt/b", UsedPercent: 75}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Read() = %+v, want %+v", got, want)
 	}
 }
 
