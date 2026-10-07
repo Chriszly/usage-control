@@ -172,6 +172,9 @@ fi
 # The kernel, memory and processes add-ons stay for the uninstall to remove.
 "$folder/install.sh" --addons=power,inodes,kernel,memory,processes
 systemctl is-active --quiet usage-control-inodes || { journalctl -u usage-control-inodes --no-pager | tail -20 >&2; echo "the inodes add-on is not running" >&2; exit 1; }
+# It takes DOCKER_DIR from the settings file, but not ADDONS_DIR.
+systemctl show -p EnvironmentFiles usage-control-inodes | grep -q /etc/usage-control.env || { echo "the inodes add-on does not read /etc/usage-control.env" >&2; exit 1; }
+systemctl show -p UnsetEnvironment usage-control-inodes | grep -q ADDONS_DIR || { echo "the inodes add-on does not unset ADDONS_DIR" >&2; exit 1; }
 for _ in $(seq 1 10); do
   grep -qs '"label":"/"' /run/usage-control-addons/inodes.json && break
   sleep 1

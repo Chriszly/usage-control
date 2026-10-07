@@ -39,6 +39,10 @@ tank/incus/c1 /var/lib/incus/storage-pools/tank/containers/c1 zfs rw 0 0
 tank/docker/9e2a /srv/docker/zfs/graph/9e2a zfs rw 0 0
 /dev/sdg1 /mnt/hidden ext4 rw 0 0
 tmpfs /mnt/hidden tmpfs rw 0 0
+/dev/mapper/vg-pool /var/lib/incus/storage-pools/default ext4 rw 0 0
+/dev/mapper/vg-containers_c1 /var/lib/incus/storage-pools/default/containers/c1 ext4 rw 0 0
+/dev/rbd0 /var/lib/lxd/storage-pools/ceph/virtual-machines/vm1 ext4 rw 0 0
+/dev/zd16 /var/snap/lxd/common/lxd/storage-pools/zfs/custom/default_data ext4 rw 0 0
 `
 
 func TestParseMountsKeepsRealFilesystems(t *testing.T) {
@@ -46,7 +50,8 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 
 	// /boot/firmware is the top of the two filesystems mounted there, the
 	// one statfs sees, and /mnt/hidden is left out as its top one is tmpfs.
-	// Disks below Docker's folders are kept, its layers are not.
+	// Disks below Docker's folders are kept, its layers are not; of a
+	// storage pool only its own mount is kept, not the containers' volumes.
 	want := []Mount{
 		{Source: "/dev/mmcblk0p2", Path: "/", Type: "ext4"},
 		{Source: "/dev/sdc1", Path: "/boot/firmware", Type: "vfat"},
@@ -58,6 +63,7 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 		{Source: "/dev/sda1", Path: "/srv/usb", Type: "ext4"},
 		{Source: "/dev/sde1", Path: "/var/lib/docker/volumes", Type: "ext4"},
 		{Source: "/dev/sdf1", Path: "/srv/docker", Type: "ext4"},
+		{Source: "/dev/mapper/vg-pool", Path: "/var/lib/incus/storage-pools/default", Type: "ext4"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseMounts() = %+v, want %+v", got, want)

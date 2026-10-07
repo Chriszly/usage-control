@@ -105,7 +105,11 @@ func TestRunLogsAFailedWriteOnceAndWhenItWorksAgain(t *testing.T) {
 	file := filepath.Join(dir, "test.json")
 	reads := make(chan struct{}, 100)
 	read := func(context.Context, time.Time) []metrics.Extra {
-		reads <- struct{}{}
+		// Without blocking, as the test stops taking them after a few.
+		select {
+		case reads <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())

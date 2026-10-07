@@ -64,16 +64,24 @@ var skipped = map[string]bool{
 	"ceph": true, "glusterfs": true, "afs": true, "virtiofs": true,
 }
 
-// containerFolders are the folders of container engines. What is mounted
-// below them, other than a disk, is a container's own layer or root, such as
-// one ZFS dataset per layer with Docker's zfs driver or per container with
-// LXD and Incus on ZFS, and would fill the slots of the group with values
+// containerFolders are the folders of the container engines that keep a
+// container's layers or root in them. What is mounted below them, other than
+// a disk, is such a layer or root, such as one ZFS dataset per layer with
+// Docker's zfs driver, and would fill the slots of the group with values
 // that come and go with the containers. A disk mounted at such a folder
 // itself, or below it, such as one for Docker's volumes, is kept.
 var containerFolders = []string{
 	"/var/lib/docker/",
 	"/var/lib/containerd/",
 	"/var/lib/containers/storage/",
+}
+
+// storagePools are the folders of LXD's and Incus's storage pools. Each pool
+// is mounted at storage-pools/<pool>, which is kept, and below it each
+// container, virtual machine, image and custom volume, which is left out
+// whatever it is mounted from: with LVM, Ceph or ZFS volumes these are disks
+// of their own, one per container.
+var storagePools = []string{
 	"/var/lib/lxd/storage-pools/",
 	"/var/snap/lxd/common/lxd/storage-pools/",
 	"/var/lib/incus/storage-pools/",
@@ -94,11 +102,25 @@ func belowContainerFolder(path, dockerDir string) bool {
 	return false
 }
 
-// containerLayer reports whether m is a container's own layer or root: what
-// is mounted below a container engine's folder and is not a disk, or is a
-// thin device of Docker's old devicemapper driver, a disk of its own per
-// container.
+// belowStoragePool reports whether path is below an LXD or Incus storage
+// pool's own mount point, as a container's volume is.
+func belowStoragePool(path string) bool {
+	for _, folder := range storagePools {
+		if pool, ok := strings.CutPrefix(path, folder); ok && strings.Contains(strings.Trim(pool, "/"), "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// containerLayer reports whether m is a container's own layer, root or
+// volume: what is mounted below a storage pool, and what is mounted below
+// another container engine's folder and is not a disk, or is a thin device of
+// Docker's old devicemapper driver, a disk of its own per container.
 func containerLayer(m Mount, dockerDir string) bool {
+	if belowStoragePool(m.Path) {
+		return true
+	}
 	if !belowContainerFolder(m.Path, dockerDir) {
 		return false
 	}
