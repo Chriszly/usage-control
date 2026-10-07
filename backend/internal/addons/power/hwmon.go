@@ -1,6 +1,7 @@
 package power
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,10 +38,31 @@ func readHwmon(dir string) []Reading {
 			label = filepath.Base(sensor)
 		}
 		readings = append(readings, Reading{
-			ID:    idOf("hwmon", filepath.Base(sensor), channel),
+			ID:    idOf("hwmon", sensorID(sensor, device), channel),
 			Label: label,
 			Watts: float64(microwatts) / 1e6,
 		})
 	}
 	return readings
+}
+
+// sensorID names a sensor folder by what stays the same across reboots: the
+// driver's name and the device it belongs to, such as amdgpu-0000:03:00.0,
+// not the folder's number, which the kernel hands out in the order the
+// drivers load.
+func sensorID(sensor, name string) string {
+	device := ""
+	if target, err := os.Readlink(filepath.Join(sensor, "device")); err == nil {
+		device = filepath.Base(target)
+	}
+	switch {
+	case name != "" && device != "":
+		return name + "-" + device
+	case name != "":
+		return name
+	case device != "":
+		return device
+	default:
+		return filepath.Base(sensor)
+	}
 }

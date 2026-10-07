@@ -71,7 +71,7 @@ func readNvidiaSMI(ctx context.Context, program string) []GPU {
 	query := "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu"
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
 	cmd := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits")
-	hideWindow(cmd)
+	HideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
