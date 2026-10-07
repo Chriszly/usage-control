@@ -66,3 +66,23 @@ func TestCleanExtrasKeepsAtMostMaxEntries(t *testing.T) {
 		t.Errorf("CleanExtras() = %+v, want 2 groups of 2 values", got)
 	}
 }
+
+func TestCleanTranslationsKeepsTheSameLanguagesEveryTime(t *testing.T) {
+	texts := map[string]string{"af": ""}
+	for _, language := range []string{"zu", "de", "fr", "es", "it", "nl", "pl", "pt", "sv", "da", "fi"} {
+		texts[language] = "text " + language
+	}
+	want := cleanTranslations(texts)
+
+	if len(want) != maxTranslations {
+		t.Fatalf("cleanTranslations() kept %d languages, want %d", len(want), maxTranslations)
+	}
+	if _, ok := want["af"]; ok {
+		t.Error("cleanTranslations() kept an empty text")
+	}
+	for range 20 {
+		if got := cleanTranslations(texts); !reflect.DeepEqual(got, want) {
+			t.Fatalf("cleanTranslations() = %v, then %v, want the same languages every time", want, got)
+		}
+	}
+}

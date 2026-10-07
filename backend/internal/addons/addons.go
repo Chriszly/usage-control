@@ -38,7 +38,11 @@ func Main(name, service string, newRead func() Read) {
 	serve := func(ctx context.Context) error { return Serve(ctx, name, read()) }
 	ranAsService, err := winservice.Run(service, serve)
 	if !ranAsService && err == nil {
-		err = serve(context.Background())
+		// Only outside the service manager: Go turns a user logging off
+		// Windows into SIGTERM, which would stop the service for good.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		err = serve(ctx)
+		stop()
 	}
 	if err != nil {
 		slog.Error("the add-on stopped", "add-on", name, "error", err)
@@ -46,17 +50,13 @@ func Main(name, service string, newRead func() Read) {
 	}
 }
 
-// Serve writes what read returns to the add-on folder until parent is done or
-// the program is interrupted, then removes the file, so usage-control stops
-// showing old values at once.
-func Serve(parent context.Context, name string, read Read) error {
+// Serve writes what read returns to the add-on folder until ctx is done, then
+// removes the file, so usage-control stops showing old values at once.
+func Serve(ctx context.Context, name string, read Read) error {
 	dir := os.Getenv("ADDONS_DIR")
 	if dir == "" {
 		dir = DefaultDir()
 	}
-	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	file := filepath.Join(dir, name+".json")
 	slog.Info("writing to the add-on folder", "file", file)
 	run(ctx, read, file)
