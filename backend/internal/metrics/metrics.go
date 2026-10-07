@@ -279,12 +279,14 @@ func (r *temperatureReader) read(ctx context.Context, now time.Time) []Temperatu
 	return temperatures
 }
 
-// readTemperatures returns every sensor reading the OS exposes. Many machines
-// expose none (most Windows and macOS machines, and most containers without
-// the host's /sys), so a failure means an empty list, not an error.
+// readTemperatures returns every sensor reading the OS exposes, except those
+// of a sleeping device. Many machines expose none (most Windows and macOS
+// machines, and most containers without the host's /sys), so a failure means
+// an empty list, not an error.
 func readTemperatures(ctx context.Context) []Temperature {
-	// readSensors returns the sensors it could read even when others
-	// failed, so its readings are used whatever it says.
+	// readSensors leaves out the sensors it cannot read; those of a sleeping
+	// device come back unread, marked in asleep, and temperaturesOf numbers
+	// them with the others and then drops them.
 	readings, asleep := readSensors(ctx)
 	return temperaturesOf(readings, asleep)
 }

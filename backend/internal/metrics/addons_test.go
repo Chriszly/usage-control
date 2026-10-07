@@ -55,7 +55,7 @@ func TestAddOnsReadAFileAgainOnlyOnceItChanged(t *testing.T) {
 	write := func(id string) {
 		t.Helper()
 		report := AddOnReport{Time: now, Extras: []Extra{{ID: id, Title: id, Items: []ExtraItem{{ID: "a", Unit: UnitWatts, Value: number(1)}}}}}
-		if err := WriteAddOnReport(file, report); err != nil {
+		if err := WriteAddOnReport(openRoot(t, dir), "power.json", report); err != nil {
 			t.Fatal(err)
 		}
 	}
