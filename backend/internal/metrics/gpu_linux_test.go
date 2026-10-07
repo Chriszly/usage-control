@@ -99,6 +99,45 @@ func TestGPUReaderAsksNvidiaSMIEveryFewSeconds(t *testing.T) {
 	}
 }
 
+func TestGPUReaderLetsSleepingGPUsSleep(t *testing.T) {
+	sys := t.TempDir()
+	// An AMD GPU asleep: its usage and temperature would wake it.
+	writeSysFile(t, sys, "class/drm/card0/device/gpu_busy_percent", "37\n")
+	writeSysFile(t, sys, "class/drm/card0/device/mem_info_vram_total", "8589934592\n")
+	writeSysFile(t, sys, "class/drm/card0/device/mem_info_vram_used", "0\n")
+	writeSysFile(t, sys, "class/drm/card0/device/hwmon/hwmon3/temp1_input", "52000\n")
+	writeSysFile(t, sys, "class/drm/card0/device/power/runtime_status", "suspended\n")
+	// An NVIDIA GPU, awake at first.
+	nvidia := "bus/pci/devices/0000:01:00.0/"
+	writeSysFile(t, sys, nvidia+"vendor", "0x10de\n")
+	writeSysFile(t, sys, nvidia+"class", "0x030000\n")
+	writeSysFile(t, sys, nvidia+"power/runtime_status", "active\n")
+	runs := 0
+	reader := &gpuReader{sysDir: sys, v3d: map[string]v3dReading{}, nvidia: &nvidiaSMI{
+		program: "nvidia-smi",
+		sleep:   NewNvidiaSleep(sys),
+		query: func(context.Context, string) []GPU {
+			runs++
+			celsius := 50.0
+			return []GPU{{Name: "GeForce", UsagePercent: 12, MemoryUsedBytes: 1 << 30, MemoryTotalBytes: 8 << 30, Celsius: &celsius}}
+		},
+	}}
+
+	awake := reader.read(context.Background())
+	writeSysFile(t, sys, nvidia+"power/runtime_status", "suspended\n")
+	reader.nvidia.at = reader.nvidia.at.Add(-nvidiaSMIInterval)
+	asleep := reader.read(context.Background())
+
+	amd := GPU{Name: "AMD GPU", MemoryTotalBytes: 8 << 30}
+	if len(awake) != 2 || !reflect.DeepEqual(awake[0], amd) || awake[1].UsagePercent != 12 {
+		t.Errorf("read() = %+v, want the AMD GPU idle without temperature and the GeForce", awake)
+	}
+	want := []GPU{amd, {Name: "GeForce", MemoryTotalBytes: 8 << 30}}
+	if !reflect.DeepEqual(asleep, want) || runs != 1 {
+		t.Errorf("read() while asleep = %+v after %d runs, want %+v without another run", asleep, runs, want)
+	}
+}
+
 func TestReadNvidiaSMIKeepsTheHealthyGPUsWhenOneFails(t *testing.T) {
 	// A stand-in for nvidia-smi with one GPU fallen off the bus: it prints
 	// the other and exits with an error.

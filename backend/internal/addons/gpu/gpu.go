@@ -53,10 +53,14 @@ var fields = []struct {
 type Reader struct {
 	// program is where nvidia-smi is; empty when it is not installed.
 	program string
+	// sleep tells whether the GPUs sleep, when nvidia-smi would wake them.
+	sleep *metrics.NvidiaSleep
 	// failing is whether the last call failed, so a failure is logged once.
 	failing bool
-	// extras is what the last call of nvidia-smi returned, and at when that
-	// was; Read returns extras again until it is addons.ProgramInterval old.
+	// gpus is what the last call of nvidia-smi returned, and extras what
+	// the last read returned, and at when that was; Read returns extras
+	// again until it is addons.ProgramInterval old.
+	gpus   []GPU
 	extras []metrics.Extra
 	at     time.Time
 }
@@ -70,7 +74,8 @@ func NewReader() *Reader {
 		slog.Info("nvidia-smi is not installed, so there is no NVIDIA GPU to read")
 		return &Reader{}
 	}
-	return &Reader{program: program}
+	// The add-on has no container, so /sys is the machine's.
+	return &Reader{program: program, sleep: metrics.NewNvidiaSleep("/sys")}
 }
 
 // Read returns the GPUs' values as the group of extras the collector shows,
@@ -90,6 +95,9 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 }
 
 func (r *Reader) read(ctx context.Context) []metrics.Extra {
+	if r.sleep.Asleep() {
+		return Extras(sleeping(r.gpus))
+	}
 	out, err := run(ctx, r.program)
 	switch {
 	case err != nil && !r.failing:
@@ -100,7 +108,32 @@ func (r *Reader) read(ctx context.Context) []metrics.Extra {
 	r.failing = err != nil
 	// When one GPU is in an error state, nvidia-smi still prints the others
 	// but exits with an error, so what it printed is read either way.
-	return Extras(Parse(out))
+	r.gpus = Parse(out)
+	return Extras(r.gpus)
+}
+
+// sleeping returns the GPUs as they are while they sleep, when nvidia-smi is
+// not asked, as it would wake them: the values with a history, the fan,
+// clocks, encoder and decoder, at 0, and the power limit as before. The
+// performance state is left out, as only an awake GPU has one.
+func sleeping(gpus []GPU) []GPU {
+	var asleep []GPU
+	for _, gpu := range gpus {
+		values := map[string]string{}
+		for _, field := range fields {
+			value, ok := gpu.Values[field.id]
+			switch {
+			case !ok || field.unit == metrics.UnitText:
+			case field.history:
+				values[field.id] = "0"
+			default:
+				values[field.id] = value
+			}
+		}
+		gpu.Values = values
+		asleep = append(asleep, gpu)
+	}
+	return asleep
 }
 
 func run(ctx context.Context, program string) (string, error) {

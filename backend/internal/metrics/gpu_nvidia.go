@@ -42,6 +42,9 @@ type nvidiaSMI struct {
 	program string
 	// query asks nvidia-smi; nil runs readNvidiaSMI.
 	query func(ctx context.Context, program string) []GPU
+	// sleep tells whether the GPUs sleep, when nvidia-smi would wake them;
+	// nil, as on Windows, never.
+	sleep *NvidiaSleep
 
 	// mu guards the last answer, gpus, when it came, and the call under way.
 	mu   sync.Mutex
@@ -66,10 +69,16 @@ func newNvidiaSMI() *nvidiaSMI {
 // old, it asks nvidia-smi again in the background and waits up to
 // nvidiaSMIWait for the answer, returning the last one if it takes longer.
 // While a call is stuck (see nvidiaSMIStuck), it returns none and starts no
-// other. A nil nvidiaSMI reads none.
+// other. While the GPUs sleep, it starts none either, which would wake them,
+// and returns the last answer as idle. A nil nvidiaSMI reads none.
 func (n *nvidiaSMI) read(ctx context.Context) []GPU {
 	if n == nil || n.program == "" {
 		return nil
+	}
+	if n.sleep.Asleep() {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return idleGPUs(n.gpus)
 	}
 	n.mu.Lock()
 	if n.running == nil && time.Since(n.at) >= nvidiaSMIInterval {
@@ -120,6 +129,17 @@ func (n *nvidiaSMI) ask(ctx context.Context, done chan struct{}) {
 	}
 	n.mu.Unlock()
 	close(done)
+}
+
+// idleGPUs returns GPUs as they are while they sleep: unused, with no memory
+// in use and no temperature, which only an awake GPU reports.
+func idleGPUs(gpus []GPU) []GPU {
+	var idle []GPU
+	for _, gpu := range gpus {
+		gpu.UsagePercent, gpu.MemoryUsedBytes, gpu.Celsius = 0, 0, nil
+		idle = append(idle, gpu)
+	}
+	return idle
 }
 
 // temperatures returns the temperature of each NVIDIA GPU that reports one,

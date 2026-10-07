@@ -184,3 +184,44 @@ func TestReadAsksNvidiaSMIEveryInterval(t *testing.T) {
 		t.Errorf("fan after the interval = %v, want a new answer, 50", got)
 	}
 }
+
+func TestReadLetsSleepingGPUsSleep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	sys := t.TempDir()
+	device := filepath.Join(sys, "bus", "pci", "devices", "0000:01:00.0")
+	write := func(path, text string, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(device, "vendor"), "0x10de\n", 0o600)
+	write(filepath.Join(device, "class"), "0x030000\n", 0o600)
+	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	write(script, "#!/bin/sh\necho '0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 4070, 35, 2475, 10501, 0, 3, P0, 200.00'\n", 0o700)
+	r := &Reader{program: script, sleep: metrics.NewNvidiaSleep(sys)}
+	start := time.Now()
+	r.Read(t.Context(), start)
+
+	// Asleep, nvidia-smi is not started: it would fail now.
+	write(filepath.Join(device, "power", "runtime_status"), "suspended\n", 0o600)
+	write(script, "#!/bin/sh\nexit 1\n", 0o700)
+	got := r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	values := map[string]float64{}
+	for _, item := range got[0].Items {
+		if item.Value != nil {
+			values[item.ID] = *item.Value
+		}
+	}
+	want := map[string]float64{"0-fan": 0, "0-graphics-clock": 0, "0-memory-clock": 0, "0-encoder": 0, "0-decoder": 0, "0-power-limit": 200}
+	if !reflect.DeepEqual(values, want) || len(got[0].Items) != len(want) || r.failing {
+		t.Errorf("Read() while asleep = %+v, want %v without the performance state or running nvidia-smi", got[0].Items, want)
+	}
+}

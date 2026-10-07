@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,6 +163,39 @@ func TestLastReadingsAsksThePMICEveryTenSeconds(t *testing.T) {
 	}
 	if got := last.get(start.Add(pmicInterval), read); got[0].Watts != 2 || pmicInterval >= addons.ProgramInterval {
 		t.Errorf("get() after %v = %v, want a new answer before addons.ProgramInterval", pmicInterval, got)
+	}
+}
+
+func TestReadLetsSleepingNvidiaGPUsSleep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	sys := t.TempDir()
+	gpu := "bus/pci/devices/0000:01:00.0/"
+	writeFiles(t, sys, map[string]string{gpu + "vendor": "0x10de\n", gpu + "class": "0x030200\n", gpu + "power/runtime_status": "active\n"})
+	// A stand-in for nvidia-smi that counts how often it ran.
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	script := filepath.Join(dir, "nvidia-smi")
+	text := "#!/bin/sh\necho run >> " + runs + "\necho '0, GPU-1a2b3c4d-0000, GeForce, 18.42'\n"
+	if err := os.WriteFile(script, []byte(text), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+	r := NewReader(sys)
+	r.pmic, r.nvidia = "", script
+	start := time.Now()
+
+	awake := r.Read(t.Context(), start)
+	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "suspended\n"})
+	asleep := r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	data, _ := os.ReadFile(runs) //nolint:gosec // a file this test created
+	if len(awake) != 1 || awake[0].Watts != 18.42 {
+		t.Errorf("Read() = %+v, want the GeForce's 18.42 W", awake)
+	}
+	want := []Reading{{ID: "nvidia-0", Label: "GeForce", Watts: 0}}
+	if !reflect.DeepEqual(asleep, want) || len(strings.Fields(string(data))) != 1 {
+		t.Errorf("Read() while asleep = %+v after %q, want %+v without another run", asleep, data, want)
 	}
 }
 

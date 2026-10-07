@@ -36,6 +36,9 @@ type Reader struct {
 	pmic   string
 	nvidia string
 	system *system
+	// nvidiaSleep tells whether the NVIDIA GPUs sleep, when nvidia-smi
+	// would wake them.
+	nvidiaSleep *metrics.NvidiaSleep
 
 	// lastPMIC and lastNvidia keep what vcgencmd and nvidia-smi answered,
 	// which is asked only every pmicInterval and addons.ProgramInterval.
@@ -53,12 +56,13 @@ const pmicInterval = 10 * time.Second
 // in a container is where the host's /sys is mounted.
 func NewReader(sysDir string) *Reader {
 	return &Reader{
-		rapl:     newRAPL(filepath.Join(sysDir, "class", "powercap")),
-		hwmon:    filepath.Join(sysDir, "class", "hwmon"),
-		pmic:     lookPath("vcgencmd"),
-		nvidia:   lookPath("nvidia-smi"),
-		system:   newSystem(),
-		lastPMIC: lastReadings{interval: pmicInterval},
+		rapl:        newRAPL(filepath.Join(sysDir, "class", "powercap")),
+		hwmon:       filepath.Join(sysDir, "class", "hwmon"),
+		pmic:        lookPath("vcgencmd"),
+		nvidia:      lookPath("nvidia-smi"),
+		system:      newSystem(),
+		nvidiaSleep: metrics.NewNvidiaSleep(sysDir),
+		lastPMIC:    lastReadings{interval: pmicInterval},
 	}
 }
 
@@ -72,7 +76,24 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	readings = append(readings, r.rapl.read(now)...)
 	readings = append(readings, readHwmon(r.hwmon)...)
 	readings = append(readings, r.system.read()...)
-	readings = append(readings, r.lastNvidia.get(now, func() []Reading { return readNvidia(ctx, r.nvidia) })...)
+	readings = append(readings, r.lastNvidia.get(now, func() []Reading {
+		if r.nvidiaSleep.Asleep() {
+			return sleepingNvidia(r.lastNvidia.readings)
+		}
+		return readNvidia(ctx, r.nvidia)
+	})...)
+	return readings
+}
+
+// sleepingNvidia returns the last power readings of the NVIDIA GPUs as they
+// are while the GPUs sleep, at 0 W: nvidia-smi is not asked then, as it
+// would wake them.
+func sleepingNvidia(last []Reading) []Reading {
+	var readings []Reading
+	for _, r := range last {
+		r.Watts = 0
+		readings = append(readings, r)
+	}
 	return readings
 }
 
