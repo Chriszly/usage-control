@@ -91,19 +91,22 @@ type fetcher struct {
 }
 
 // fetch stores the minutes the device has after the newest one the hub has.
-// It returns false when the device is too old to keep its minutes, or answers
-// but its minutes cannot be fetched, so the recorder stores the average of
-// its own readings instead; the next fetch then starts after that minute.
+// It returns false when the device does not answer now, is too old to keep
+// its minutes, or answers but its minutes cannot be fetched, so the recorder
+// stores the average of its own readings instead; a device minute for the
+// same minute is then not stored again.
 func (f *fetcher) fetch(ctx context.Context) bool {
 	if !f.tooOld.IsZero() && time.Since(f.tooOld) < recheckAfter {
 		return false
 	}
-	// A device that does not answer has nothing to fetch now; once it
+	// A device that does not answer has nothing to fetch now. The recorder
+	// stores the readings it has of this minute, as when the device was
+	// switched off during it, and keeps none of its own; once the device
 	// answers again, the minutes it kept meanwhile follow.
 	measured, ok := f.agent.clockOffset()
 	if !ok {
 		f.back = time.Time{}
-		return true
+		return false
 	}
 	if f.back.IsZero() {
 		f.back = time.Now()
@@ -167,8 +170,13 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 	}
 	// A device that answers but has kept no minute for a while, as when it
 	// cannot write to its disk, would leave a gap: the recorder stores the
-	// average of its own readings instead.
-	if !answer.More && time.Since(f.back) > keptWithin && answer.Now-f.after > int64(keptWithin/time.Second) {
+	// average of its own readings instead. A device that just began to answer,
+	// as after it was switched on, keeps its first minute a minute or two
+	// later, so that is only logged once it had the time to.
+	if !answer.More && answer.Now-f.after > int64(keptWithin/time.Second) {
+		if time.Since(f.back) <= keptWithin {
+			return false
+		}
 		return f.failed(ctx, errors.New("the device has kept no minute of its usage for a while"))
 	}
 	if f.failing {

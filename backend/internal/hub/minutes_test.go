@@ -193,14 +193,17 @@ func TestFetcherLeavesAnOlderDeviceToTheRecorder(t *testing.T) {
 	}
 }
 
-func TestFetcherWaitsForAnUnreachableDevice(t *testing.T) {
+func TestFetcherLeavesTheMinuteToTheRecorderWhileTheDeviceDoesNotAnswer(t *testing.T) {
 	ctx := context.Background()
 	device := newMinutesDevice(time.Now(), 10)
 	agent := device.start(t)
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: 10}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: 10, back: time.Now().Add(-time.Hour)}
 
-	if !f.fetch(ctx) || len(device.asked) != 0 {
-		t.Errorf("fetch() before the device answered asked %d times; want true without asking", len(device.asked))
+	if f.fetch(ctx) || len(device.asked) != 0 || f.failing {
+		t.Errorf("fetch() before the device answered asked %d times; want false without asking or logging, so the recorder stores the readings it has of the minute", len(device.asked))
+	}
+	if !f.back.IsZero() {
+		t.Errorf("back = %v, want zero, so the device gets the time to keep its first minute once it answers again", f.back)
 	}
 }
 
@@ -428,7 +431,7 @@ func TestFetcherLeavesAMinuteToTheRecorderWhenTheDeviceKeepsNone(t *testing.T) {
 	}
 }
 
-func TestFetcherWaitsForTheFirstMinuteOfADeviceThatIsBack(t *testing.T) {
+func TestFetcherLeavesTheMinutesToTheRecorderQuietlyUntilADeviceThatIsBackKeepsOne(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 	// The device was switched off for an hour and has just started again,
@@ -444,8 +447,8 @@ func TestFetcherWaitsForTheFirstMinuteOfADeviceThatIsBack(t *testing.T) {
 	}
 	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
 
-	if !f.fetch(ctx) || f.failing {
-		t.Error("fetch() = false for a device that is back, want true while it keeps its first minute")
+	if f.fetch(ctx) || f.failing {
+		t.Error("fetch() for a device that is back = true or logged a failure; want false without logging, so the recorder stores its own until the device keeps its first minute")
 	}
 }
 
