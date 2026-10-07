@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -712,12 +713,56 @@ func TestKeepKeepsWhatTheRecorderKeeps(t *testing.T) {
 	}
 	// The same every time, not whichever the order of a map picks.
 	for range 20 {
-		got, dropped := keep(values, 2)
-		if !reflect.DeepEqual(got, want) || !dropped {
-			t.Fatalf("keep() = %v, %v; want %v, true", got, dropped, want)
+		got, dropped, tooLong := keep(values, 2)
+		if !reflect.DeepEqual(got, want) || !dropped || tooLong {
+			t.Fatalf("keep() = %v, %v, %v; want %v, true, false", got, dropped, tooLong, want)
 		}
 	}
-	if _, dropped := keep(map[string]float64{"cpu": 1, "disk:/a": 2}, 2); dropped {
+	if _, dropped, _ := keep(map[string]float64{"cpu": 1, "disk:/a": 2}, 2); dropped {
 		t.Error("keep() of fewer entries than kept dropped some")
+	}
+}
+
+func TestKeepKeepsAsManyExtrasAsTheRecorder(t *testing.T) {
+	// 30 groups of 30 values each: within the groups and values per group
+	// kept, but more values than the history keeps of extras in all.
+	values := map[string]float64{}
+	var all []string
+	for group := range 30 {
+		for item := range 30 {
+			metric := fmt.Sprintf("extra:g%02d/v%02d", group, item)
+			values[metric] = 1
+			all = append(all, metric)
+		}
+	}
+	got, dropped, _ := keep(values, 30)
+
+	slices.Sort(all)
+	want := map[string]float64{}
+	for _, metric := range all[:history.MaxExtras(30)] {
+		want[metric] = 1
+	}
+	if !reflect.DeepEqual(got, want) || !dropped {
+		t.Errorf("keep() kept %d extras, dropped %v; want the first %d by name, as the recorder keeps", len(got), dropped, history.MaxExtras(30))
+	}
+	if len(values) <= history.MaxExtras(history.DefaultMaxEntries) {
+		t.Fatalf("only %d extras, want more than the %d kept by default", len(values), history.MaxExtras(history.DefaultMaxEntries))
+	}
+	if got, _, _ := keep(values, history.DefaultMaxEntries); len(got) != history.MaxExtras(history.DefaultMaxEntries) {
+		t.Errorf("keep() with the default kept %d extras, want %d", len(got), history.MaxExtras(history.DefaultMaxEntries))
+	}
+}
+
+func TestKeepLeavesOutAnEntryWhoseLongestMetricIsTooLong(t *testing.T) {
+	// "disk:" and this path fit, "disk.write:" and it do not: the recorder
+	// leaves out the whole disk, so the hub does too.
+	path := "/" + strings.Repeat("x", maxMetricLength-len("disk:")-1)
+	values := map[string]float64{"cpu": 1, "disk:" + path: 2, "disk.read:/a": 3, "temperature:" + path: 4}
+
+	got, dropped, tooLong := keep(values, 10)
+
+	want := map[string]float64{"cpu": 1, "disk.read:/a": 3}
+	if !reflect.DeepEqual(got, want) || dropped || !tooLong {
+		t.Errorf("keep() = %v, %v, %v; want %v, false, true", got, dropped, tooLong, want)
 	}
 }

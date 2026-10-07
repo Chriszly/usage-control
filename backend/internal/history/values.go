@@ -39,6 +39,14 @@ const DefaultMaxEntries = 64
 // number of groups times the number of values in each would allow the square.
 const extrasPerEntry = 8
 
+// MaxExtras returns how many values of extras the history keeps per device
+// when it keeps maxEntries disks, sensors, network cards and GPUs each: of
+// more, the first by metric name, as a recorder keeps of its readings and a
+// hub of the minutes it fetches.
+func MaxExtras(maxEntries int) int {
+	return extrasPerEntry * maxEntries
+}
+
 // MaxMetricLength is the longest metric name stored. A disk, sensor, network
 // card or GPU whose name makes a longer one is left out of the history, so a
 // broken device cannot fill the hub's memory and database with long names.
@@ -51,7 +59,7 @@ const MaxMetricLength = 256
 // core's usage and throttling are only shown live. Of the disks, sensors,
 // network cards and GPUs whose names fit in MaxMetricLength, the first
 // maxEntries each by name are kept, as a hub keeps of the minutes it
-// fetches, and of the extras the first extrasPerEntry times maxEntries;
+// fetches, and of the extras the first MaxExtras by metric name;
 // dropped tells whether any were left out for those limits, and tooLong
 // whether any were for their names.
 func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped, tooLong bool) {
@@ -105,21 +113,21 @@ type storedExtra struct {
 }
 
 // storedExtras returns the values of the extras that ask for their history,
-// the first extrasPerEntry times maxEntries of them, and whether that left
-// some out.
+// the first MaxExtras of them by metric name, and whether that left some
+// out.
 func storedExtras(extras []metrics.Extra, maxEntries int) (stored []storedExtra, dropped bool) {
 	for _, group := range extras {
 		for _, item := range group.Items {
-			if !item.History || item.Value == nil {
-				continue
+			if item.History && item.Value != nil {
+				stored = append(stored, storedExtra{metric: extraMetric(group, item), group: group, item: item})
 			}
-			if len(stored) == extrasPerEntry*maxEntries {
-				return stored, true
-			}
-			stored = append(stored, storedExtra{metric: extraMetric(group, item), group: group, item: item})
 		}
 	}
-	return stored, false
+	if len(stored) <= MaxExtras(maxEntries) {
+		return stored, false
+	}
+	slices.SortFunc(stored, func(a, b storedExtra) int { return cmp.Compare(a.metric, b.metric) })
+	return stored[:MaxExtras(maxEntries)], true
 }
 
 // extraInfo describes the extras values keeps, by the metric they are stored

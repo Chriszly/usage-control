@@ -349,7 +349,8 @@ func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
 		for i := range 7 {
 			group.Items = append(group.Items, metrics.ExtraItem{ID: fmt.Sprintf("v%d", i), Label: "Value", Unit: metrics.UnitNumber, Value: number(1), History: true})
 		}
-		extras = append(extras, group)
+		// Listed last to first: kept by metric name, not in the device's order.
+		extras = append([]metrics.Extra{group}, extras...)
 	}
 
 	got, dropped, _ := values(metrics.Snapshot{Extras: extras}, maxEntries)
@@ -366,7 +367,7 @@ func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
 	_, last := got["extra:g2/v1"]
 	_, past := got["extra:g2/v2"]
 	if !last || past {
-		t.Errorf("values() = %v, want the first values kept, up to extra:g2/v1", got)
+		t.Errorf("values() = %v, want the first values by name kept, up to extra:g2/v1", got)
 	}
 	if info := extraInfo(extras, maxEntries); len(info) != stored {
 		t.Errorf("extraInfo() describes %d values, want the %d stored", len(info), stored)
