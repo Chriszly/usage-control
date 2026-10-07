@@ -3,8 +3,8 @@
 // container uses, from the kernel's cgroups (v2 only), and writes them to the
 // add-on folder (see package addons). It never talks to Docker or Podman. It
 // runs as root on Linux, without any capability, to read the names of
-// Docker's containers from /var/lib/docker/containers; without that right it
-// names them by their short id. It reads nothing on other systems.
+// Docker's containers from its data folder; without that right it names them
+// by their short id. It reads nothing on other systems.
 //
 // Settings come from environment variables:
 //
@@ -12,6 +12,8 @@
 //	            /run/usage-control-addons, the folder the systemd service
 //	            makes)
 //	HOST_SYS    where the host's /sys is, in a container (default /sys)
+//	DOCKER_DIR  Docker's data folder, whose containers folder holds the
+//	            containers' names (default /var/lib/docker)
 package main
 
 import (
@@ -25,7 +27,7 @@ import (
 
 func main() {
 	addons.Main("containers", "UsageControlContainers", func() addons.Read {
-		reader := containers.NewReader(containers.HostSys(), containers.DockerDir)
+		reader := containers.NewReader(containers.HostSys(), containers.DockerDir())
 		return func(_ context.Context, now time.Time) []metrics.Extra {
 			return containers.Extras(reader.Read(now))
 		}

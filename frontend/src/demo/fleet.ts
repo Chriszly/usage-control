@@ -125,17 +125,17 @@ function powerAddOn(
 }
 
 /**
- * What the containers add-on reports for the given containers, by short id and name; their
- * values come from values() as "extra:containers-cpu/<id>" in percent and
- * "extra:containers-memory/<id>" in bytes.
+ * What the containers add-on reports for the given containers, each under its name; their
+ * values come from values() as "extra:containers-cpu/<name>" in percent and
+ * "extra:containers-memory/<name>" in bytes.
  */
-function containersAddOn(containers: { id: string; name: string }[]): Extra[] {
+function containersAddOn(names: string[]): Extra[] {
   return [
     {
       id: 'containers-cpu',
       title: 'Containers: CPU',
       titles: { de: 'Container: CPU', fr: 'Conteneurs : processeur', es: 'Contenedores: CPU' },
-      items: containers.map((c) => ({ id: c.id, label: c.name, unit: 'percent', history: true })),
+      items: names.map((name) => ({ id: name, label: name, unit: 'percent', history: true })),
     },
     {
       id: 'containers-memory',
@@ -145,7 +145,7 @@ function containersAddOn(containers: { id: string; name: string }[]): Extra[] {
         fr: 'Conteneurs : mémoire',
         es: 'Contenedores: memoria',
       },
-      items: containers.map((c) => ({ id: c.id, label: c.name, unit: 'bytes', history: true })),
+      items: names.map((name) => ({ id: name, label: name, unit: 'bytes', history: true })),
     },
   ];
 }
@@ -489,11 +489,7 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
-  extras: containersAddOn([
-    { id: '3f9a1c27b8e4', name: 'jellyfin' },
-    { id: '8d02e6f4a1b9', name: 'nextcloud' },
-    { id: 'c41b7e93d05a', name: 'restic-backup' },
-  ]),
+  extras: containersAddOn(['jellyfin', 'nextcloud', 'restic-backup']),
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
@@ -549,10 +545,10 @@ const linuxNas: DemoMachine = {
         0,
         3e8,
       ),
-      'extra:containers-cpu/3f9a1c27b8e4': vary(t, step, 106, 1.5, [[1.5, 300]]),
-      'extra:containers-cpu/8d02e6f4a1b9': vary(t, step, 107, 0.8, [[0.6, 120]]),
-      'extra:containers-cpu/c41b7e93d05a': 0.1 + 20 * backup,
-      'extra:containers-memory/3f9a1c27b8e4': vary(
+      'extra:containers-cpu/jellyfin': vary(t, step, 106, 1.5, [[1.5, 300]]),
+      'extra:containers-cpu/nextcloud': vary(t, step, 107, 0.8, [[0.6, 120]]),
+      'extra:containers-cpu/restic-backup': 0.1 + 20 * backup,
+      'extra:containers-memory/jellyfin': vary(
         t,
         step,
         108,
@@ -561,7 +557,7 @@ const linuxNas: DemoMachine = {
         0,
         GB * 4,
       ),
-      'extra:containers-memory/8d02e6f4a1b9': vary(
+      'extra:containers-memory/nextcloud': vary(
         t,
         step,
         109,
@@ -570,7 +566,7 @@ const linuxNas: DemoMachine = {
         0,
         GB * 4,
       ),
-      'extra:containers-memory/c41b7e93d05a': 30e6 + 0.5 * GB * backup,
+      'extra:containers-memory/restic-backup': 30e6 + 0.5 * GB * backup,
     };
   },
 };
@@ -604,10 +600,7 @@ const linuxServer: DemoMachine = {
       { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
       { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
     ]),
-    ...containersAddOn([
-      { id: '5e7d20a9f3c1', name: 'gitea-runner' },
-      { id: 'a82c4f1e6b07', name: 'registry' },
-    ]),
+    ...containersAddOn(['gitea-runner', 'registry']),
   ],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -642,18 +635,10 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
       // The runner does the builds.
-      'extra:containers-cpu/5e7d20a9f3c1': 0.2 + 70 * build,
-      'extra:containers-cpu/a82c4f1e6b07': vary(t, step, 126, 0.3, [[0.3, 60]]) + 2 * build,
-      'extra:containers-memory/5e7d20a9f3c1': 0.3 * GB + 30 * GB * build,
-      'extra:containers-memory/a82c4f1e6b07': vary(
-        t,
-        step,
-        127,
-        0.15 * GB,
-        [[0.05 * GB, 3600]],
-        0,
-        GB,
-      ),
+      'extra:containers-cpu/gitea-runner': 0.2 + 70 * build,
+      'extra:containers-cpu/registry': vary(t, step, 126, 0.3, [[0.3, 60]]) + 2 * build,
+      'extra:containers-memory/gitea-runner': 0.3 * GB + 30 * GB * build,
+      'extra:containers-memory/registry': vary(t, step, 127, 0.15 * GB, [[0.05 * GB, 3600]], 0, GB),
     };
   },
 };

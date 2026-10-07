@@ -1,8 +1,9 @@
 // Package containers reads the CPU and memory each running container uses,
 // for the containers add-on: from the files of the kernel's cgroups (v2
 // only), without asking Docker or Podman, since access to their socket is as
-// good as root. Docker's containers are named from their settings in
-// /var/lib/docker/containers when those can be read, else by their short id.
+// good as root. Docker's containers are named from their settings in its
+// data folder, /var/lib/docker/containers by default, when those can be read,
+// else by their short id.
 //
 // It only reads; nothing in here changes the machine.
 package containers
@@ -10,6 +11,8 @@ package containers
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,8 +43,10 @@ type Container struct {
 	// the previous read; nil at the first read of a container.
 	CPU *float64
 	// MemoryBytes is the memory the container uses, without the file cache
-	// the kernel can drop, as docker stats counts it.
-	MemoryBytes uint64
+	// the kernel can drop, as docker stats counts it; nil where the kernel
+	// counts no memory per container, as Raspberry Pi OS's does unless it is
+	// booted with cgroup_enable=memory.
+	MemoryBytes *uint64
 }
 
 // Reader reads the containers of the machine.
@@ -52,9 +57,20 @@ type Reader struct {
 	// previous is each container's CPU time at the previous read, in
 	// microseconds, by id.
 	previous map[string]uint64
-	at       time.Time
-	// names are the names already read, by id.
-	names map[string]string
+	// at is the time of the previous read as Read got it, with Go's monotonic
+	// clock reading, so the CPU's rate does not jump when the clock is set.
+	at time.Time
+	// names are the names read from Docker's settings, by id.
+	names map[string]knownName
+}
+
+// knownName is a name read from a Docker container's settings, with the
+// time and size of the file then, to read it again only when it changes, as
+// on docker rename.
+type knownName struct {
+	name     string
+	modified time.Time
+	size     int64
 }
 
 // NewReader returns a Reader for the machine. sysDir is where /sys is, which
@@ -66,7 +82,7 @@ func NewReader(sysDir, dockerDir string) *Reader {
 		cgroups: cgroups,
 		docker:  dockerDir,
 		cpus:    countCPUs(readText(filepath.Join(cgroups, "cpuset.cpus.effective"))),
-		names:   map[string]string{},
+		names:   map[string]knownName{},
 	}
 }
 
@@ -81,26 +97,32 @@ func (r *Reader) Read(now time.Time) []Container {
 	findContainers(r.cgroups, 0, found)
 
 	current := map[string]uint64{}
-	names := map[string]string{}
+	names := map[string]knownName{}
 	seconds := now.Sub(r.at).Seconds()
 	containers := make([]Container, 0, len(found))
 	for id, dir := range found {
-		memory, ok := readUint(filepath.Join(dir, "memory.current"))
-		if !ok {
-			continue // The container stopped while it was read.
-		}
-		c := Container{ID: id, Name: r.name(id), MemoryBytes: memory}
-		names[id] = c.Name
-		if inactive, ok := statValue(filepath.Join(dir, "memory.stat"), "inactive_file"); ok && inactive < memory {
-			c.MemoryBytes = memory - inactive
-		}
-		if usage, ok := statValue(filepath.Join(dir, "cpu.stat"), "usage_usec"); ok {
+		var c Container
+		usage, hasCPU := statValue(filepath.Join(dir, "cpu.stat"), "usage_usec")
+		if hasCPU {
 			current[id] = usage
 			if before, known := r.previous[id]; known && seconds > 0 && usage >= before && r.cpus > 0 {
 				percent := float64(usage-before) / 1e6 / seconds / float64(r.cpus) * 100
 				c.CPU = &percent
 			}
 		}
+		// Without the kernel's memory controller there is no memory.current,
+		// but the CPU is still counted.
+		memory, hasMemory := readUint(filepath.Join(dir, "memory.current"))
+		if hasMemory {
+			if inactive, ok := statValue(filepath.Join(dir, "memory.stat"), "inactive_file"); ok && inactive < memory {
+				memory -= inactive
+			}
+			c.MemoryBytes = &memory
+		}
+		if !hasCPU && !hasMemory {
+			continue // The container stopped while it was read.
+		}
+		c.ID, c.Name = id, r.name(id, names)
 		containers = append(containers, c)
 	}
 	r.previous, r.at, r.names = current, now, names
@@ -113,15 +135,23 @@ func (r *Reader) Read(now time.Time) []Container {
 	return containers
 }
 
-// name returns the container's name, read once per container.
-func (r *Reader) name(id string) string {
-	if name, ok := r.names[id]; ok {
-		return name
+// name returns the container's name and adds what it read to names: from
+// Docker's settings, read again whenever the file changes, such as on docker
+// rename. While they cannot be read, it is the name read before, else the
+// short id, and the next call tries again.
+func (r *Reader) name(id string, names map[string]knownName) string {
+	known, ok := r.names[id]
+	path := filepath.Join(r.docker, id, "config.v2.json")
+	if info, err := os.Stat(path); err == nil && (!ok || !info.ModTime().Equal(known.modified) || info.Size() != known.size) {
+		if name := dockerName(path); name != "" {
+			known, ok = knownName{name: name, modified: info.ModTime(), size: info.Size()}, true
+		}
 	}
-	if name := dockerName(r.docker, id); name != "" {
-		return name
+	if !ok {
+		return id[:12]
 	}
-	return id[:12]
+	names[id] = known
+	return known.name
 }
 
 var (
@@ -162,11 +192,11 @@ func findContainers(dir string, depth int, found map[string]string) {
 	}
 }
 
-// dockerName reads a Docker container's name from its settings,
-// <dir>/<id>/config.v2.json, which only root may read. It is "" when they
-// cannot be read, such as for a Podman container.
-func dockerName(dir, id string) string {
-	data, err := os.ReadFile(filepath.Join(dir, id, "config.v2.json")) //nolint:gosec // id is 64 hexadecimal digits, in Docker's folder
+// dockerName reads a Docker container's name from its settings, path, which
+// is <Docker's folder>/<id>/config.v2.json and which only root may read. It
+// is "" when they cannot be read, such as for a Podman container.
+func dockerName(path string) string {
+	data, err := os.ReadFile(path) //nolint:gosec // Docker's folder and an id of 64 hexadecimal digits
 	if err != nil {
 		return ""
 	}
@@ -178,11 +208,8 @@ func dockerName(dir, id string) string {
 }
 
 // Extras returns the containers as two groups of extras: their CPU and
-// their memory, each value under the container's short id.
+// their memory, each value under the container's itemID.
 func Extras(containers []Container) []metrics.Extra {
-	if len(containers) == 0 {
-		return nil
-	}
 	cpu := metrics.Extra{
 		ID:     "containers-cpu",
 		Title:  "Containers: CPU",
@@ -193,22 +220,56 @@ func Extras(containers []Container) []metrics.Extra {
 		Title:  "Containers: memory",
 		Titles: map[string]string{"de": "Container: Arbeitsspeicher", "fr": "Conteneurs : mémoire", "es": "Contenedores: memoria"}, //nolint:misspell // French
 	}
+	used := map[string]bool{}
 	for _, c := range containers {
-		id := c.ID[:12]
+		id := itemID(c)
+		if used[id] {
+			id = c.ID[:12]
+		}
+		used[id] = true
 		if c.CPU != nil {
 			cpu.Items = append(cpu.Items, metrics.ExtraItem{
 				ID: id, Label: c.Name, Unit: metrics.UnitPercent, Value: c.CPU, History: true,
 			})
 		}
-		bytes := float64(c.MemoryBytes)
-		memory.Items = append(memory.Items, metrics.ExtraItem{
-			ID: id, Label: c.Name, Unit: metrics.UnitBytes, Value: &bytes, History: true,
-		})
+		if c.MemoryBytes != nil {
+			bytes := float64(*c.MemoryBytes)
+			memory.Items = append(memory.Items, metrics.ExtraItem{
+				ID: id, Label: c.Name, Unit: metrics.UnitBytes, Value: &bytes, History: true,
+			})
+		}
 	}
-	if len(cpu.Items) == 0 {
-		return []metrics.Extra{memory}
+	var extras []metrics.Extra
+	for _, group := range []metrics.Extra{cpu, memory} {
+		if len(group.Items) > 0 {
+			extras = append(extras, group)
+		}
 	}
-	return []metrics.Extra{cpu, memory}
+	return extras
+}
+
+// notInID matches what an id may not hold.
+var notInID = regexp.MustCompile(`[^a-z0-9_-]+`)
+
+// itemID names a container's values: by its name where that is known, so
+// its history goes on when the container is made anew, as by docker compose
+// up after a pull, else by its short id. A name that has to be changed or cut
+// to fit an id, at most 40 lowercase letters, digits, "_" and "-", ends in a
+// checksum of the name, so two such names stay apart.
+func itemID(c Container) string {
+	short := c.ID[:12]
+	if c.Name == short {
+		return short
+	}
+	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(c.Name), "-"), "-_")
+	if id == c.Name && len(id) <= 40 {
+		return id
+	}
+	sum := fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(c.Name)))
+	if id = strings.TrimRight(id[:min(len(id), 31)], "-_"); id == "" {
+		return sum
+	}
+	return id + "-" + sum
 }
 
 // countCPUs counts the CPUs of a list such as "0-3,6"; for an empty or
@@ -275,5 +336,13 @@ func HostSys() string {
 	return "/sys"
 }
 
-// DockerDir is Docker's folder of container settings.
-const DockerDir = "/var/lib/docker/containers"
+// DockerDir returns Docker's folder of container settings: the folder
+// containers in DOCKER_DIR, Docker's data folder, which is /var/lib/docker
+// unless Docker is set up to keep its data elsewhere.
+func DockerDir() string {
+	dir := os.Getenv("DOCKER_DIR")
+	if dir == "" {
+		dir = "/var/lib/docker"
+	}
+	return filepath.Join(dir, "containers")
+}
