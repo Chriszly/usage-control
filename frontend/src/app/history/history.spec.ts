@@ -187,6 +187,20 @@ describe('HistoryCharts', () => {
     respond();
   });
 
+  it('keeps the chosen "All" range while another device loads', () => {
+    respond(10);
+    click(UNIT, 'All');
+    respond(10);
+
+    TestBed.inject(DeviceService).selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days', 'All']);
+    expect(element().querySelector('.units button[aria-pressed=true]')?.textContent?.trim()).toBe(
+      'All',
+    );
+    respond(10);
+  });
+
   it('reads the history of the picked device', () => {
     respond();
 

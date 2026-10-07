@@ -109,13 +109,18 @@ export class HistoryCharts {
 
   protected readonly history = signal<History | null>(null);
   protected readonly unreachable = signal(false);
+  /**
+   * How long the backend keeps history, from its last answer; the hub keeps
+   * every device's for the same time, so a device switch does not reset it.
+   */
+  private readonly retentionDays = signal(DEFAULT_RETENTION_DAYS);
 
   /**
    * The units with at least one range within the retention, and "All" when
    * more is kept than the longest of those ranges shows.
    */
   protected readonly units = computed((): RangeUnit[] => {
-    const retention = (this.history()?.retentionDays ?? DEFAULT_RETENTION_DAYS) * 86400;
+    const retention = this.retentionDays() * 86400;
     const units = UNITS.map((unit) => ({
       ...unit,
       ranges: unit.ranges.filter((range) => range.seconds <= retention),
@@ -186,6 +191,9 @@ export class HistoryCharts {
         this.unreachable.set(history === null);
         if (history) {
           this.history.set(history);
+          if (history.retentionDays) {
+            this.retentionDays.set(history.retentionDays);
+          }
         }
       });
   }
