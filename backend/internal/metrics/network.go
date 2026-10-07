@@ -69,21 +69,29 @@ func readNetworkCounters(ctx context.Context) (map[string]counters, error) {
 // describes the network of the reading process, which inside a container is
 // the container's own network, not the host's. Where the first process is
 // hidden, as with hidepid, it reads /proc/net instead, which outside a
-// container is the same network. Inside one (HOST_PROC set), that would be
-// the container's network, so there the error is returned.
+// container is the same network. Inside one, that would be the container's
+// network, so there the error is returned. A container is told by HOST_PROC
+// being set, as for the hostname: when the first process cannot be read, its
+// network namespace cannot be compared with this program's either, so a
+// container started without HOST_PROC would read its own network here.
 func readInterfaceStats(ctx context.Context) ([]net.IOCountersStat, error) {
 	if runtime.GOOS == "linux" {
-		procDir := hostPath("HOST_PROC", "/proc")
-		stats, err := net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "1", "net", "dev"))
-		if err == nil || os.Getenv("HOST_PROC") != "" {
-			return stats, err
-		}
-		ownNetworkOnce.Do(func() {
-			slog.Warn("cannot read the network of the first process; reading this program's own network instead", "error", err)
-		})
-		return net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "net", "dev"))
+		return readLinuxInterfaceStats(ctx, hostPath("HOST_PROC", "/proc"), os.Getenv("HOST_PROC") != "")
 	}
 	return net.IOCountersWithContext(ctx, true)
+}
+
+// readLinuxInterfaceStats reads the counters from procDir/1/net/dev, or
+// outside a container, when that fails, from procDir/net/dev.
+func readLinuxInterfaceStats(ctx context.Context, procDir string, inContainer bool) ([]net.IOCountersStat, error) {
+	stats, err := net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "1", "net", "dev"))
+	if err == nil || inContainer {
+		return stats, err
+	}
+	ownNetworkOnce.Do(func() {
+		slog.Warn("cannot read the network of the first process; reading this program's own network instead", "error", err)
+	})
+	return net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "net", "dev"))
 }
 
 // ownNetworkOnce logs only once that the network is read from /proc/net.
