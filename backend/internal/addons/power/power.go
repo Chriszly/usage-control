@@ -1,7 +1,9 @@
 // Package power reads how much power the machine draws, for the power
 // add-on: per CPU package from Intel and AMD RAPL counters, from the kernel's
 // hwmon power sensors (such as AMD GPUs), from NVIDIA GPUs through
-// nvidia-smi, and in total on a Raspberry Pi 5 from its power chip.
+// nvidia-smi, and in total on a Raspberry Pi 5 from its power chip. On
+// Windows it reads the energy meters Windows offers (RAPL and the meters of
+// laptops), what the battery gives while the PC runs on it, and NVIDIA GPUs.
 //
 // It only reads; nothing in here changes the machine.
 package power
@@ -32,6 +34,7 @@ type Reader struct {
 	hwmon  string
 	pmic   string
 	nvidia string
+	system *system
 }
 
 // NewReader returns a Reader for the machine. sysDir is where /sys is, which
@@ -42,6 +45,7 @@ func NewReader(sysDir string) *Reader {
 		hwmon:  filepath.Join(sysDir, "class", "hwmon"),
 		pmic:   lookPath("vcgencmd"),
 		nvidia: lookPath("nvidia-smi"),
+		system: newSystem(),
 	}
 }
 
@@ -53,6 +57,7 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	readings = append(readings, r.pmicTotal(ctx)...)
 	readings = append(readings, r.rapl.read(now)...)
 	readings = append(readings, readHwmon(r.hwmon)...)
+	readings = append(readings, r.system.read()...)
 	readings = append(readings, readNvidia(ctx, r.nvidia)...)
 	return readings
 }
