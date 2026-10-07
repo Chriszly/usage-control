@@ -124,6 +124,65 @@ function powerAddOn(
   ];
 }
 
+/** What the pressure add-on reports; its percentages come from values() as "extra:pressure/<id>". */
+function pressureAddOn(): Extra[] {
+  const items: { id: string; label: string; labels: Record<string, string> }[] = [
+    {
+      id: 'cpu-some',
+      label: 'CPU: tasks waiting',
+      labels: {
+        de: 'CPU: Prozesse warten',
+        fr: 'Processeur : tâches en attente',
+        es: 'CPU: tareas en espera',
+      },
+    },
+    {
+      id: 'memory-some',
+      label: 'Memory: tasks waiting',
+      labels: {
+        de: 'Arbeitsspeicher: Prozesse warten',
+        fr: 'Mémoire : tâches en attente',
+        es: 'Memoria: tareas en espera',
+      },
+    },
+    {
+      id: 'memory-full',
+      label: 'Memory: all tasks stalled',
+      labels: {
+        de: 'Arbeitsspeicher: alle Prozesse blockiert',
+        fr: 'Mémoire : toutes les tâches bloquées',
+        es: 'Memoria: todas las tareas bloqueadas',
+      },
+    },
+    {
+      id: 'io-some',
+      label: 'Disks and I/O: tasks waiting',
+      labels: {
+        de: 'Datenträger und E/A: Prozesse warten',
+        fr: 'Disques et E/S : tâches en attente',
+        es: 'Discos y E/S: tareas en espera',
+      },
+    },
+    {
+      id: 'io-full',
+      label: 'Disks and I/O: all tasks stalled',
+      labels: {
+        de: 'Datenträger und E/A: alle Prozesse blockiert',
+        fr: 'Disques et E/S : toutes les tâches bloquées',
+        es: 'Discos y E/S: todas las tareas bloqueadas',
+      },
+    },
+  ];
+  return [
+    {
+      id: 'pressure',
+      title: 'Pressure',
+      titles: { de: 'Engpässe', fr: 'Saturation', es: 'Saturación' },
+      items: items.map((item) => ({ ...item, unit: 'percent', history: true })),
+    },
+  ];
+}
+
 /** What the gpu add-on reports of one NVIDIA GPU; its values come from gpuAddOnValues(). */
 function gpuAddOn(performanceState: string): Extra[] {
   const item = (
@@ -214,6 +273,11 @@ function inodesAddOn(items: { id: string; label: string }[]): Extra[] {
   ];
 }
 
+/** The I/O pressure of pressureAddOn(), with "all tasks stalled" a share of "tasks waiting", whose time it is part of. */
+function ioPressure(some: number, fullShare: number): Record<string, number> {
+  return { 'extra:pressure/io-some': some, 'extra:pressure/io-full': some * fullShare };
+}
+
 /** The values of gpuAddOn() at a GPU usage of gpu percent. */
 function gpuAddOnValues(
   gpu: number,
@@ -263,6 +327,7 @@ const piHub: DemoMachine = {
       { id: 'root', label: '/' },
       { id: 'mnt-usb', label: '/mnt/usb' },
     ]),
+    ...pressureAddOn(),
   ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
@@ -309,6 +374,11 @@ const piHub: DemoMachine = {
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
       'extra:inodes/root': vary(t, step, 14, 9, [[0.2, 86400 * 5]]),
       'extra:inodes/mnt-usb': vary(t, step, 15, 3, [[0.1, 86400 * 9]]),
+      'extra:pressure/cpu-some': Math.max(0, cpu * 0.12 - 0.3),
+      'extra:pressure/memory-some': 0,
+      'extra:pressure/memory-full': 0,
+      // The SD card makes the Pi wait for I/O now and then.
+      ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
     };
   },
 };
@@ -581,6 +651,7 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
+  extras: pressureAddOn(),
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
@@ -600,6 +671,11 @@ const linuxNas: DemoMachine = {
     return {
       cpu,
       memory: vary(t, step, 92, 27, [[3, 3600]]),
+      'extra:pressure/cpu-some': Math.max(0, cpu * 0.15 - 0.4),
+      'extra:pressure/memory-some': vary(t, step, 303, 0, [[0.4, 600]]),
+      'extra:pressure/memory-full': 0,
+      // The backup keeps the disks busy, so tasks wait for them.
+      ...ioPressure(vary(t, step, 304, 0.5 + 35 * backup, [[1, 300]]), 0.55),
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
       'temperature:drivetemp sda': 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
       'temperature:drivetemp sdb': 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
