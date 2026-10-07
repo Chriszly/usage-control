@@ -3,6 +3,7 @@ package pressure
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/pdh"
@@ -51,9 +52,12 @@ func NewReader() func() []metrics.Extra {
 		}
 		*c.counter = counter
 	}
-	// Rates are measured between two readings, so the first one starts them.
-	// A failed start shows as missing values.
+	// Rates are measured between two readings, so the first one starts them,
+	// a second ahead of the first read: over a shorter time, one page read
+	// from disk would show as thousands per second. A failed start shows as
+	// missing values.
 	_ = query.Collect()
+	time.Sleep(time.Second)
 	return r.read
 }
 

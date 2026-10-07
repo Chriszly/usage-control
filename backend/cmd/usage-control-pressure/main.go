@@ -13,8 +13,9 @@
 //	            /run/usage-control-addons, the folder the systemd service
 //	            makes)
 //	HOST_PROC   on Linux, where the host's /proc is, in a container
-//	            (default /proc); only its pressure folder is read, so the
-//	            container needs only that one mounted
+//	            (default /proc). Mount all of it, read-only: a kernel with
+//	            pressure stall information switched off, as on Raspberry
+//	            Pi OS, has no pressure folder to mount on its own
 package main
 
 import (

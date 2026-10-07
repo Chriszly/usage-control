@@ -183,6 +183,11 @@ function pressureAddOn(): Extra[] {
   ];
 }
 
+/** The I/O pressure of pressureAddOn(), with "all tasks stalled" a share of "tasks waiting", whose time it is part of. */
+function ioPressure(some: number, fullShare: number): Record<string, number> {
+  return { 'extra:pressure/io-some': some, 'extra:pressure/io-full': some * fullShare };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -259,8 +264,7 @@ const piHub: DemoMachine = {
       'extra:pressure/memory-some': 0,
       'extra:pressure/memory-full': 0,
       // The SD card makes the Pi wait for I/O now and then.
-      'extra:pressure/io-some': vary(t, step, 301, 1.5, [[2, 120]]),
-      'extra:pressure/io-full': vary(t, step, 302, 0.8, [[1.2, 120]]),
+      ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
     };
   },
 };
@@ -555,8 +559,7 @@ const linuxNas: DemoMachine = {
       'extra:pressure/memory-some': vary(t, step, 303, 0, [[0.4, 600]]),
       'extra:pressure/memory-full': 0,
       // The backup keeps the disks busy, so tasks wait for them.
-      'extra:pressure/io-some': vary(t, step, 304, 0.5 + 35 * backup, [[1, 300]]),
-      'extra:pressure/io-full': vary(t, step, 305, 0.2 + 20 * backup, [[0.5, 300]]),
+      ...ioPressure(vary(t, step, 304, 0.5 + 35 * backup, [[1, 300]]), 0.55),
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
       'temperature:drivetemp sda': 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
       'temperature:drivetemp sdb': 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),

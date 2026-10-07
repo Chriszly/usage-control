@@ -90,8 +90,8 @@ services:
 
   # The pressure add-on, started with COMPOSE_PROFILES=pressure: reads from
   # the host's /proc/pressure how much of the time tasks waited for the CPU,
-  # memory and disks. Reading needs no privileges; it runs as root only to
-  # write to the add-on volume, without any capability and without network.
+  # memory and disks. Reading needs no privileges, so it runs as the image's
+  # user, like usage-control, without any capability and without network.
   # All of /proc is mounted, not only /proc/pressure, which a kernel with PSI
   # switched off (as on Raspberry Pi OS) does not have: Docker could not
   # mount it, and the container would not start.
@@ -100,7 +100,6 @@ services:
     profiles: [pressure]
     restart: unless-stopped
     entrypoint: ["/usage-control-pressure"]
-    user: "0:0"
     environment:
       HOST_PROC: /host/proc
       ADDONS_DIR: /addons
