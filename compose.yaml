@@ -103,7 +103,8 @@ services:
       ADDONS_DIR: /addons
     volumes:
       - addons:/addons
-      - /proc:/host/proc:ro
+      # Only the pressure files, not the rest of the host's /proc.
+      - /proc/pressure:/host/proc/pressure:ro
     network_mode: none
     read_only: true
     cap_drop:

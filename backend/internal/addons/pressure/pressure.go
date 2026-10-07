@@ -113,7 +113,7 @@ func parse(text string) map[string]float64 {
 }
 
 // HostProc returns where /proc is: HOST_PROC in a container that mounts the
-// host's /proc there, else /proc.
+// host's /proc, or only its pressure folder, there, else /proc.
 func HostProc() string {
 	if dir := os.Getenv("HOST_PROC"); dir != "" {
 		return dir

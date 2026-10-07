@@ -13,7 +13,8 @@
 //	            /run/usage-control-addons, the folder the systemd service
 //	            makes)
 //	HOST_PROC   on Linux, where the host's /proc is, in a container
-//	            (default /proc)
+//	            (default /proc); only its pressure folder is read, so the
+//	            container needs only that one mounted
 package main
 
 import (
