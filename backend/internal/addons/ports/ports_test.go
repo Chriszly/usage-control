@@ -95,6 +95,52 @@ func TestFromConnectionsKeepsListeningSockets(t *testing.T) {
 	}
 }
 
+func TestParsePortRange(t *testing.T) {
+	fallback := portRange{32768, 60999}
+	tests := map[string]portRange{
+		"49152\t65535\n": {49152, 65535},
+		"1024 1024":      {1024, 1024},
+		"":               fallback,
+		"60999 32768":    fallback,
+		"0 100":          fallback,
+		"1024 70000":     fallback,
+		"1024":           fallback,
+		"a b":            fallback,
+	}
+	for text, want := range tests {
+		if got := parsePortRange(text, fallback); got != want {
+			t.Errorf("parsePortRange(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
+func TestWithoutEphemeralUDPLeavesOutPortsThatOnlySend(t *testing.T) {
+	// As Windows reports them: UDP sockets have no remote end, so a
+	// browser's QUIC and WebRTC sockets and DNS lookups look like the
+	// services on 53 and 5353. TCP sockets that listen in the range stay.
+	connections := []net.ConnectionStat{
+		{Type: sockStream, Status: "LISTEN", Laddr: net.Addr{IP: "0.0.0.0", Port: 49664}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "0.0.0.0", Port: 53}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "::", Port: 5353}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "0.0.0.0", Port: 49152}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "192.168.1.5", Port: 58231}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "::", Port: 65535}},
+		{Type: sockDgram, Laddr: net.Addr{IP: "0.0.0.0", Port: 49151}},
+	}
+
+	got := Listening(withoutEphemeralUDP(fromConnections(connections), portRange{49152, 65535}))
+
+	want := []Port{
+		{Protocol: "tcp", Number: 49664, Addresses: []string{"0.0.0.0"}},
+		{Protocol: "udp", Number: 53, Addresses: []string{"0.0.0.0"}},
+		{Protocol: "udp", Number: 5353, Addresses: []string{"::"}},
+		{Protocol: "udp", Number: 49151, Addresses: []string{"0.0.0.0"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Listening() = %v, want %v", got, want)
+	}
+}
+
 func TestExtrasCountsAndListsThePorts(t *testing.T) {
 	if got := Extras(nil, false); got != nil {
 		t.Errorf("Extras() without tables = %v, want nothing", got)

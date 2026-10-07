@@ -25,9 +25,9 @@ import (
 
 func main() {
 	addons.Main("ports", "UsageControlPorts", func() addons.Read {
-		procDir := ports.HostProc()
+		reader := ports.NewReader(ports.HostProc())
 		return func(ctx context.Context, _ time.Time) []metrics.Extra {
-			return ports.Extras(ports.Read(ctx, procDir))
+			return ports.Extras(reader.Read(ctx))
 		}
 	})
 }

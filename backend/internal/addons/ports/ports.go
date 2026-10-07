@@ -1,6 +1,7 @@
 // Package ports reads the ports the machine listens on, for the ports
 // add-on: each TCP port that accepts connections and each UDP port a program
-// has bound, with the addresses it listens on. On Linux it reads the kernel's
+// has bound outside the range the system hands out to sockets that only
+// send, with the addresses it listens on. On Linux it reads the kernel's
 // socket tables in /proc, on Windows the tables Windows keeps through
 // gopsutil.
 //
@@ -9,14 +10,44 @@ package ports
 
 import (
 	"cmp"
+	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
+
+// Reader reads the ports the machine listens on and logs when it cannot:
+// once when that starts and once when it works again.
+type Reader struct {
+	procDir string
+	failing bool
+}
+
+// NewReader returns a Reader that reads the socket tables under procDir, on
+// Linux (see HostProc).
+func NewReader(procDir string) *Reader {
+	return &Reader{procDir: procDir}
+}
+
+// Read returns the ports the machine listens on, sorted by protocol and
+// then by number. ok is false when they could not be read.
+func (r *Reader) Read(ctx context.Context) (ports []Port, ok bool) {
+	ports, err := read(ctx, r.procDir)
+	switch {
+	case err != nil && !r.failing:
+		slog.Warn("read the ports", "error", err)
+	case err == nil && r.failing:
+		slog.Info("reading the ports works again")
+	}
+	r.failing = err != nil
+	return ports, err == nil
+}
 
 // Socket is one socket that listens: TCP in the LISTEN state, or UDP bound to
 // a port without a remote end.
@@ -25,6 +56,37 @@ type Socket struct {
 	Protocol string
 	Address  netip.Addr
 	Port     uint32
+}
+
+// portRange is a range of port numbers, first and last included.
+type portRange struct{ first, last uint32 }
+
+// parsePortRange reads a range written as two numbers, such as
+// "32768\t60999" in /proc/sys/net/ipv4/ip_local_port_range, or returns
+// fallback when the text is not one.
+func parsePortRange(text string, fallback portRange) portRange {
+	fields := strings.Fields(text)
+	if len(fields) != 2 {
+		return fallback
+	}
+	first, err1 := strconv.ParseUint(fields[0], 10, 16)
+	last, err2 := strconv.ParseUint(fields[1], 10, 16)
+	if err1 != nil || err2 != nil || first == 0 || first > last {
+		return fallback
+	}
+	return portRange{uint32(first), uint32(last)}
+}
+
+// withoutEphemeralUDP returns sockets without the UDP sockets bound to a
+// port in ephemeral, the range the system picks ports from for sockets that
+// do not ask for one. Programs open those to send for a moment, such as a
+// DNS lookup, a browser's QUIC or WebRTC, and they would fill the list with
+// random ports that come and go. A service that listens on UDP in that range
+// is left out with them.
+func withoutEphemeralUDP(sockets []Socket, ephemeral portRange) []Socket {
+	return slices.DeleteFunc(sockets, func(s Socket) bool {
+		return s.Protocol == "udp" && s.Port >= ephemeral.first && s.Port <= ephemeral.last
+	})
 }
 
 // Port is a port the machine listens on, over IPv4 and IPv6 together.
