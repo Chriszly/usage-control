@@ -124,6 +124,22 @@ function powerAddOn(
   ];
 }
 
+/** What the inodes add-on reports for the given mount points; their percentages come from values() as "extra:inodes/<id>". */
+function inodesAddOn(items: { id: string; label: string }[]): Extra[] {
+  return [
+    {
+      id: 'inodes',
+      title: 'Inodes (files) in use',
+      titles: {
+        de: 'Belegte Inodes (Dateien)',
+        fr: 'Inodes (fichiers) utilisés',
+        es: 'Inodos (archivos) en uso',
+      },
+      items: items.map((item) => ({ ...item, unit: 'percent', history: true })),
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -139,17 +155,23 @@ const piHub: DemoMachine = {
   gpus: [{ name: 'VideoCore VII' }],
   fans: ['pwmfan'],
   throttling: { now: [], sinceBoot: ['softTemperatureLimit'] },
-  extras: powerAddOn([
-    {
-      id: 'raspberry-pi',
-      label: 'Raspberry Pi (total)',
-      labels: {
-        de: 'Raspberry Pi (gesamt)',
-        fr: 'Raspberry Pi (total)',
-        es: 'Raspberry Pi (total)',
+  extras: [
+    ...powerAddOn([
+      {
+        id: 'raspberry-pi',
+        label: 'Raspberry Pi (total)',
+        labels: {
+          de: 'Raspberry Pi (gesamt)',
+          fr: 'Raspberry Pi (total)',
+          es: 'Raspberry Pi (total)',
+        },
       },
-    },
-  ]),
+    ]),
+    ...inodesAddOn([
+      { id: 'root', label: '/' },
+      { id: 'mnt-usb', label: '/mnt/usb' },
+    ]),
+  ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
     const cpu = vary(
@@ -193,6 +215,8 @@ const piHub: DemoMachine = {
       'network.send:eth0': vary(t, step, 12, 35e3, [[25e3, 45]], 0, 1e9),
       'gpu:VideoCore VII': vary(t, step, 13, 3, [[3, 120]]),
       'extra:power/raspberry-pi': 2.6 + cpu * 0.045,
+      'extra:inodes/root': vary(t, step, 14, 9, [[0.2, 86400 * 5]]),
+      'extra:inodes/mnt-usb': vary(t, step, 15, 3, [[0.1, 86400 * 9]]),
     };
   },
 };
@@ -545,11 +569,17 @@ const linuxServer: DemoMachine = {
   ],
   gpus: [{ name: 'NVIDIA GeForce RTX 3090', memoryBytes: 24 * GB }],
   fans: ['nct6799 fan1', 'nct6799 fan2', 'nct6799 fan3'],
-  extras: powerAddOn([
-    { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
-    { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
-    { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
-  ]),
+  extras: [
+    ...powerAddOn([
+      { id: 'rapl-0-package-0', label: 'CPU package 0', labels: cpuPackageLabels },
+      { id: 'rapl-0-2-dram', label: 'Memory', labels: memoryLabels },
+      { id: 'nvidia-0', label: 'NVIDIA GeForce RTX 3090' },
+    ]),
+    ...inodesAddOn([
+      { id: 'root', label: '/' },
+      { id: 'var-lib-docker', label: '/var/lib/docker' },
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 87.4,
   values: (t, step) => {
@@ -582,6 +612,8 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
+      'extra:inodes/root': vary(t, step, 126, 6, [[0.3, 86400 * 3]]),
+      'extra:inodes/var-lib-docker': vary(t, step, 127, 38 + 2 * build, [[5, 86400 * 2]]),
     };
   },
 };
