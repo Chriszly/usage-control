@@ -36,6 +36,46 @@ func TestAddOnsReadsTheFreshReports(t *testing.T) {
 	}
 }
 
+func TestAddOnsReadAFileAgainOnlyOnceItChanged(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "power.json")
+	now := time.Now().UTC().Truncate(time.Second)
+	write := func(id string) {
+		t.Helper()
+		report := AddOnReport{Time: now, Extras: []Extra{{ID: id, Title: id, Items: []ExtraItem{{ID: "a", Unit: UnitWatts, Value: number(1)}}}}}
+		if err := WriteAddOnReport(file, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addOns := &AddOns{Dir: dir, MaxEntries: 64}
+	write("first")
+	if got := addOns.Read(now); len(got) != 1 || got[0].ID != "first" {
+		t.Fatalf("Read() = %+v, want the first report", got)
+	}
+	modified := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(file, modified, modified); err != nil {
+		t.Fatal(err)
+	}
+	addOns.Read(now)
+
+	// A report of the same size and modification time is not read again.
+	write("other")
+	if err := os.Chtimes(file, modified, modified); err != nil {
+		t.Fatal(err)
+	}
+	if got := addOns.Read(now); len(got) != 1 || got[0].ID != "first" {
+		t.Errorf("Read() of an unchanged file = %+v, want the first report kept", got)
+	}
+
+	// A newer one is.
+	if err := os.Chtimes(file, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := addOns.Read(now); len(got) != 1 || got[0].ID != "other" {
+		t.Errorf("Read() of a changed file = %+v, want the other report", got)
+	}
+}
+
 func TestAddOnsWithoutFolderReadNothing(t *testing.T) {
 	var none *AddOns
 	if got := none.Read(time.Now()); got != nil {

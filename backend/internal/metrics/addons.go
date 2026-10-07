@@ -38,16 +38,29 @@ type AddOns struct {
 	MaxEntries int
 
 	// mu guards failed, the files whose failure was logged, so a broken file
-	// is logged once and not at every reading.
+	// is logged once and not at every reading, and files, what was last read
+	// from each file.
 	mu     sync.Mutex
 	failed map[string]bool
+	files  map[string]addOnFile
+}
+
+// addOnFile is what was read from a report file, and the modification time
+// and size the file had then: while both stay the same, the file is not read
+// again.
+type addOnFile struct {
+	modified time.Time
+	size     int64
+	report   AddOnReport
+	err      error
 }
 
 // Read returns the extras of every report that is not older than
 // addOnStaleAfter, in the order of the file names, cut down like another
 // device's extras by CleanExtras. A report from further in the future is
 // left out too: it was written before the clock was set back, so its add-on
-// may have stopped long ago.
+// may have stopped long ago. A file is read again only once its modification
+// time or size has changed.
 func (a *AddOns) Read(now time.Time) []Extra {
 	if a == nil || a.Dir == "" {
 		return nil
@@ -57,41 +70,56 @@ func (a *AddOns) Read(now time.Time) []Extra {
 		return nil
 	}
 	slices.Sort(files)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	read := make(map[string]addOnFile, len(files))
 	var extras []Extra
 	for _, file := range files {
-		report, err := readAddOnReport(file)
-		a.logOnce(file, err)
-		if err != nil || now.Sub(report.Time) > addOnStaleAfter || report.Time.Sub(now) > addOnStaleAfter {
+		f := readAddOnReport(file, a.files[file])
+		read[file] = f
+		a.logOnce(file, f.err)
+		if f.err != nil || now.Sub(f.report.Time) > addOnStaleAfter || f.report.Time.Sub(now) > addOnStaleAfter {
 			continue
 		}
-		extras = append(extras, report.Extras...)
+		extras = append(extras, f.report.Extras...)
 	}
+	a.files = read
 	return CleanExtras(extras, a.MaxEntries)
 }
 
-func readAddOnReport(file string) (AddOnReport, error) {
+// readAddOnReport reads a report file, or returns last again when the file
+// has the modification time and size it had when last was read.
+func readAddOnReport(file string, last addOnFile) addOnFile {
 	// file is a .json file in the add-on folder, which the ADDONS_DIR setting names.
 	f, err := os.Open(file) //nolint:gosec // see above
 	if err != nil {
-		return AddOnReport{}, err
+		return addOnFile{err: err}
 	}
 	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return addOnFile{err: err}
+	}
+	read := addOnFile{modified: info.ModTime(), size: info.Size()}
+	if !last.modified.IsZero() && read.modified.Equal(last.modified) && read.size == last.size {
+		return last
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxAddOnFileBytes+1))
 	if err != nil {
-		return AddOnReport{}, err
+		read.err = err
+		return read
 	}
 	if len(data) > maxAddOnFileBytes {
-		return AddOnReport{}, errors.New("the report is larger than 256 KiB")
+		read.err = errors.New("the report is larger than 256 KiB")
+		return read
 	}
-	var report AddOnReport
-	err = json.Unmarshal(data, &report)
-	return report, err
+	read.err = json.Unmarshal(data, &read.report)
+	return read
 }
 
-// logOnce logs a file's failure the first time, and when it works again.
+// logOnce logs a file's failure the first time, and when it works again. The
+// caller holds a.mu.
 func (a *AddOns) logOnce(file string, err error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.failed == nil {
 		a.failed = map[string]bool{}
 	}
