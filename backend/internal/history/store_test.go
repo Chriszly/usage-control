@@ -96,6 +96,48 @@ func TestRangeReadsStepsOfAnHourAndMoreFromTheHourlyAverages(t *testing.T) {
 	}
 }
 
+func TestRangeOfHoursKeepsTheHourItStartsIn(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	hour := time.Unix(1_800_000_000, 0) // the start of an hour
+	for _, at := range []time.Duration{10 * time.Minute, 50 * time.Minute, time.Hour + time.Minute} {
+		if err := store.Add(ctx, LocalDevice, hour.Add(at), map[string]float64{MetricCPU: 10}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+
+	// From the middle of the first hour, as a long range starts at any time.
+	got, err := store.Range(ctx, LocalDevice, hour.Add(30*time.Minute), hour.Add(2*time.Hour), time.Hour)
+
+	want := []Series{{Metric: MetricCPU, Points: []Point{{hour.Unix(), 10}, {hour.Unix() + 3600, 10}}}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Range() = %+v, %v; want %+v, with the hour it starts in", got, err, want)
+	}
+}
+
+func TestRangeIsNotCachedAcrossADeleteOfTheDevice(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	from, to := time.Unix(1_800_000_000, 0), time.Unix(1_800_000_000, 0).Add(20*24*time.Hour)
+	if err := store.Add(ctx, "office-pc", from.Add(time.Hour), map[string]float64{MetricCPU: 10}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	// A range read while the device is deleted, which finishes after it.
+	_, _, forgotten := store.cache.get("office-pc", from, to, 2*time.Hour)
+	series, err := store.Range(ctx, "office-pc", from, to, 2*time.Hour)
+	if err != nil || len(series) == 0 {
+		t.Fatalf("Range() = %+v, %v; want the value", series, err)
+	}
+	if err := store.DeleteDevice(ctx, "office-pc"); err != nil {
+		t.Fatalf("DeleteDevice() error = %v", err)
+	}
+	store.cache.put("office-pc", from, to, 2*time.Hour, series, forgotten)
+
+	if got, err := store.cachedRange(ctx, "office-pc", from, to, 2*time.Hour); err != nil || len(got) != 0 {
+		t.Errorf("cachedRange() after the device was deleted = %+v, %v; want nothing", got, err)
+	}
+}
+
 func TestRangeWithoutValuesIsEmpty(t *testing.T) {
 	got, err := openTestStore(t).Range(context.Background(), LocalDevice, time.Unix(0, 0), time.Now(), time.Minute)
 	if err != nil {
