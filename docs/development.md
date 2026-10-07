@@ -103,7 +103,7 @@ The version counts the pull requests merged since the last release, in order:
 - Each feature raises the last number: `1.0.3` becomes `1.0.4`. The tenth feature raises the middle one instead: `1.0.9` becomes `1.1.0`.
 - Each bugfix adds a letter or moves it on: `1.0.4` becomes `1.0.4a`, then `1.0.4b`; after `z` comes `aa`. The next feature drops the letters again.
 
-Docker images and the update check use the version as it is. A Windows installer's version may only hold numbers, so its letters become a fourth number: `1.0.4h` is `1.0.4.8` in Windows' list of apps, and still installs over `1.0.4`.
+Docker images and the update check use the version as it is. A Windows installer's version may only hold numbers, so its letters become a fourth number: `1.0.4h` is `1.0.4.8` in Windows' list of apps, and still installs over `1.0.4`. Windows Installer compares only the first three numbers, so the installer also remembers the fourth and refuses to install an older bugfix of the same version, such as `1.0.4g`, over a newer one.
 
 ## Repository
 

@@ -4,7 +4,10 @@
   Windows firewall for private networks only. By default the service only
   serves this PC's usage to a hub (DATA_ONLY); with WEBSITE=1 it also shows
   the website and keeps the history itself. Double-clicking the installer
-  asks which of the two this PC should do (the "Mode" page below).
+  asks which of the two this PC should do (the "Mode" page below); a newer
+  version's installer asks again, and a repair of the installed version
+  switches with the option (msiexec /i usage-control.msi REINSTALL=ALL
+  REINSTALLMODE=m WEBSITE=1).
 
   Add-ons are optional programs that track more, each a service of its own
   that writes to C:\ProgramData\Usage Control\addons, which usage-control
@@ -44,16 +47,23 @@
   start and stop the service, so its menu needs no administrator.
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
-    wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
+    wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Bugfix=0 -d Binary=usage-control.exe
       -d TrayBinary=usage-control-tray.exe -d AddOns=. -d Icon=usage-control.ico
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
       -o usage-control.msi
+
+  Version is the installer's version; a bugfix release such as 1.2.3a puts
+  its letters in the fourth number (1.2.3.1), and Bugfix is that number, 0
+  for none.
 
   Install options (msiexec /i usage-control.msi PORT=8090 WEBSITE=1):
     PORT            port the PC is reachable on (default 9393)
     WEBSITE         1 to show the website and keep the history on this PC,
                     0 to only serve the usage to a hub (default 0)
-    DEVICE_NAME     with WEBSITE=1, how the page names this PC
+    DEVICE_NAME     how this PC names itself: on its page with WEBSITE=1, and
+                    as the name a hub offers when this PC is added from its
+                    browser (default: the page says Host Hub, the hub offers
+                    the PC's name)
     HUB_DEVICES     with WEBSITE=1, other devices to collect from (hub mode)
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
     HISTORY_MAX_ENTRIES  with WEBSITE=1, how many disks, sensors, network cards
@@ -63,9 +73,11 @@
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
     DISK_PATHS      drives or folders whose disks are shown, comma-separated
-                    (default: the system drive)
+                    (default: the system drive); the service does not start
+                    while one cannot be read, and says which in the event log
     UPDATE_CHECK    with WEBSITE=1, false to stop the daily check for a newer
-                    release (default true)
+                    release (default true); the installer refuses any value
+                    but true or false
     RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
                     devices when the service starts; only from an
                     administrator, and not remembered, so the next install,
@@ -85,7 +97,9 @@
     PROCESSES       1 to install the processes add-on, 0 to remove it in an update
                     (default: not installed)
   An update keeps the options of the installed version, except RESET_PASSWORD;
-  options given to the update replace them.
+  options given to the update replace them. An option given empty counts as
+  not given, so to clear a remembered one, give it a single space, such as
+  DISK_PATHS=" ", which the service reads as not set.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
@@ -101,6 +115,21 @@
          Windows Installer ignores, so the same version counts as an update too. -->
     <MajorUpgrade AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of Usage Control is already installed." />
+    <!--
+      For the same reason an older bugfix of the same version would replace a
+      newer one, so each install remembers its bugfix number (Bugfix), and an
+      installer of the same version (SAMEVERSION, which compares only the
+      first three numbers) with a lower one refuses to install.
+    -->
+    <Upgrade Id="C226A238-37CF-4C24-85FE-A29D04C94172">
+      <UpgradeVersion Minimum="$(Version)" Maximum="$(Version)" IncludeMinimum="yes" IncludeMaximum="yes"
+                      OnlyDetect="yes" Property="SAMEVERSION" />
+    </Upgrade>
+    <Property Id="INSTALLEDBUGFIX">
+      <RegistrySearch Id="RememberedBugfix" Root="HKLM" Key="SOFTWARE\Usage Control" Name="Bugfix" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR NOT SAMEVERSION OR NOT INSTALLEDBUGFIX OR INSTALLEDBUGFIX &lt;= $(Bugfix)"
+            Message="A newer bugfix of this version of Usage Control is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <!-- The mascot, in Apps and Features. -->
     <Icon Id="UsageControl.ico" SourceFile="$(Icon)" />
@@ -131,6 +160,16 @@
     <SetProperty Action="ResetPasswordByAdmin" Id="ServiceResetPassword" Value="[RESET_PASSWORD]" After="DefaultWEBSITE" Sequence="execute" Condition="AdminUser AND RESET_PASSWORD" />
 
     <!--
+      The service refuses to start with any UPDATE_CHECK but true or false, and
+      would then fail every 10 seconds, so the installer refuses it instead.
+      The launch conditions run after the remembered options are read, so this
+      also checks those. A repair or uninstall of the installed version is not
+      held up by it.
+    -->
+    <Launch Condition='Installed OR NOT UPDATE_CHECK OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
+            Message="UPDATE_CHECK must be true or false." />
+
+    <!--
       Derived from the options, once all of them are known. Without WEBSITE=1
       the service only serves the usage to a hub, and ignores HUB_DEVICES.
       DataOnly and ServiceHubDevices are private (mixed case), so the setup
@@ -156,7 +195,7 @@
 
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
     <UIRef Id="SetupWizard" />
-    <!-- No "Change" in Apps and Features: running the installer again changes the mode. -->
+    <!-- No "Change" in Apps and Features: a newer installer, or a repair with WEBSITE, changes the mode. -->
     <Property Id="ARPNOMODIFY" Value="1" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -210,7 +249,8 @@
         <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
-      <!-- The options, read back by the next update. -->
+      <!-- The options, read back by the next update, and the bugfix number (see Upgrade). -->
+      <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="Bugfix" Type="string" Value="$(Bugfix)" />
       <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;DISK_PATHS;UPDATE_CHECK;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
@@ -542,7 +582,7 @@
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What should this PC do?" />
-        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Running the installer again later changes it." />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Installing a newer version later can change it." />
         <Control Id="Mode" Type="RadioButtonGroup" X="20" Y="60" Width="330" Height="110" Property="WEBSITE">
           <RadioButtonGroup Property="WEBSITE">
             <RadioButton Value="0" X="0" Y="0" Width="330" Height="15" Text="&amp;Only collect this PC's usage for a hub (recommended)" />
