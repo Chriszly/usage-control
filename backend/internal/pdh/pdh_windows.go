@@ -12,6 +12,7 @@ var (
 	pdhOpenQuery                = dll.NewProc("PdhOpenQueryW")
 	pdhAddEnglishCounter        = dll.NewProc("PdhAddEnglishCounterW")
 	pdhCollectQueryData         = dll.NewProc("PdhCollectQueryData")
+	pdhCloseQuery               = dll.NewProc("PdhCloseQuery")
 	pdhGetFormattedCounterArray = dll.NewProc("PdhGetFormattedCounterArrayW")
 )
 
@@ -66,6 +67,11 @@ func (q *Query) Collect() error {
 		return fmt.Errorf("PdhCollectQueryData: 0x%x", ret)
 	}
 	return nil
+}
+
+// Close closes the query and its counters.
+func (q *Query) Close() {
+	_, _, _ = pdhCloseQuery.Call(q.handle)
 }
 
 // Values returns the value of each instance of a counter at the last Collect,

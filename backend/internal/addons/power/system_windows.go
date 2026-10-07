@@ -28,6 +28,7 @@ func newSystem() *system {
 	}
 	meters, err := query.Add(`\Energy Meter(*)\Power`)
 	if err != nil {
+		query.Close()
 		return s
 	}
 	// Power is measured between two readings, so the first one starts it.
