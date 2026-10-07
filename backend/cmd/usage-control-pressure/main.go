@@ -1,16 +1,19 @@
 // Command usage-control-pressure is the pressure add-on of usage-control:
 // every few seconds it reads from /proc/pressure how much of the time tasks
 // had to wait for the CPU, for memory and for disks and other I/O, and writes
-// it to the add-on folder (see package addons). It runs on Linux only;
-// elsewhere, and on kernels without pressure stall information, it reports
-// nothing.
+// it to the add-on folder (see package addons). Windows measures no such
+// waiting; there it reports the closest signals its performance counters
+// offer instead: threads waiting for a processor, pages read from disk for
+// memory, and how busy the disks are. Other systems, and Linux kernels without
+// pressure stall information, report nothing.
 //
 // Settings come from environment variables:
 //
 //	ADDONS_DIR  the add-on folder usage-control reads (default
 //	            /run/usage-control-addons, the folder the systemd service
 //	            makes)
-//	HOST_PROC   where the host's /proc is, in a container (default /proc)
+//	HOST_PROC   on Linux, where the host's /proc is, in a container
+//	            (default /proc)
 package main
 
 import (
@@ -24,9 +27,9 @@ import (
 
 func main() {
 	addons.Main("pressure", "UsageControlPressure", func() addons.Read {
-		procDir := pressure.HostProc()
+		read := pressure.NewReader()
 		return func(context.Context, time.Time) []metrics.Extra {
-			return pressure.Read(procDir)
+			return read()
 		}
 	})
 }

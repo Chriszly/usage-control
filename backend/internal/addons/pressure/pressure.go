@@ -1,8 +1,10 @@
 // Package pressure reads Linux pressure stall information (PSI), for the
 // pressure add-on: the share of the last ten seconds in which tasks had to
 // wait for the CPU, for memory or for disk and other I/O, from
-// /proc/pressure. Kernels built without PSI, and other systems, have no such
-// files, and nothing is read there.
+// /proc/pressure. Kernels built without PSI have no such files, and nothing
+// is read there. Windows has no such measurement; there the add-on reports the
+// closest signals its performance counters offer (see counters.go), and other
+// systems report nothing.
 //
 // It only reads; nothing in here changes the machine.
 package pressure
@@ -51,11 +53,7 @@ var values = []value{
 // collector shows. It returns nothing when the kernel reports none.
 func Read(procDir string) []metrics.Extra {
 	files := map[string]map[string]float64{}
-	group := metrics.Extra{
-		ID:     "pressure",
-		Title:  "Pressure",
-		Titles: map[string]string{"de": "Engpässe", "fr": "Saturation", "es": "Saturación"},
-	}
+	g := group()
 	for _, v := range values {
 		lines, read := files[v.file]
 		if !read {
@@ -66,7 +64,7 @@ func Read(procDir string) []metrics.Extra {
 		if !ok {
 			continue
 		}
-		group.Items = append(group.Items, metrics.ExtraItem{
+		g.Items = append(g.Items, metrics.ExtraItem{
 			ID:      v.id,
 			Label:   v.label,
 			Labels:  v.labels,
@@ -75,10 +73,10 @@ func Read(procDir string) []metrics.Extra {
 			History: true,
 		})
 	}
-	if len(group.Items) == 0 {
+	if len(g.Items) == 0 {
 		return nil
 	}
-	return []metrics.Extra{group}
+	return []metrics.Extra{g}
 }
 
 // readFile reads a file of /proc/pressure, or nothing when it does not exist.

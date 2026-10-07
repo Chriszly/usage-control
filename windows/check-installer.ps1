@@ -1,7 +1,7 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power add-on on, checks the tray icon
+# installs it with the website and the power and pressure add-ons on, checks the tray icon
 # pauses, resumes and stops the service, updates it to a newer version
-# without options and checks the options and the add-on were kept and the
+# without options and checks the options and the add-ons were kept and the
 # tray icon was closed for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
@@ -111,12 +111,21 @@ function Assert-PowerAddOn {
     Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\power.json" } 'the power add-on wrote its report'
 }
 
-Write-Host 'Installing with the website and the power add-on on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1"
+function Assert-PressureAddOn {
+    $addOn = Get-Service UsageControlPressure -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The pressure add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlPressure).Status -eq 'Running' } 'the pressure add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\pressure.json" } 'the pressure add-on wrote its report'
+    Wait-Until { (Get-Content -Raw "$env:ProgramData\Usage Control\addons\pressure.json") -match '"cpu-queue"' } 'the pressure add-on read the processor queue'
+}
+
+Write-Host 'Installing with the website and the power and pressure add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 PRESSURE=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
 Assert-PowerAddOn
+Assert-PressureAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -131,11 +140,13 @@ $installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion
 if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
 Assert-PowerAddOn
+Assert-PressureAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on is still installed' }
+if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -150,6 +161,7 @@ $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it should be off" }
 Assert-FirewallPort 9393
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on was installed without POWER=1' }
+if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'
