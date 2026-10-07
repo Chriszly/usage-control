@@ -102,7 +102,7 @@ flowchart TB
 ```
 
 - **Collector** reads the machine's usage: one call reads CPU, memory, disks, network, temperatures, GPUs, battery and so on. CPU usage and disk and network speeds are measured against the previous call. See [What is collected](data.md).
-- **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds.
+- **Sampler** hands the newest reading to everyone who asks: every open page, a hub asking this device, and the recorder. A reading is served again for 2 seconds, so however many pages are open, the machine is read at most once per 2 seconds; it runs no timer of its own, so with no page open it is read only as often as the recorder or a hub asks, every 5 seconds. A reading does not stop when the request that started it ends, such as a page being closed, since others share it; it has 10 seconds of its own.
 - **Recorder** takes a reading every 5 seconds into memory, and every minute stores the average of the last minute in the database, as it does for the minute it stops in when the program stops. A reading a hub or page asked for less than 4 seconds before is taken instead of reading the machine again. A hub runs one recorder for itself and one per other device; a data-only device runs one that keeps its minutes for the hub (see [While the hub is away](#while-the-hub-is-away)).
 - **Pruner** deletes everything older than the retention, once at start and then once a day, for every device at once.
 

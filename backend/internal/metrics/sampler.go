@@ -10,6 +10,9 @@ import (
 // again. The dashboard refreshes at the same pace.
 const SamplingInterval = 2 * time.Second
 
+// readTimeout is how long one reading of the machine may take.
+const readTimeout = 10 * time.Second
+
 // source reads one snapshot of the machine's usage: the Collector, or a
 // stand-in in tests.
 type source interface {
@@ -53,6 +56,10 @@ func (s *Sampler) Collect(ctx context.Context) (Snapshot, error) {
 	if s.isFresh() {
 		return s.newest()
 	}
+	// The reading is shared, so it does not end with the request that
+	// started it, such as a page that was closed; it has its own time limit.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), readTimeout)
+	defer cancel()
 	snapshot, err := s.source.Collect(ctx)
 	s.mu.Lock()
 	s.latest, s.err, s.latestAt = snapshot, err, time.Now()

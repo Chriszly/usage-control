@@ -3,6 +3,8 @@ package metrics
 import (
 	"path/filepath"
 	"strconv"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // readLinks reads the speed of each interface from /sys/class/net and the
@@ -11,8 +13,8 @@ import (
 func readLinks(names []string) map[string]link {
 	netDir := filepath.Join(hostPath("HOST_PROC", "/proc"), "1", "net")
 	var addresses map[string][]string
-	trie, trieErr := readFile(filepath.Join(netDir, "fib_trie"))
-	routes, routeErr := readFile(filepath.Join(netDir, "route"))
+	trie, trieErr := sysfile.Read(filepath.Join(netDir, "fib_trie"))
+	routes, routeErr := sysfile.Read(filepath.Join(netDir, "route"))
 	if trieErr == nil && routeErr == nil {
 		addresses = addressesByInterface(parseLocalAddresses(string(trie)), parseRoutes(string(routes)))
 	}
@@ -22,7 +24,7 @@ func readLinks(names []string) map[string]link {
 	for _, name := range names {
 		// Interfaces that are down, and most Wi-Fi cards, report no
 		// speed or -1.
-		mbps, err := strconv.Atoi(readText(filepath.Join(sysDir, "class", "net", name, "speed")))
+		mbps, err := strconv.Atoi(sysfile.Text(filepath.Join(sysDir, "class", "net", name, "speed")))
 		if err != nil || mbps < 0 {
 			mbps = 0
 		}

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"path/filepath"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // batteryReader reads the batteries Linux lists in /sys/class/power_supply.
@@ -16,7 +18,7 @@ func newBatteryReader() *batteryReader {
 	supplies, _ := filepath.Glob(filepath.Join(hostPath("HOST_SYS", "/sys"), "class", "power_supply", "*"))
 	r := &batteryReader{}
 	for _, dir := range supplies {
-		if readText(filepath.Join(dir, "type")) == "Battery" && readText(filepath.Join(dir, "scope")) != "Device" {
+		if sysfile.Text(filepath.Join(dir, "type")) == "Battery" && sysfile.Text(filepath.Join(dir, "scope")) != "Device" {
 			r.dirs = append(r.dirs, dir)
 		}
 	}
@@ -26,13 +28,13 @@ func newBatteryReader() *batteryReader {
 func (r *batteryReader) read() *Battery {
 	readings := make([]supplyReading, 0, len(r.dirs))
 	for _, dir := range r.dirs {
-		capacity, err := readUint(filepath.Join(dir, "capacity"))
-		if err != nil {
+		capacity, ok := sysfile.Uint(filepath.Join(dir, "capacity"))
+		if !ok {
 			continue
 		}
 		readings = append(readings, supplyReading{
 			percent: float64(min(capacity, 100)),
-			status:  readText(filepath.Join(dir, "status")),
+			status:  sysfile.Text(filepath.Join(dir, "status")),
 			watts:   readWatts(dir),
 			health:  readHealth(dir),
 		})
@@ -44,13 +46,13 @@ func (r *batteryReader) read() *Battery {
 // report it as power_now in µW, or as current_now in µA and voltage_now in µV;
 // nil when it reports neither.
 func readWatts(dir string) *float64 {
-	if microwatts, err := readUint(filepath.Join(dir, "power_now")); err == nil {
+	if microwatts, ok := sysfile.Uint(filepath.Join(dir, "power_now")); ok {
 		watts := float64(microwatts) / 1e6
 		return &watts
 	}
-	microamps, currentErr := readUint(filepath.Join(dir, "current_now"))
-	microvolts, voltageErr := readUint(filepath.Join(dir, "voltage_now"))
-	if currentErr != nil || voltageErr != nil {
+	microamps, currentOK := sysfile.Uint(filepath.Join(dir, "current_now"))
+	microvolts, voltageOK := sysfile.Uint(filepath.Join(dir, "voltage_now"))
+	if !currentOK || !voltageOK {
 		return nil
 	}
 	watts := float64(microamps) * float64(microvolts) / 1e12
@@ -62,9 +64,9 @@ func readWatts(dir string) *float64 {
 // reports neither.
 func readHealth(dir string) *float64 {
 	for _, kind := range []string{"energy", "charge"} {
-		full, fullErr := readUint(filepath.Join(dir, kind+"_full"))
-		design, designErr := readUint(filepath.Join(dir, kind+"_full_design"))
-		if fullErr == nil && designErr == nil && design > 0 {
+		full, fullOK := sysfile.Uint(filepath.Join(dir, kind+"_full"))
+		design, designOK := sysfile.Uint(filepath.Join(dir, kind+"_full_design"))
+		if fullOK && designOK && design > 0 {
 			health := min(100, float64(full)/float64(design)*100)
 			return &health
 		}

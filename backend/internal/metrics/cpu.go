@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/load"
 )
@@ -128,7 +129,7 @@ func readLoadAverage(ctx context.Context) (*LoadAverage, *Processes) {
 		return nil, nil
 	case "linux":
 		procDir := hostPath("HOST_PROC", "/proc")
-		text, err := readFile(filepath.Join(procDir, "loadavg"))
+		text, err := sysfile.Read(filepath.Join(procDir, "loadavg"))
 		if err != nil {
 			return nil, nil
 		}
@@ -210,8 +211,8 @@ func clockFiles() []string {
 func readClockMHz(files []string) float64 {
 	var highest uint64
 	for _, file := range files {
-		kHz, err := readUint(file)
-		if err != nil {
+		kHz, ok := sysfile.Uint(file)
+		if !ok {
 			continue
 		}
 		highest = max(highest, kHz)

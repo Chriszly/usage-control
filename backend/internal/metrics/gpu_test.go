@@ -72,3 +72,23 @@ func TestGPUsFromCounters(t *testing.T) {
 		t.Errorf("gpusFromCounters() = %+v, want %+v", got, want)
 	}
 }
+
+func TestNvidiaGPUKey(t *testing.T) {
+	uuid := "GPU-1A2B3C4D-5e6f-7a8b-9c0d-112233445566"
+	tests := []struct {
+		index, uuid string
+		gpus        int
+		want        string
+	}{
+		{"0", uuid, 1, "0"},
+		{"1", uuid, 1, "1a2b3c4d"},
+		{"0", uuid, 2, "1a2b3c4d"},
+		{"1", "[N/A]", 2, "1"},
+		{"1", "", 2, "1"},
+	}
+	for _, tt := range tests {
+		if got := NvidiaGPUKey(tt.index, tt.uuid, tt.gpus); got != tt.want {
+			t.Errorf("NvidiaGPUKey(%q, %q, %d) = %q, want %q", tt.index, tt.uuid, tt.gpus, got, tt.want)
+		}
+	}
+}

@@ -3,27 +3,28 @@ package power
 import (
 	"fmt"
 	"hash/crc32"
-	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
+	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 )
 
-// readText reads a short file under /sys, or returns "" when it cannot be
-// read. Its path is made of the names the kernel gives its files.
-func readText(path string) string {
-	text, err := os.ReadFile(path) //nolint:gosec // see above
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(text))
+// lastReadings keeps the readings of a program the add-on starts, vcgencmd
+// or nvidia-smi, for addons.ProgramInterval.
+type lastReadings struct {
+	readings []Reading
+	at       time.Time
 }
 
-// readUint reads a file that holds one whole number.
-func readUint(path string) (uint64, bool) {
-	n, err := strconv.ParseUint(readText(path), 10, 64)
-	return n, err == nil
+// get returns the kept readings while they are younger than
+// addons.ProgramInterval at now, and otherwise those read returns.
+func (l *lastReadings) get(now time.Time, read func() []Reading) []Reading {
+	if l.at.IsZero() || now.Sub(l.at) >= addons.ProgramInterval {
+		l.readings, l.at = read(), now
+	}
+	return l.readings
 }
 
 // lookPath returns where a program is, or "" when it is not installed.
