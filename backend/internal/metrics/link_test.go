@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"net/netip"
 	"reflect"
 	"testing"
 )
@@ -33,6 +34,24 @@ Local:
 `
 	got := addressesByInterface(parseLocalAddresses(trie), parseRoutes(routes))
 	want := map[string][]string{"eth0": {"192.168.60.9"}, "wlan0": {"10.1.2.3"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("addressesByInterface() = %v, want %v", got, want)
+	}
+}
+
+func TestAddressesByInterfacePicksTheMostSpecificRoute(t *testing.T) {
+	// A VPN's split route to 192.168.0.0/16 comes before the network card's
+	// own 192.168.60.0/24.
+	routes := []route{
+		{iface: "tun0", network: netip.MustParsePrefix("192.168.0.0/16")},
+		{iface: "eth0", network: netip.MustParsePrefix("192.168.60.0/24")},
+		{iface: "tun0", network: netip.MustParsePrefix("10.8.0.0/24")},
+	}
+	addresses := []netip.Addr{netip.MustParseAddr("192.168.60.9"), netip.MustParseAddr("10.8.0.2")}
+
+	got := addressesByInterface(addresses, routes)
+
+	want := map[string][]string{"eth0": {"192.168.60.9"}, "tun0": {"10.8.0.2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("addressesByInterface() = %v, want %v", got, want)
 	}
