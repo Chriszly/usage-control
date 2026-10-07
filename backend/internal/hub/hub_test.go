@@ -84,6 +84,20 @@ func TestAddedDevicesAreKeptAcrossRestarts(t *testing.T) {
 	}
 }
 
+func TestTheHubsIDIsMadeOnceAndKept(t *testing.T) {
+	store := openTestStore(t)
+	h := openTestHub(t, store, []Device{{ID: "office-pc", Name: "Office PC", Address: startDevice(t)}})
+	if !ValidHubID(h.id) || h.Remotes()[0].Agent.hubID != h.id {
+		t.Fatalf("id = %q, the agent's %q; want a valid id told to every device", h.id, h.Remotes()[0].Agent.hubID)
+	}
+	if again := openTestHub(t, store, nil); again.id != h.id {
+		t.Errorf("id after a restart = %q, want the same %q", again.id, h.id)
+	}
+	if other := openTestHub(t, openTestStore(t), nil); other.id == h.id {
+		t.Errorf("another hub has the same id %q, want its own", other.id)
+	}
+}
+
 func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 	ctx := context.Background()
 	address := startDevice(t)
