@@ -5,8 +5,9 @@
 // media errors and, for NVMe, how much of its rated wear is used.
 //
 // SMART reads cost time and would wake disks that sleep, so it reads every
-// ReadInterval, asks a SATA disk whether it sleeps before anything else and
-// leaves it alone if it does, and reports the last result in between. It
+// ReadInterval and reports the last result in between. Before anything else
+// it asks a SATA disk whether it sleeps and, on Windows, first asks Windows
+// whether it has switched any disk off; it leaves a disk alone if so. It
 // only sends commands that read; nothing in here changes the machine.
 package smart
 

@@ -25,8 +25,8 @@ import (
 func main() {
 	addons.Main("wifi", "UsageControlWifi", func() addons.Read {
 		read := wifi.NewReader()
-		return func(context.Context, time.Time) []metrics.Extra {
-			return wifi.Extras(read())
+		return func(ctx context.Context, _ time.Time) []metrics.Extra {
+			return wifi.Extras(read(ctx))
 		}
 	})
 }

@@ -7,6 +7,31 @@ import (
 	"unicode/utf16"
 )
 
+func TestStandingProblemOutlastsADisconnect(t *testing.T) {
+	const denied = "the quality follows from the signal"
+	const stopped = "the WLAN AutoConfig service is not running"
+	tests := []struct {
+		logged       string
+		ofConnection bool
+		found        string
+		connected    int
+		want         string
+	}{
+		{denied, true, "", 0, denied},     // disconnected: still denied, not read in full again
+		{denied, true, denied, 1, denied}, // connected again: nothing new to log
+		{denied, true, "", 1, ""},         // connected and read in full: the problem is gone
+		{stopped, false, "", 0, ""},       // the service runs again, with nothing connected
+		{stopped, false, stopped, 0, stopped},
+		{"", false, "", 0, ""},
+		{"", false, denied, 1, denied},
+	}
+	for _, tt := range tests {
+		if got := standingProblem(tt.logged, tt.ofConnection, tt.found, tt.connected); got != tt.want {
+			t.Errorf("standingProblem(%q, %v, %q, %d) = %q, want %q", tt.logged, tt.ofConnection, tt.found, tt.connected, got, tt.want)
+		}
+	}
+}
+
 // interfaceList builds a WLAN_INTERFACE_INFO_LIST as wlanapi.dll returns it.
 func interfaceList(interfaces ...wlanInterface) []byte {
 	b := make([]byte, interfaceListSize(len(interfaces)))

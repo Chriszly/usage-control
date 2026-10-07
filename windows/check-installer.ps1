@@ -2,10 +2,13 @@
 # installs it with the website and the power, gpu, kernel, pressure, Wi-Fi,
 # memory, ports, smart and processes add-ons on, checks the tray icon
 # pauses, resumes and stops the service, updates it to a newer version
-# without options and checks the options and the add-ons were kept and the
-# tray icon was closed for the update,
+# without options and checks the options and the add-ons were kept, except
+# RESET_PASSWORD, and the tray icon was closed for the update, repairs it
+# with RESET_PASSWORD=true and again without, as the docs say to, which
+# restarts the service and leaves the tray icon running,
 # uninstalls it, then installs it with the defaults and checks it only serves
-# the usage data.
+# the usage data, and last checks that an update with WEBSITE=0 turns the
+# website off.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
 param(
@@ -34,6 +37,19 @@ function Get-Answer([string] $Url) {
     Get-Service UsageControl | Format-List
     Get-EventLog -LogName Application -Source UsageControl -Newest 5 -ErrorAction SilentlyContinue | Format-List
     throw "The service did not answer $Url"
+}
+
+# Checks a setting the installer gave the service, such as DATA_ONLY=true.
+function Assert-ServiceSetting([string] $Name, [string] $Value) {
+    $environment = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\UsageControl').Environment
+    $lines = @($environment | Where-Object { $_.StartsWith("$Name=") })
+    if ($lines.Count -ne 1) { throw "The service has $($lines.Count) settings $Name, not 1: $($environment -join '; ')" }
+    $got = $lines[0].Substring($Name.Length + 1)
+    if ($got -ne $Value) { throw "The service's $Name is '$got', not '$Value'" }
+}
+
+function Get-ServiceProcessId {
+    (Get-CimInstance Win32_Service -Filter "Name = 'UsageControl'").ProcessId
 }
 
 function Get-StatusCode([string] $Url) {
@@ -190,10 +206,15 @@ function Assert-ProcessesAddOn {
 }
 
 Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1 SMART=1 PROCESSES=1"
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false RESET_PASSWORD=true POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1 SMART=1 PROCESSES=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
+Assert-ServiceSetting DATA_ONLY 'false'
+Assert-ServiceSetting HUB_DEVICES 'Pi=192.168.1.20:9393'
+Assert-ServiceSetting DISK_PATHS "$env:SystemDrive\"
+Assert-ServiceSetting UPDATE_CHECK 'false'
+Assert-ServiceSetting RESET_PASSWORD 'true'
 Assert-PowerAddOn
 Assert-GpuAddOn
 Assert-KernelAddOn
@@ -216,6 +237,9 @@ $installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion
     Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' })
 if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
+Assert-ServiceSetting DISK_PATHS "$env:SystemDrive\"
+Assert-ServiceSetting UPDATE_CHECK 'false'
+Assert-ServiceSetting RESET_PASSWORD ''
 Assert-PowerAddOn
 Assert-GpuAddOn
 Assert-KernelAddOn
@@ -225,6 +249,19 @@ Assert-MemoryAddOn
 Assert-PortsAddOn
 Assert-SmartAddOn
 Assert-ProcessesAddOn
+
+Write-Host 'A repair with RESET_PASSWORD=true restarts the service with it, and one without it turns it off'
+Start-Tray
+$before = Get-ServiceProcessId
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m RESET_PASSWORD=true"
+Assert-ServiceSetting RESET_PASSWORD 'true'
+Assert-Website 8091
+if ((Get-ServiceProcessId) -eq $before) { throw 'The repair did not restart the service' }
+if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { throw 'The repair closed the tray icon' }
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m"
+Assert-ServiceSetting RESET_PASSWORD ''
+Assert-ServiceSetting UPDATE_CHECK 'false'
+Assert-Website 8091
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
@@ -251,6 +288,7 @@ if ($metrics.disks.Count -lt 1) { throw 'The system disk is missing from the met
 $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it should be off" }
 Assert-FirewallPort 9393
+Assert-ServiceSetting DATA_ONLY 'true'
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on was installed without POWER=1' }
 if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on was installed without GPU=1' }
 if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on was installed without KERNEL=1' }
@@ -261,5 +299,18 @@ if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The po
 if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The smart add-on was installed without SMART=1' }
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on was installed without PROCESSES=1' }
 Invoke-Installer "/x `"$Msi`""
+
+Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off'
+Invoke-Installer "/i `"$Msi`" WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393"
+Assert-Website 9393
+# DATA_ONLY=false is what the setup wizard used to pass on after the
+# remembered WEBSITE=1, which kept the website on.
+Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false"
+Assert-ServiceSetting DATA_ONLY 'true'
+Assert-ServiceSetting HUB_DEVICES ''
+$null = Get-Answer 'http://127.0.0.1:9393/api/metrics'
+$status = Get-StatusCode 'http://127.0.0.1:9393/'
+if ($status -ne 404) { throw "The website answered $status after the update with WEBSITE=0; it should be off" }
+Invoke-Installer "/x `"$NewerMsi`""
 
 Write-Host 'The installer works'

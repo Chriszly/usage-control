@@ -119,6 +119,19 @@ func TestLabelsKeepWhatTellsThemApart(t *testing.T) {
 	}
 }
 
+func TestLabelsOfASecondAdapterOfTheSameModelStayApart(t *testing.T) {
+	first, second := label(longName, "Verbindungsqualität"), label(longName+" #2", "Verbindungsqualität")
+	if first == second {
+		t.Errorf("labels of two adapters of the same model are both %q, want them apart", first)
+	}
+	if want := "Qualcomm FastConnect 7800 Wi-Fi 7 High Band Simultaneous… #2 Verbindungsqualität"; second != want {
+		t.Errorf("label() of the second adapter = %q, want %q", second, want)
+	}
+	if n := utf8.RuneCountInString(second); n > maxLabel {
+		t.Errorf("label() of the second adapter takes %d characters, more than %d", n, maxLabel)
+	}
+}
+
 func TestAdaptersOfTheSameModelStayApart(t *testing.T) {
 	extras := Extras([]Reading{
 		{Interface: "Intel(R) Wi-Fi 6E AX211 160MHz", Key: "00112233445566778899aabbccddeeff", QualityPercent: 80},

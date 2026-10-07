@@ -1,15 +1,11 @@
 package pressure
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-// Reads the real counters of the machine: the processor queue right away,
-// and every counter from the second reading on.
+// Reads the real counters of the machine. NewReader starts the rates a
+// second ahead itself, so the first read has every counter.
 func TestNewReaderReadsTheCounters(t *testing.T) {
 	read := NewReader()
-	time.Sleep(time.Second)
 	got := read()
 	if len(got) != 1 {
 		t.Fatalf("read() = %+v, want the pressure group", got)
