@@ -63,11 +63,11 @@ func TestRecentCoversFromItsOldestReadingOn(t *testing.T) {
 	}
 }
 
-func TestReaderReadsShortRangesFromTheDatabaseUntilMemoryCoversThem(t *testing.T) {
+func TestReaderFillsWhatMemoryDoesNotReachBackToFromTheDatabase(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	now := time.Now().Truncate(time.Minute)
-	if err := store.Add(ctx, LocalDevice, now.Add(-5*time.Minute), map[string]float64{MetricCPU: 10}); err != nil {
+	if err := store.Add(ctx, LocalDevice, now.Add(-5*time.Minute), map[string]float64{MetricCPU: 10, MetricMemory: 30}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	// The readings started two minutes ago, as after a restart.
@@ -75,13 +75,69 @@ func TestReaderReadsShortRangesFromTheDatabaseUntilMemoryCoversThem(t *testing.T
 	fill(recent, now.Add(-2*time.Minute), now.Add(-30*time.Second), map[string]float64{MetricCPU: 20})
 	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
-	long, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
-	if err != nil || step != SampleInterval || len(long) != 1 || long[0].Points[0].Value != 10 {
-		t.Errorf("Range(10 min) = %+v, %v, %v, want the stored value in 1 minute steps", long, step, err)
+	got, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
+	if err != nil || step != RecentInterval {
+		t.Fatalf("Range(10 min) = %v, %v; want 5 second steps", step, err)
 	}
-	short, step, err := reader.Range(ctx, now.Add(-time.Minute), now)
-	if err != nil || step != RecentInterval || len(short) != 1 || short[0].Points[0].Value != 20 {
-		t.Errorf("Range(1 min) = %+v, %v, %v, want the reading from memory in 5 second steps", short, step, err)
+	// The stored minute fills its twelve steps, the readings follow.
+	var cpu, memory []Point
+	for start := now.Add(-5 * time.Minute); start.Before(now.Add(-4 * time.Minute)); start = start.Add(RecentInterval) {
+		cpu = append(cpu, Point{start.Unix(), 10})
+		memory = append(memory, Point{start.Unix(), 30})
+	}
+	for at := now.Add(-2 * time.Minute); !at.After(now.Add(-30 * time.Second)); at = at.Add(RecentInterval) {
+		cpu = append(cpu, Point{at.Unix(), 20})
+	}
+	want := []Series{{Metric: MetricCPU, Points: cpu}, {Metric: MetricMemory, Points: memory}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Range(10 min) = %+v, want %+v", got, want)
+	}
+}
+
+func TestReaderReadsShortRangesWithoutReadingsFromTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now().Truncate(time.Minute)
+	if err := store.Add(ctx, LocalDevice, now.Add(-5*time.Minute), map[string]float64{MetricCPU: 10}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	reader := Reader{Store: store, Recent: &Recent{}, Device: LocalDevice}
+
+	got, step, err := reader.Range(ctx, now.Add(-10*time.Minute), now)
+	if err != nil || step != SampleInterval || len(got) != 1 || len(got[0].Points) != 1 || got[0].Points[0].Value != 10 {
+		t.Errorf("Range(10 min) = %+v, %v, %v, want the stored value in 1 minute steps", got, step, err)
+	}
+}
+
+func TestRecentMissingFindsTheStepsOfGaps(t *testing.T) {
+	var recent Recent
+	start := time.Unix(1_800_000_000, 0)
+	if _, ok := recent.missing(start, start.Add(time.Minute), RecentInterval); ok {
+		t.Error("missing() without readings is ok, want not")
+	}
+	fill(&recent, start, start.Add(10*time.Second), map[string]float64{MetricCPU: 1})
+	fill(&recent, start.Add(40*time.Second), start.Add(time.Minute), map[string]float64{MetricCPU: 1})
+	if _, ok := recent.missing(start.Add(12*time.Second), start.Add(30*time.Second), RecentInterval); ok {
+		t.Error("missing() within a gap is ok, want not, as no reading falls in the range")
+	}
+
+	for _, tt := range []struct {
+		from, to time.Duration
+		want     []int64
+	}{
+		{0, time.Minute, []int64{15, 20, 25, 30, 35}},
+		{12 * time.Second, 45 * time.Second, []int64{15, 20, 25, 30, 35}},
+		{-12 * time.Second, 5 * time.Second, []int64{-15, -10, -5}},
+		{-5 * time.Second, 5 * time.Second, nil},
+		{45 * time.Second, time.Minute, nil},
+	} {
+		got, ok := recent.missing(start.Add(tt.from), start.Add(tt.to), RecentInterval)
+		for i := range got {
+			got[i] -= start.Unix()
+		}
+		if !ok || !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("missing(%v, %v) = %v, %v; want %v", tt.from, tt.to, got, ok, tt.want)
+		}
 	}
 }
 
@@ -214,8 +270,14 @@ func TestReaderReadsShortRangesWithAGapInMemoryFromTheDatabase(t *testing.T) {
 	reader := Reader{Store: store, Recent: recent, Device: LocalDevice}
 
 	across, step, err := reader.Range(ctx, now.Add(-15*time.Minute), now)
-	if err != nil || step != SampleInterval || len(across) != 1 || len(across[0].Points) != 15 {
-		t.Errorf("Range(15 min) across the gap = %+v, %v, %v, want every minute from the database", across, step, err)
+	if err != nil || step != RecentInterval || len(across) != 1 || len(across[0].Points) != 180 {
+		t.Fatalf("Range(15 min) across the gap = %+v, %v, %v, want every step, from memory and the gap from the database", across, step, err)
+	}
+	for _, p := range across[0].Points {
+		inGap := p.Time > now.Add(-10*time.Minute).Unix() && p.Time < now.Add(-5*time.Minute).Unix()
+		if want := map[bool]float64{true: 10, false: 20}[inGap]; p.Value != want {
+			t.Errorf("Range(15 min) at %d = %v, want %v", p.Time-now.Unix(), p.Value, want)
+		}
 	}
 	after, step, err := reader.Range(ctx, now.Add(-4*time.Minute), now)
 	if err != nil || step != RecentInterval || len(after) != 1 || after[0].Points[0].Value != 20 {

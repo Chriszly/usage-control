@@ -243,7 +243,7 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `DISK_PATHS` | `/`, or the system drive on Windows | comma-separated paths whose disks are shown; in Docker, mount each one read-only first |
 | `DATABASE_PATH` | `usage-control.db` in the working folder; set by Docker, the Linux service and the Windows installer | the SQLite file for the history, or with `DATA_ONLY` for the usage kept for the hub |
 | `RETENTION_DAYS` | `30` | days of history to keep, 1 to 3650 |
-| `HISTORY_MAX_ENTRIES` | `64` | disks, sensors, network cards and GPUs each that the history keeps per device, 1 to 10000 |
+| `HISTORY_MAX_ENTRIES` | `64` | disks, sensors, network cards and GPUs each that the history keeps per device, and 8 times as many values of extras, 1 to 10000 |
 | `DEVICE_NAME` | *Host Hub* | how the page names this device |
 | `HUB_DEVICES` | none | other devices to collect from, as `name=address:port`, comma-separated |
 | `DATA_ONLY` | `false` | `true` serves only the usage for a hub, with no website and no history of its own |

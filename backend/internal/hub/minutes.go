@@ -46,7 +46,7 @@ const (
 	// stored the hub's way before it is asked again, as it may be updated.
 	recheckAfter = time.Hour
 	// maxMetricLength is the longest metric name stored.
-	maxMetricLength = 256
+	maxMetricLength = history.MaxMetricLength
 	// maxClockJitter is how far the difference between the hub's clock and the
 	// device's may move before the minutes are moved by the new one. Measured
 	// with each reading, it varies by a second or two, which would now and

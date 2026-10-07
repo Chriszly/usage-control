@@ -108,6 +108,11 @@ func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 	if err := h.Remove(ctx, "laptop", true); err != nil {
 		t.Fatalf("Remove(keepHistory) error = %v", err)
 	}
+	for _, id := range []string{"office-pc", "laptop"} {
+		if err := h.waitRemoved(ctx, id, time.Minute); err != nil {
+			t.Fatalf("waitRemoved(%q) error = %v", id, err)
+		}
+	}
 	for id, want := range map[string]int{"office-pc": 0, "laptop": 1} {
 		var count int
 		if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM hub_watched WHERE device = ?`, id).Scan(&count); err != nil || count != want {

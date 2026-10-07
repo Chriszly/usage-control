@@ -141,7 +141,7 @@ sequenceDiagram
 
 Rules the agent follows:
 
-- A device has 4 seconds to answer. Answers larger than 1 MiB are not read; a reading is a few kilobytes.
+- A device has 4 seconds to answer. Answers larger than 1 MiB are not read, and the log says so; a reading is a few kilobytes, and about 150 KB on a host with 64 disks, sensors and network cards and 500 values of extras.
 - The agent connects directly, never through a proxy, and does not follow redirects.
 - It only connects to addresses on the local network, checked on the address it actually dials, so a host name that resolves to an address outside the network is refused too.
 - A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap. While it stays unreachable, its charts show the chosen range up to its last reading instead of up to now, with a notice that they are not live; once it answers again, they are live again.
@@ -188,7 +188,7 @@ What a time without an answer means depends on the device's kind, picked in the 
 
 The hub records both kinds the same way, so changing the kind later only changes how the times already recorded are shown.
 
-Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
+Removing a device on the page deletes its availability and kind, and its history unless *Keep its history* is ticked. The device leaves the list at once; its data is deleted afterwards in the background, in chunks, so the page is not held up by a long history. Adding a device with the same name meanwhile waits up to 2 seconds for that, then is refused with the problem `removing` (*still being removed; try again in a moment*), so the request never runs into the time limit. If the hub stops meanwhile, the rest of the history ages out with the retention. A device taken out of `HUB_DEVICES` loses its availability and kind at the next start; its history stays until it ages out.
 
 ## Adding and removing devices
 
@@ -258,6 +258,6 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 | `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |
 | `GET /api/minutes?after=<s>` | `{ now, minutes: [{ time, values: { <metric>: <value> } }], more }`: the device's own minutes after `after`, at most 120, on its clock; see [While the hub is away](#while-the-hub-is-away) | `400` when `after` is not Unix seconds or is later than the device's time |
 
-A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `address`, `unreachable`, `notFound`, `fixed`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
+A refused change answers with `{ problem, message }`: `problem` is a code the page translates (`name`, `nameTaken`, `addressTaken`, `address`, `kind`, `unreachable`, `notFound`, `fixed`, `removing`, `passwordLength`, `wrongPassword`, `request`), and `message` explains it in English.
 
 A data-only device answers only `GET /api/metrics`, `GET /api/minutes` and `GET /api/hub`.
