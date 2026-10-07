@@ -15,6 +15,8 @@ This page walks through a typical setup: a Raspberry Pi as the hub that shows ev
 
 ## Plan the setup
 
+Only add devices you own, or devices whose owner and users have agreed to it. The page shows when each device was on and how busy it was, so monitoring a device someone else uses needs their knowledge and, where the law requires it, their consent; see [Intended use](../README.md#intended-use).
+
 | Device | Install | Role |
 | --- | --- | --- |
 | Raspberry Pi or other always-on Linux machine | Docker image, or the Linux archive with a systemd service | **hub**: shows every device and keeps all history |

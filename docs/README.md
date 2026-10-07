@@ -7,3 +7,5 @@
 | [What is collected](data.md) | where each value comes from, what each system reports, GPUs, which values are kept in the history |
 | [Database and history](database.md) | the SQLite file and its tables, how readings become charts, retention, size, layout updates, backups |
 | [Development](development.md) | code layout, running it while developing, translations, checks, releases |
+
+Only install usage-control on devices you own or are allowed to monitor; see [Intended use](../README.md#intended-use).
