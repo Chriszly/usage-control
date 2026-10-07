@@ -98,8 +98,10 @@
                     (default: not installed)
   An update keeps the options of the installed version, except RESET_PASSWORD;
   options given to the update replace them. An option given empty counts as
-  not given, so to clear a remembered one, give it a single space, such as
-  DISK_PATHS=" ", which the service reads as not set.
+  not given, so to clear a remembered PORT, DEVICE_NAME, HUB_DEVICES,
+  RETENTION_DAYS, HISTORY_MAX_ENTRIES, BUFFER_HOURS, ALLOWED_HOSTS,
+  DISK_PATHS or UPDATE_CHECK, give it a single space, such as DISK_PATHS=" ",
+  which means its default. WEBSITE and the add-ons take 0 to turn them off.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
@@ -166,7 +168,7 @@
       also checks those. A repair or uninstall of the installed version is not
       held up by it.
     -->
-    <Launch Condition='Installed OR NOT UPDATE_CHECK OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
+    <Launch Condition='Installed OR NOT UPDATE_CHECK OR UPDATE_CHECK = " " OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
             Message="UPDATE_CHECK must be true or false." />
 
     <!--
@@ -177,7 +179,7 @@
       from WEBSITE as the wizard left it, also when the wizard switched it
       from the remembered 1 to 0.
     -->
-    <SetProperty Action="DefaultPORT" Id="PORT" Value="9393" After="LaunchConditions" Sequence="both" Condition="NOT PORT" />
+    <SetProperty Action="DefaultPORT" Id="PORT" Value="9393" After="LaunchConditions" Sequence="both" Condition='NOT PORT OR PORT = " "' />
     <SetProperty Action="DefaultWEBSITE" Id="WEBSITE" Value="0" After="LaunchConditions" Sequence="both" Condition="NOT WEBSITE" />
     <Property Id="DataOnly" Value="true" />
     <SetProperty Action="WebsiteOn" Id="DataOnly" Value="false" After="DefaultWEBSITE" Sequence="execute" Condition='WEBSITE = "1"' />

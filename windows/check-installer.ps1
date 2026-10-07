@@ -10,8 +10,8 @@
 # the service and leaves the tray icon running, switches the website off and
 # on again with repairs, uninstalls it, then installs it with the defaults
 # and checks it only serves the usage data, and last checks that an update
-# with WEBSITE=0 turns the website off and that one with DISK_PATHS=" "
-# clears the remembered DISK_PATHS.
+# with WEBSITE=0 turns the website off and that one with a space clears
+# DISK_PATHS, UPDATE_CHECK and PORT.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
 param(
@@ -344,16 +344,20 @@ if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The sm
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on was installed without PROCESSES=1' }
 Invoke-Installer "/x `"$Msi`""
 
-Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off, and DISK_PATHS=" " clears DISK_PATHS'
-Invoke-Installer "/i `"$Msi`" WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 DISK_PATHS=$env:SystemDrive\"
-Assert-Website 9393
+Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off, and a space clears DISK_PATHS, UPDATE_CHECK and PORT'
+Invoke-Installer "/i `"$Msi`" PORT=8092 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false"
+Assert-Website 8092
 # DATA_ONLY=false is what the setup wizard used to pass on after the
-# remembered WEBSITE=1, which kept the website on. An empty DISK_PATHS=""
-# would count as not given, so a space clears it.
-Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false DISK_PATHS=`" `""
+# remembered WEBSITE=1, which kept the website on. An empty option such as
+# DISK_PATHS="" would count as not given, so a space clears it; PORT then
+# goes back to 9393.
+Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false DISK_PATHS=`" `" UPDATE_CHECK=`" `" PORT=`" `""
 Assert-ServiceSetting DATA_ONLY 'true'
 Assert-ServiceSetting HUB_DEVICES ''
 Assert-ServiceSetting DISK_PATHS ' '
+Assert-ServiceSetting UPDATE_CHECK ' '
+Assert-ServiceSetting LISTEN_ADDR ':9393'
+Assert-FirewallPort 9393
 $null = Get-Answer 'http://127.0.0.1:9393/api/metrics'
 $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status after the update with WEBSITE=0; it should be off" }

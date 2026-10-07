@@ -45,11 +45,12 @@ func TestWindowsOpenFolderRefusesJunctions(t *testing.T) {
 	}
 }
 
-// The folder is checked once it is open, and written through, so a folder
-// swapped for a junction after that leaves the report where it was opened.
-func TestWindowsAddOnsWriteToTheFolderTheyOpened(t *testing.T) {
-	target, _ := junction(t)
-	dir := filepath.Join(filepath.Dir(target), "addons")
+// The folder is checked once it is open, and the add-on writes through it.
+// While it is open, Windows refuses to rename it (os.OpenRoot opens it
+// without FILE_SHARE_DELETE), so it cannot be swapped for a junction between
+// the check and the write: this is what the check rests on.
+func TestWindowsTheOpenFolderCannotBeSwapped(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "addons")
 	if err := os.Mkdir(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -58,24 +59,14 @@ func TestWindowsAddOnsWriteToTheFolderTheyOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = folder.Close() }()
-	moved := dir + "-moved"
-	if err := os.Rename(dir, moved); err != nil {
-		// Windows may refuse to rename a folder that is open; then there is
-		// nothing to swap.
-		t.Skipf("rename the open folder: %v", err)
-	}
-	//nolint:gosec // the test's own temporary folders
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", dir, target).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v: %s", err, out)
+	if err := os.Rename(dir, dir+"-moved"); err == nil {
+		t.Fatal("renaming the open add-on folder worked, so it could be swapped for a junction")
 	}
 	if err := metrics.WriteAddOnReport(folder, "test.json", metrics.AddOnReport{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(moved, "test.json")); err != nil {
-		t.Errorf("the report is not in the folder that was opened: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(target, "test.json")); !os.IsNotExist(err) {
-		t.Errorf("the report was written through the junction: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "test.json")); err != nil {
+		t.Errorf("the report is not in the folder: %v", err)
 	}
 }
 

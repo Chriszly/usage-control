@@ -5,10 +5,11 @@ name: Windows installer
 # (usage-control-<version>-x64.msi and -arm64.msi) are built on main, on
 # version tags, and on pull requests that change the installer or a program
 # it installs or the code they run as services (windows/, this workflow,
-# backend/cmd, backend/internal/addons, winservice or pdh); that job also
-# checks on a Windows machine that the x64 one installs, starts the service,
-# the add-ons and the tray icon and keeps its options across an update
-# (windows/check-installer.ps1), which takes a few minutes. Main keeps the
+# backend/cmd, backend/internal/addons, winservice, pdh or
+# metrics/addons*.go); that job also checks on a Windows machine that the
+# x64 one installs, starts the service, the add-ons and the tray icon and
+# keeps its options across an update (windows/check-installer.ps1), which
+# takes a few minutes. Main keeps the
 # installers as a workflow artifact; a version tag (v1.2.3 or 1.2.3) also
 # attaches them to that GitHub release.
 on:
@@ -57,7 +58,7 @@ jobs:
           set -euo pipefail
           installer=true
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] &&
-            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/|backend/internal/(addons|winservice|pdh)/)'; then
+            ! git diff --name-only HEAD^1 HEAD | grep -qE '^(windows/|\.github/workflows/windows\.yml$|backend/cmd/|backend/internal/(addons|winservice|pdh)/|backend/internal/metrics/addons[^/]*\.go$)'; then
             installer=false
           fi
           echo "installer=$installer" >> "$GITHUB_OUTPUT"
