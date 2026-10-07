@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // rapl reads the energy counters of Intel and AMD CPUs (RAPL) under
@@ -33,7 +35,7 @@ func (r *rapl) read(now time.Time) []Reading {
 		seconds = 0
 	}
 	for _, zone := range zones {
-		energy, ok := readUint(filepath.Join(zone, "energy_uj"))
+		energy, ok := sysfile.Uint(filepath.Join(zone, "energy_uj"))
 		if !ok {
 			continue
 		}
@@ -45,13 +47,13 @@ func (r *rapl) read(now time.Time) []Reading {
 		used := energy - before
 		if energy < before {
 			// The counter wrapped around at its maximum.
-			limit, ok := readUint(filepath.Join(zone, "max_energy_range_uj"))
+			limit, ok := sysfile.Uint(filepath.Join(zone, "max_energy_range_uj"))
 			if !ok || limit < before {
 				continue
 			}
 			used = limit - before + energy
 		}
-		reading := zoneReading(filepath.Base(zone), readText(filepath.Join(zone, "name")))
+		reading := zoneReading(filepath.Base(zone), sysfile.Text(filepath.Join(zone, "name")))
 		reading.Watts = float64(used) / 1e6 / seconds
 		readings = append(readings, reading)
 	}

@@ -25,6 +25,20 @@ func (g GPU) MemoryUsedPercent() (float64, bool) {
 	return min(100, float64(g.MemoryUsedBytes)/float64(g.MemoryTotalBytes)*100), true
 }
 
+// NvidiaGPUKey returns what names an NVIDIA GPU in the ids of the add-ons'
+// extras, from what nvidia-smi reports as its index and uuid, such as
+// "GPU-1a2b3c4d-…", when it reports gpus GPUs. The index can change at boot,
+// so with several GPUs it is the first 8 digits of the UUID, which stays
+// with the card. A machine's only GPU, at index 0, keeps the index, so its
+// history goes on from before the UUID was used.
+func NvidiaGPUKey(index, uuid string, gpus int) string {
+	short := strings.ToLower(strings.TrimPrefix(uuid, "GPU-"))
+	if (gpus == 1 && index == "0") || len(short) < 8 || strings.ContainsAny(short[:8], "[ ") {
+		return index
+	}
+	return short[:8]
+}
+
 // sortGPUs sorts GPUs by name and numbers GPUs with the same name, such as two
 // identical graphics cards, so each name stands for one GPU in the history.
 func sortGPUs(gpus []GPU) []GPU {

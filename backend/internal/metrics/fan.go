@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // Fan is the speed of one fan, such as the Raspberry Pi 5's cooling fan.
@@ -26,9 +28,9 @@ func fanSensors() []fanSensor {
 	sensors := make([]fanSensor, 0, len(files))
 	for _, file := range files {
 		fan := strings.TrimSuffix(filepath.Base(file), "_input")
-		name := readText(filepath.Join(filepath.Dir(file), fan+"_label"))
+		name := sysfile.Text(filepath.Join(filepath.Dir(file), fan+"_label"))
 		if name == "" {
-			name = strings.TrimSpace(readText(filepath.Join(filepath.Dir(file), "name")) + " " + fan)
+			name = strings.TrimSpace(sysfile.Text(filepath.Join(filepath.Dir(file), "name")) + " " + fan)
 		}
 		sensors = append(sensors, fanSensor{name: name, file: file})
 	}
@@ -40,8 +42,8 @@ func fanSensors() []fanSensor {
 func readFans(sensors []fanSensor) []Fan {
 	fans := make([]Fan, 0, len(sensors))
 	for _, s := range sensors {
-		rpm, err := readUint(s.file)
-		if err != nil {
+		rpm, ok := sysfile.Uint(s.file)
+		if !ok {
 			continue
 		}
 		fans = append(fans, Fan{Name: s.name, RPM: float64(rpm)})

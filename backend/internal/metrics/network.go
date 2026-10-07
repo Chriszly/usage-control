@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"log/slog"
 	stdnet "net"
 	"os"
 	"path/filepath"
@@ -66,14 +67,27 @@ func readNetworkCounters(ctx context.Context) (map[string]counters, error) {
 // readInterfaceStats reads the counters of every network interface. On Linux
 // it reads them from the first process of the host's /proc: /proc/net
 // describes the network of the reading process, which inside a container is
-// the container's own network, not the host's.
+// the container's own network, not the host's. Where the first process is
+// hidden, as with hidepid, it reads /proc/net instead, which outside a
+// container is the same network. Inside one (HOST_PROC set), that would be
+// the container's network, so there the error is returned.
 func readInterfaceStats(ctx context.Context) ([]net.IOCountersStat, error) {
 	if runtime.GOOS == "linux" {
-		file := filepath.Join(hostPath("HOST_PROC", "/proc"), "1", "net", "dev")
-		return net.IOCountersByFileWithContext(ctx, true, file)
+		procDir := hostPath("HOST_PROC", "/proc")
+		stats, err := net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "1", "net", "dev"))
+		if err == nil || os.Getenv("HOST_PROC") != "" {
+			return stats, err
+		}
+		ownNetworkOnce.Do(func() {
+			slog.Warn("cannot read the network of the first process; reading this program's own network instead", "error", err)
+		})
+		return net.IOCountersByFileWithContext(ctx, true, filepath.Join(procDir, "net", "dev"))
 	}
 	return net.IOCountersWithContext(ctx, true)
 }
+
+// ownNetworkOnce logs only once that the network is read from /proc/net.
+var ownNetworkOnce sync.Once
 
 // virtualInterfaceCheck returns a function that reports whether an interface
 // is not a network card. Linux tells from /sys; other systems only from the

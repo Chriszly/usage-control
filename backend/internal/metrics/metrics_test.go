@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -160,5 +161,67 @@ func TestTimeZone(t *testing.T) {
 	want := &TimeZone{Name: "CEST", OffsetSeconds: 7200}
 	if *got != *want {
 		t.Errorf("timeZone() = %+v, want %+v", *got, *want)
+	}
+}
+
+func TestCollectCarriesOnWhenTheNetworkCannotBeRead(t *testing.T) {
+	collector, err := NewCollector(context.Background(), []string{"/"})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	var fail error
+	sent := uint64(1000)
+	collector.readCounters = func(context.Context) (map[string]counters, error) {
+		if fail != nil {
+			return nil, fail
+		}
+		sent += 1000
+		return map[string]counters{"eth0": {sent: sent}}, nil
+	}
+
+	if _, err := collector.Collect(context.Background()); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	fail = errors.New("an adapter vanished")
+	snapshot, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() with an unreadable network error = %v, want the rest of the reading", err)
+	}
+	if snapshot.Network == nil || len(snapshot.Network) != 0 {
+		t.Errorf("Network = %+v, want an empty list", snapshot.Network)
+	}
+	if snapshot.Memory.TotalBytes == 0 {
+		t.Error("Memory.TotalBytes is 0, want the rest of the reading")
+	}
+
+	fail = nil
+	snapshot, err = collector.Collect(context.Background())
+	if err != nil || len(snapshot.Network) != 1 || snapshot.Network[0].SendBytesPerSecond <= 0 {
+		t.Errorf("Collect() once the network works again = %+v, %v, want eth0 with its speed since the last reading that worked", snapshot.Network, err)
+	}
+}
+
+func TestTemperatureReaderWaitsAfterFindingNone(t *testing.T) {
+	reads := 0
+	var found []Temperature
+	r := &temperatureReader{
+		sensors: func(context.Context) []Temperature { reads++; return found },
+		retry:   10 * time.Minute,
+	}
+	start := time.Now()
+	ctx := context.Background()
+
+	if got := r.read(ctx, start); len(got) != 0 {
+		t.Errorf("read() = %v, want none", got)
+	}
+	if got := r.read(ctx, start.Add(9*time.Minute)); got == nil || len(got) != 0 || reads != 1 {
+		t.Errorf("read() within the retry = %v after %d reads, want an empty list without reading", got, reads)
+	}
+	found = []Temperature{{Sensor: "acpitz", Celsius: 40}}
+	if got := r.read(ctx, start.Add(10*time.Minute)); len(got) != 1 || reads != 2 {
+		t.Errorf("read() after the retry = %v after %d reads, want the sensor", got, reads)
+	}
+	if r.read(ctx, start.Add(10*time.Minute+time.Second)); reads != 3 {
+		t.Errorf("reads after finding a sensor = %d, want every time", reads)
 	}
 }

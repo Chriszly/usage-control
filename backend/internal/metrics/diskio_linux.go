@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 	"golang.org/x/sys/unix"
 )
 
@@ -12,7 +13,7 @@ import (
 // path, from /proc/diskstats. A path on a filesystem without a disk of its own,
 // such as a network share, has none.
 func readDiskCounters(_ context.Context, paths []string) map[string]ioCounters {
-	text, err := readFile(filepath.Join(hostPath("HOST_PROC", "/proc"), "diskstats"))
+	text, err := sysfile.Read(filepath.Join(hostPath("HOST_PROC", "/proc"), "diskstats"))
 	if err != nil {
 		return nil
 	}
@@ -42,7 +43,7 @@ func readDiskCounters(_ context.Context, paths []string) map[string]ioCounters {
 // hostRootDevice returns the device of the host's root filesystem, read once
 // from the mounts of the host's first process.
 var hostRootDevice = sync.OnceValues(func() (deviceNumber, bool) {
-	text, err := readFile(filepath.Join(hostPath("HOST_PROC", "/proc"), "1", "mountinfo"))
+	text, err := sysfile.Read(filepath.Join(hostPath("HOST_PROC", "/proc"), "1", "mountinfo"))
 	if err != nil {
 		return deviceNumber{}, false
 	}

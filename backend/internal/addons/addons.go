@@ -24,6 +24,13 @@ import (
 // rest.
 const Interval = 5 * time.Second
 
+// ProgramInterval is how often an add-on starts another program, such as
+// nvidia-smi or vcgencmd, using its last answer in between. Starting a
+// process costs far more than the file reads of other values, and the
+// history keeps one average a minute, which a value every half minute still
+// fills.
+const ProgramInterval = 30 * time.Second
+
 // Read returns an add-on's extras at now. now keeps Go's monotonic clock
 // reading, so the time between two reads, which rates are worked out over,
 // does not jump when the wall clock is set.

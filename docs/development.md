@@ -26,6 +26,7 @@ Backend packages, in `backend/internal/`:
 | `update` | the daily check for a newer release |
 | `version` | the version, set at build time |
 | `web` | the built website, embedded into the binary |
+| `sysfile` | reads the small one-value files under `/sys` and `/proc`, for `metrics` and the add-ons |
 
 `backend/cmd/usage-control/main.go` reads the settings and wires these together; on Windows `service_windows.go` runs it as a service. `backend/cmd/usage-control-tray` is the Windows tray icon, and `backend/cmd/tray-icons` draws its icons. How the parts work together is in [How it works](architecture.md).
 
@@ -88,7 +89,7 @@ bash ci/check-no-secrets.sh
 
 | Workflow | Builds |
 | --- | --- |
-| `ci.yml` | every check above, plus a build-only multi-arch Docker image on pull requests |
+| `ci.yml` | every check above, plus a build-only multi-arch Docker image on pull requests, whose amd64 image is then started with the `power` and `processes` add-on containers from `compose.yaml` until the page shows the processes add-on |
 | `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags |
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |

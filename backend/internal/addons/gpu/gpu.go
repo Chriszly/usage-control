@@ -17,12 +17,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 const (
 	// query is what nvidia-smi is asked, in this order, one line per GPU.
-	query = "--query-gpu=index,name,fan.speed,clocks.gr,clocks.mem,utilization.encoder,utilization.decoder,pstate,power.limit"
+	query = "--query-gpu=index,uuid,name,fan.speed,clocks.gr,clocks.mem,utilization.encoder,utilization.decoder,pstate,power.limit"
 	// nvidiaTimeout is how long nvidia-smi may take, as long as the power
 	// add-on lets it. Without the driver's persistence mode, as on many
 	// Linux servers, each call starts the driver, which can take more than
@@ -30,7 +31,7 @@ const (
 	nvidiaTimeout = 3 * time.Second
 )
 
-// fields are the values of query after the index and the name.
+// fields are the values of query after the index, the UUID and the name.
 var fields = []struct {
 	id      string
 	label   string
@@ -53,6 +54,10 @@ type Reader struct {
 	program string
 	// failing is whether the last call failed, so a failure is logged once.
 	failing bool
+	// extras is what the last call of nvidia-smi returned, and at when that
+	// was; Read returns extras again until it is addons.ProgramInterval old.
+	extras []metrics.Extra
+	at     time.Time
 }
 
 // NewReader finds nvidia-smi on the PATH. Without it, which is the usual
@@ -70,10 +75,20 @@ func NewReader() *Reader {
 // Read returns the GPUs' values as the group of extras the collector shows,
 // or nothing when nvidia-smi is missing or prints nothing. It gives up after
 // nvidiaTimeout, so a hanging driver does not hold up the next report.
-func (r *Reader) Read(ctx context.Context, _ time.Time) []metrics.Extra {
+// nvidia-smi is asked only every addons.ProgramInterval; in between, its
+// last answer is returned.
+func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
 	}
+	if !r.at.IsZero() && now.Sub(r.at) < addons.ProgramInterval {
+		return r.extras
+	}
+	r.extras, r.at = r.read(ctx), now
+	return r.extras
+}
+
+func (r *Reader) read(ctx context.Context) []metrics.Extra {
 	out, err := run(ctx, r.program)
 	switch {
 	case err != nil && !r.failing:
@@ -101,28 +116,37 @@ func run(ctx context.Context, program string) (string, error) {
 // report, written as [N/A] or [Not Supported], is missing from Values.
 type GPU struct {
 	Index string
-	Name  string
+	UUID  string
+	// Key names the GPU in the ids of its values; see metrics.NvidiaGPUKey.
+	// Empty, the index is used.
+	Key  string
+	Name string
 	// Values holds the fields' values by their id: numbers for all but the
 	// performance state, which stays text.
 	Values map[string]string
 }
 
 // Parse reads the CSV nvidia-smi writes for query, such as
-// "0, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00". Other
-// lines, such as the message nvidia-smi prints for a GPU in an error state,
-// are left out.
+// "0, GPU-1a2b3c4d-…, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2,
+// 350.00". Other lines, such as the message nvidia-smi prints for a GPU in an
+// error state, are left out. Each GPU's Key comes from metrics.NvidiaGPUKey,
+// which counts a GPU in an error state too, as long as nvidia-smi prints a
+// row for it, so the others keep their key while it fails.
 func Parse(out string) []GPU {
 	var gpus []GPU
+	rows := 0
 	for line := range strings.Lines(out) {
 		parts := strings.Split(line, ",")
-		if len(parts) < 2+len(fields) {
+		if len(parts) < 3+len(fields) {
 			continue
 		}
+		rows++
 		// The name is the only field that could hold a comma.
 		values := parts[len(parts)-len(fields):]
 		gpu := GPU{
 			Index:  strings.TrimSpace(parts[0]),
-			Name:   strings.TrimSpace(strings.Join(parts[1:len(parts)-len(fields)], ",")),
+			UUID:   strings.TrimSpace(parts[1]),
+			Name:   strings.TrimSpace(strings.Join(parts[2:len(parts)-len(fields)], ",")),
 			Values: map[string]string{},
 		}
 		if _, err := strconv.Atoi(gpu.Index); err != nil {
@@ -142,12 +166,16 @@ func Parse(out string) []GPU {
 		}
 		gpus = append(gpus, gpu)
 	}
+	for i := range gpus {
+		gpus[i].Key = metrics.NvidiaGPUKey(gpus[i].Index, gpus[i].UUID, rows)
+	}
 	return gpus
 }
 
 // Extras returns the GPUs as the group of extras the collector shows. With
 // more than one GPU, each label starts with the GPU's name and index, so two
-// identical cards can be told apart.
+// identical cards can be told apart. The ids name each GPU by its Key, so its
+// history stays with the card when the indexes change at boot.
 func Extras(gpus []GPU) []metrics.Extra {
 	group := metrics.Extra{
 		ID:     "gpu",
@@ -159,13 +187,17 @@ func Extras(gpus []GPU) []metrics.Extra {
 		if len(gpus) > 1 {
 			prefix = gpu.Name + " (" + gpu.Index + "): "
 		}
+		key := gpu.Key
+		if key == "" {
+			key = gpu.Index
+		}
 		for _, field := range fields {
 			value, ok := gpu.Values[field.id]
 			if !ok {
 				continue
 			}
 			item := metrics.ExtraItem{
-				ID:      idOf(gpu.Index, field.id),
+				ID:      idOf(key, field.id),
 				Label:   prefix + field.label,
 				Labels:  map[string]string{},
 				Unit:    field.unit,

@@ -24,7 +24,7 @@ func readNvidia(ctx context.Context, program string) []Reading {
 	ctx, cancel := context.WithTimeout(ctx, nvidiaTimeout)
 	defer cancel()
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
-	cmd := exec.CommandContext(ctx, program, "--query-gpu=index,name,power.draw", "--format=csv,noheader,nounits")
+	cmd := exec.CommandContext(ctx, program, "--query-gpu=index,uuid,name,power.draw", "--format=csv,noheader,nounits")
 	metrics.HideWindow(cmd)
 	// When one GPU is in an error state, nvidia-smi still prints the others
 	// but exits with an error, so what it printed is read either way.
@@ -32,25 +32,49 @@ func readNvidia(ctx context.Context, program string) []Reading {
 	return parseNvidia(string(out))
 }
 
-// parseNvidia reads lines such as "0, NVIDIA GeForce RTX 5060 Ti, 18.42".
-// A GPU that does not report its power says "[N/A]" and is left out.
+// parseNvidia reads lines such as
+// "0, GPU-1a2b3c4d-…, NVIDIA GeForce RTX 5060 Ti, 18.42". A GPU that does not
+// report its power says "[N/A]" and is left out. Each GPU is named by
+// metrics.NvidiaGPUKey, so its history stays with the card.
 func parseNvidia(out string) []Reading {
-	var readings []Reading
+	type gpu struct {
+		index, uuid, name string
+		watts             float64
+		hasWatts          bool
+	}
+	var gpus []gpu
+	// rows counts the GPUs nvidia-smi printed a row for, also one in an
+	// error state whose row holds only errors, so that the others keep their
+	// key while it fails.
+	rows := 0
 	for line := range strings.Lines(out) {
 		fields := strings.Split(line, ",")
-		if len(fields) != 3 {
+		if len(fields) < 4 {
 			continue
 		}
-		watts, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
-		if err != nil {
+		rows++
+		g := gpu{
+			index: strings.TrimSpace(fields[0]),
+			uuid:  strings.TrimSpace(fields[1]),
+			// The name is the only field that could hold a comma.
+			name: strings.TrimSpace(strings.Join(fields[2:len(fields)-1], ",")),
+		}
+		if _, err := strconv.Atoi(g.index); err != nil {
 			continue
 		}
-		index := strings.TrimSpace(fields[0])
-		readings = append(readings, Reading{
-			ID:    idOf("nvidia", index),
-			Label: strings.TrimSpace(fields[1]),
-			Watts: watts,
-		})
+		watts, err := strconv.ParseFloat(strings.TrimSpace(fields[len(fields)-1]), 64)
+		g.watts, g.hasWatts = watts, err == nil
+		gpus = append(gpus, g)
+	}
+	var readings []Reading
+	for _, g := range gpus {
+		if g.hasWatts {
+			readings = append(readings, Reading{
+				ID:    idOf("nvidia", metrics.NvidiaGPUKey(g.index, g.uuid, rows)),
+				Label: g.name,
+				Watts: g.watts,
+			})
+		}
 	}
 	return readings
 }

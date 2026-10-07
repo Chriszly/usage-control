@@ -166,6 +166,8 @@ func run(ctx context.Context) error {
 		waitForRecorders()
 	}()
 
+	// The page gives up on an answer after ANSWER_TIMEOUT_MS (15 s,
+	// frontend/src/app/connection/connection.ts); keep WriteTimeout below it.
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
