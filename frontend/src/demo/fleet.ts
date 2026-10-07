@@ -157,7 +157,11 @@ const smartValues = {
   },
 } as const;
 
-const healthLabels = { de: 'Zustand', fr: 'État', es: 'Estado' };
+const passedLabels = {
+  de: 'SMART-Prüfung bestanden',
+  fr: 'Contrôle SMART réussi',
+  es: 'Comprobación SMART superada',
+};
 
 /** Puts the disk before a label and each of its translations, as the smart add-on does. */
 function diskLabels(disk: string, label: string, labels: Record<string, string>) {
@@ -169,7 +173,8 @@ function diskLabels(disk: string, label: string, labels: Record<string, string>)
 
 /**
  * What the smart add-on reports for the given disks: whether each one passes its own check, and
- * the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>".
+ * the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>". The id is
+ * the disk's serial number, as the add-on keys each disk on it.
  */
 function smartAddOn(
   disks: { id: string; name: string; values: (keyof typeof smartValues)[] }[],
@@ -181,9 +186,9 @@ function smartAddOn(
     items: disks.flatMap((disk) => [
       {
         id: `${disk.id}-health`,
-        ...diskLabels(disk.name, 'Health', healthLabels),
+        ...diskLabels(disk.name, 'SMART check passed', passedLabels),
         unit: 'text' as const,
-        text: 'passed',
+        text: '✓',
       },
       ...disk.values.map((value) => ({
         id: `${disk.id}-${value}`,
@@ -537,12 +542,12 @@ const linuxNas: DemoMachine = {
   extras: [
     smartAddOn([
       {
-        id: 'sda',
+        id: 'wd-x1g2h3jk',
         name: 'WDC WD120EFBX-68B0EN0 (sda)',
         values: ['temperature', 'power-on-hours', 'reallocated'],
       },
       {
-        id: 'sdb',
+        id: 'zrt0abcd',
         name: 'ST12000VN0008-2YS101 (sdb)',
         values: ['temperature', 'power-on-hours', 'reallocated'],
       },
@@ -575,12 +580,12 @@ const linuxNas: DemoMachine = {
       'temperature:drivetemp sda': drives.sda,
       'temperature:drivetemp sdb': drives.sdb,
       // The smart add-on reads the disks every 10 minutes.
-      'extra:smart/sda-temperature': Math.round(drives.sda),
-      'extra:smart/sda-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_408,
-      'extra:smart/sda-reallocated': 0,
-      'extra:smart/sdb-temperature': Math.round(drives.sdb),
-      'extra:smart/sdb-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_395,
-      'extra:smart/sdb-reallocated': t < openedAt - 9 * 86400 ? 0 : 8,
+      'extra:smart/wd-x1g2h3jk-temperature': Math.round(drives.sda),
+      'extra:smart/wd-x1g2h3jk-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_408,
+      'extra:smart/wd-x1g2h3jk-reallocated': 0,
+      'extra:smart/zrt0abcd-temperature': Math.round(drives.sdb),
+      'extra:smart/zrt0abcd-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_395,
+      'extra:smart/zrt0abcd-reallocated': t < openedAt - 9 * 86400 ? 0 : 8,
       'disk:/': vary(t, step, 95, 31, [[0.3, 86400 * 5]]),
       'disk:/srv/data': vary(t, step, 96, 71, [[1.5, 86400 * 12]]),
       'disk:/srv/backup': vary(t, step, 97, 83, [[2, 86400 * 6]]),
@@ -649,7 +654,7 @@ const linuxServer: DemoMachine = {
     ]),
     smartAddOn([
       {
-        id: 'nvme0',
+        id: 's69enx0t123456a',
         name: 'Samsung SSD 980 PRO 2TB (nvme0)',
         values: ['temperature', 'power-on-hours', 'media-errors', 'used'],
       },
@@ -687,10 +692,10 @@ const linuxServer: DemoMachine = {
       'extra:power/rapl-0-package-0': 18 + cpu * 1.4,
       'extra:power/rapl-0-2-dram': 6 + 4 * build,
       'extra:power/nvidia-0': 32 + gpu * 3.1,
-      'extra:smart/nvme0-temperature': Math.round(41 + 8 * build),
-      'extra:smart/nvme0-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
-      'extra:smart/nvme0-media-errors': 0,
-      'extra:smart/nvme0-used': 4,
+      'extra:smart/s69enx0t123456a-temperature': Math.round(41 + 8 * build),
+      'extra:smart/s69enx0t123456a-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
+      'extra:smart/s69enx0t123456a-media-errors': 0,
+      'extra:smart/s69enx0t123456a-used': 4,
     };
   },
 };

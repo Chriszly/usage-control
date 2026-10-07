@@ -121,33 +121,37 @@ func checksum(sector []byte) error {
 	return nil
 }
 
-// parseIdentify reads the model and whether SMART is supported and on from
-// the answer to IDENTIFY DEVICE.
-func parseIdentify(sector []byte) (model string, smart bool, err error) {
+// parseIdentify reads the model, the serial number and whether SMART is
+// supported and on from the answer to IDENTIFY DEVICE.
+func parseIdentify(sector []byte) (model, serial string, smart bool, err error) {
 	if len(sector) != 512 {
-		return "", false, fmt.Errorf("the sector has %d bytes, not 512", len(sector))
+		return "", "", false, fmt.Errorf("the sector has %d bytes, not 512", len(sector))
 	}
 	// The checksum is only there when word 255 starts with the signature A5h.
 	if sector[510] == 0xA5 {
 		if err := checksum(sector); err != nil {
-			return "", false, err
+			return "", "", false, err
 		}
 	}
 	word := func(i int) uint16 { return binary.LittleEndian.Uint16(sector[2*i:]) }
-	// Words 27 to 46, two characters each, the first in the high byte.
-	text := make([]byte, 0, 40)
-	for i := 27; i <= 46; i++ {
+	supported := word(82) != 0xFFFF && word(82)&1 != 0
+	enabled := word(85) != 0xFFFF && word(85)&1 != 0
+	return ataText(sector, 27, 46), ataText(sector, 10, 19), supported && enabled, nil
+}
+
+// ataText reads the text in words first to last of IDENTIFY DEVICE, two
+// characters each, the first in the high byte.
+func ataText(sector []byte, first, last int) string {
+	text := make([]byte, 0, 2*(last-first+1))
+	for i := first; i <= last; i++ {
 		text = append(text, sector[2*i+1], sector[2*i])
 	}
-	model = strings.TrimSpace(strings.Map(func(r rune) rune {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
 		if r < 0x20 || r > 0x7E {
 			return -1
 		}
 		return r
 	}, string(text)))
-	supported := word(82) != 0xFFFF && word(82)&1 != 0
-	enabled := word(85) != 0xFFFF && word(85)&1 != 0
-	return model, supported && enabled, nil
 }
 
 // The ATA SMART attributes the add-on reads.
@@ -195,8 +199,8 @@ func parseSMARTData(sector []byte) (Disk, error) {
 
 // readATA reads a SATA disk with send, which sends one ATA command: it asks
 // whether the disk sleeps first and leaves it alone if it does, then reads
-// its model, its SMART check and its SMART attributes. A disk whose power
-// mode cannot be read is not read either, as it might sleep.
+// its model and serial number, its SMART check and its SMART attributes. A
+// disk whose power mode cannot be read is not read either, as it might sleep.
 func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	power, _, err := send(ataCheckPowerMode)
 	if err != nil {
@@ -209,12 +213,12 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	if err != nil {
 		return Disk{}, fmt.Errorf("identify: %w", err)
 	}
-	model, smart, err := parseIdentify(sector)
+	model, serial, smart, err := parseIdentify(sector)
 	if err != nil {
 		return Disk{}, fmt.Errorf("identify: %w", err)
 	}
 	if !smart {
-		return Disk{Model: model}, nil
+		return Disk{Model: model, Serial: serial}, nil
 	}
 	_, sector, err = send(ataSMARTReadData)
 	if err != nil {
@@ -224,7 +228,7 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	if err != nil {
 		return Disk{}, fmt.Errorf("read the SMART data: %w", err)
 	}
-	disk.Model = model
+	disk.Model, disk.Serial = model, serial
 	if status, _, err := send(ataSMARTReturnStatus); err == nil {
 		disk.Passed = smartPassed(status)
 	}

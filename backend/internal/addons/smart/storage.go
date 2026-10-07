@@ -20,9 +20,9 @@ const (
 
 // storageDevice is what STORAGE_DEVICE_DESCRIPTOR tells of a disk.
 type storageDevice struct {
-	model     string
-	bus       uint32
-	removable bool
+	model, serial string
+	bus           uint32
+	removable     bool
 }
 
 var errShortDescriptor = errors.New("the storage descriptor is too short")
@@ -36,8 +36,10 @@ func parseDeviceDescriptor(b []byte) (storageDevice, error) {
 		return storageDevice{}, errShortDescriptor
 	}
 	size := min(len(b), int(binary.LittleEndian.Uint32(b[4:8])))
+	// An offset is 0 for a text the disk does not tell; one beyond the
+	// descriptor is taken as none too.
 	text := func(offset uint32) string {
-		if offset == 0 || int(offset) >= size {
+		if offset == 0 || int64(offset) >= int64(size) {
 			return ""
 		}
 		end := int(offset)
@@ -54,6 +56,7 @@ func parseDeviceDescriptor(b []byte) (storageDevice, error) {
 	}
 	return storageDevice{
 		model:     model,
+		serial:    text(binary.LittleEndian.Uint32(b[24:28])),
 		bus:       binary.LittleEndian.Uint32(b[28:32]),
 		removable: b[10] != 0,
 	}, nil

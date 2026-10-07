@@ -25,6 +25,11 @@ RestartSec=5
 # that reads an NVMe disk's health log. It sends only commands that read, opens
 # the disks read-only, and only SATA/SCSI disks and NVMe controllers are
 # reachable at all. It writes nothing but its folder and needs no network.
+# CAP_SYS_ADMIN allows much more than NVMe commands, and systemd cannot grant
+# it only where there are NVMe disks, so it is granted everywhere; the system
+# call filter below keeps it from mounting, loading modules and the like. On a
+# machine without NVMe disks, a drop-in (systemctl edit usage-control-smart)
+# with CapabilityBoundingSet=~CAP_SYS_ADMIN takes it away.
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
@@ -48,6 +53,13 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+# Only the system calls a service needs, without those of @privileged (which
+# holds @swap, @reboot, @module, @raw-io and setuid and the like), @mount and
+# others no reader needs. The disk commands are plain ioctl calls, which stay
+# allowed. A call that is not allowed fails instead of ending the program.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @obsolete @debug @cpu-emulation
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=usage-control.service

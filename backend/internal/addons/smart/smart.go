@@ -33,6 +33,9 @@ type Disk struct {
 	// "Disk 0", and Model what the disk calls itself.
 	Name  string
 	Model string
+	// Serial is the disk's serial number, which stays with the disk, unlike
+	// its name, which can go to another disk at the next start.
+	Serial string
 	// Passed is whether the disk's own overall SMART check passes.
 	Passed             *bool
 	Celsius            *float64
@@ -49,8 +52,9 @@ type device struct {
 	// nvme tells NVMe disks, read through their health log, from SATA disks,
 	// read through ATA commands.
 	nvme bool
-	// model is what the disk calls itself, when the list already tells.
-	model string
+	// model is what the disk calls itself and serial its serial number,
+	// when the list already tells.
+	model, serial string
 }
 
 // errAsleep is returned for a disk that sleeps, which is not woken.
@@ -149,6 +153,9 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			disk.Name = d.name
 			if disk.Model == "" {
 				disk.Model = d.model
+			}
+			if disk.Serial == "" {
+				disk.Serial = d.serial
 			}
 			read[d.path] = disk
 		case !errors.Is(err, errAsleep):

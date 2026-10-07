@@ -59,8 +59,10 @@ func ioctl(h windows.Handle, code uint32, in, out []byte) ([]byte, error) {
 	return out[:returned], nil
 }
 
-// list returns the fixed SATA and NVMe disks, with their models.
-// Asking a disk what it is needs no access to its data and does not wake it.
+// list returns the fixed SATA and NVMe disks, with their models and serial
+// numbers. Asking a disk what it is needs no access to its data and does not
+// wake it. USB disks are left out, as some USB bridges reset the disk when
+// they get an ATA command passed through.
 func (windowsSource) list() ([]device, error) {
 	devices := []device{}
 	for i := range maxDrives {
@@ -79,8 +81,11 @@ func (windowsSource) list() ([]device, error) {
 			continue
 		}
 		switch d.bus {
-		case busNVMe, busATA, busSATA, busUSB:
-			devices = append(devices, device{name: fmt.Sprintf("Disk %d", i), path: path, nvme: d.bus == busNVMe, model: d.model})
+		case busNVMe, busATA, busSATA:
+			devices = append(devices, device{
+				name: fmt.Sprintf("Disk %d", i), path: path, nvme: d.bus == busNVMe,
+				model: d.model, serial: d.serial,
+			})
 		}
 	}
 	return devices, nil

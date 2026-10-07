@@ -35,7 +35,7 @@ var (
 )
 
 // list returns the SATA (sd*) and NVMe (nvme*n*) disks in /sys/block,
-// without removable and virtual ones. An NVMe disk is read through its
+// without removable, virtual and USB ones. An NVMe disk is read through its
 // controller, such as nvme0 for nvme0n1, once for all its namespaces.
 func (s linuxSource) list() ([]device, error) {
 	block := filepath.Join(s.sys, "block")
@@ -60,12 +60,18 @@ func (s linuxSource) list() ([]device, error) {
 		if err != nil || (strings.Contains(target, "/devices/virtual/") && !strings.Contains(target, "/nvme-subsystem/")) {
 			continue
 		}
+		if onUSB(target) {
+			continue
+		}
 		d := device{name: name, path: filepath.Join(s.dev, name)}
 		if match != nil {
+			// The kernel keeps the model and serial number the controller
+			// tells in its Identify Controller data.
 			ctrl := s.controller(filepath.Join(block, name, "device"), match[1])
 			d = device{
 				name: ctrl, path: filepath.Join(s.dev, ctrl), nvme: true,
-				model: s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "model")),
+				model:  s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "model")),
+				serial: s.text(filepath.Join(s.sys, "class", "nvme", ctrl, "serial")),
 			}
 		} else {
 			d.model = s.text(filepath.Join(block, name, "device", "model"))
@@ -76,6 +82,20 @@ func (s linuxSource) list() ([]device, error) {
 		}
 	}
 	return devices, nil
+}
+
+// onUSB tells whether a device in /sys/devices hangs off USB, such as
+// .../usb2/2-1/2-1:1.0/host0/...: its path has a part that starts with
+// "usb". USB disks are left out, also those whose bridge passes ATA
+// commands, as some bridges reset the disk when they get one, which would
+// happen at every read.
+func onUSB(target string) bool {
+	for part := range strings.SplitSeq(target, "/") {
+		if strings.HasPrefix(part, "usb") {
+			return true
+		}
+	}
+	return false
 }
 
 // controller returns the NVMe controller of a namespace from its device
@@ -162,6 +182,10 @@ const (
 	sgTimeout = 15000
 	// scsiCheckCondition is the SCSI status that comes with sense data.
 	scsiCheckCondition = 0x02
+	// sgDriverMask is the driver's own part of the driver status, and
+	// sgDriverSense its flag that sense data came (DRIVER_SENSE).
+	sgDriverMask  = 0x0F
+	sgDriverSense = 0x08
 )
 
 // errNoAnswer is returned when a disk answered a command without the
@@ -199,18 +223,32 @@ func sgATA(fd int, c ataCommand) (ataResult, []byte, error) {
 	if errno != 0 {
 		return ataResult{}, nil, errno
 	}
+	return sgAnswer(c, &hdr, sense, data)
+}
+
+// sgAnswer reads what SG_IO returned for the ATA command c in hdr, with the
+// sense data and the data buffer it was given: the registers, or the sector.
+// A sector the disk did not return in full is an error, as an empty buffer
+// would read as a disk without SMART.
+func sgAnswer(c ataCommand, hdr *sgIOHdr, sense, data []byte) (ataResult, []byte, error) {
 	if hdr.hostStatus != 0 {
 		return ataResult{}, nil, fmt.Errorf("SG_IO host status %#x", hdr.hostStatus)
 	}
-	result, ok := parseATASense(sense[:hdr.sbLenWr])
+	// Of the driver status, only the flag that sense data came is no error.
+	if driver := hdr.driverStatus & sgDriverMask; driver != 0 && driver != sgDriverSense {
+		return ataResult{}, nil, fmt.Errorf("SG_IO driver status %#x", hdr.driverStatus)
+	}
+	result, ok := parseATASense(sense[:min(int(hdr.sbLenWr), len(sense))])
 	if ok && result.status&ataStatusError != 0 {
 		return ataResult{}, nil, fmt.Errorf("the disk refused the command %#x (error %#x)", c.command, result.err)
 	}
 	switch {
-	case c.dataIn && hdr.status == 0:
-		return result, data, nil
-	case c.dataIn:
+	case c.dataIn && hdr.status != 0:
 		return ataResult{}, nil, fmt.Errorf("SCSI status %#x", hdr.status)
+	case c.dataIn && hdr.resid != 0:
+		return ataResult{}, nil, fmt.Errorf("the disk returned %d of %d bytes", len(data)-int(hdr.resid), len(data))
+	case c.dataIn:
+		return result, data, nil
 	case !ok && hdr.status == scsiCheckCondition:
 		return ataResult{}, nil, fmt.Errorf("SCSI status %#x without the registers", hdr.status)
 	case !ok:

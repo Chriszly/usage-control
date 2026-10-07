@@ -110,19 +110,19 @@ func TestParseSMARTDataChecksTheChecksum(t *testing.T) {
 
 func TestParseIdentifyReadsTheModelAndSMART(t *testing.T) {
 	sector := readTestdata(t, "ata-identify.bin")
-	model, smart, err := parseIdentify(sector)
-	if err != nil || model != "WDC WD40EFRX-68N32N0" || !smart {
-		t.Errorf("parseIdentify() = %q, %v, %v, want the model with SMART on", model, smart, err)
+	model, serial, smart, err := parseIdentify(sector)
+	if err != nil || model != "WDC WD40EFRX-68N32N0" || serial != "WD-WCC7K0000000" || !smart {
+		t.Errorf("parseIdentify() = %q, %q, %v, %v, want the model and serial with SMART on", model, serial, smart, err)
 	}
 
 	// SMART switched off.
 	sector[2*85] &^= 1
 	sector[511]++
-	if _, smart, err := parseIdentify(sector); err != nil || smart {
+	if _, _, smart, err := parseIdentify(sector); err != nil || smart {
 		t.Errorf("parseIdentify() = %v, %v, want SMART off", smart, err)
 	}
 	sector[0]++
-	if _, _, err := parseIdentify(sector); !errors.Is(err, errChecksum) {
+	if _, _, _, err := parseIdentify(sector); !errors.Is(err, errChecksum) {
 		t.Errorf("parseIdentify() = %v, want a checksum error", err)
 	}
 }
@@ -218,7 +218,10 @@ func TestReadATAReadsADiskThatIsAwake(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := Disk{Model: "WDC WD40EFRX-68N32N0", Passed: yes(), Celsius: ptr(34), PowerOnHours: ptr(35215), ReallocatedSectors: ptr(8)}
+	want := Disk{
+		Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000",
+		Passed: yes(), Celsius: ptr(34), PowerOnHours: ptr(35215), ReallocatedSectors: ptr(8),
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("readATA() = %+v, want %+v", got, want)
 	}
@@ -253,16 +256,20 @@ func TestDeviceDescriptorReadsModelBusAndRemovable(t *testing.T) {
 	binary.LittleEndian.PutUint32(b[0:], 128)
 	binary.LittleEndian.PutUint32(b[4:], 100)
 	binary.LittleEndian.PutUint32(b[16:], 64)
+	binary.LittleEndian.PutUint32(b[24:], 90)
 	binary.LittleEndian.PutUint32(b[28:], busNVMe)
 	copy(b[64:], "Samsung SSD 980 PRO 1TB  \x00")
+	copy(b[90:], "S69ENX0T1\x00")
 
 	got, err := parseDeviceDescriptor(b)
-	if err != nil || got != (storageDevice{model: "Samsung SSD 980 PRO 1TB", bus: busNVMe}) {
+	if err != nil || got != (storageDevice{model: "Samsung SSD 980 PRO 1TB", serial: "S69ENX0T1", bus: busNVMe}) {
 		t.Errorf("parseDeviceDescriptor() = %+v, %v", got, err)
 	}
 
+	// Without a serial number, and an offset beyond the descriptor.
 	b[10] = 1
 	binary.LittleEndian.PutUint32(b[12:], 40)
+	binary.LittleEndian.PutUint32(b[24:], 0xFFFFFFFF)
 	copy(b[40:], "SanDisk\x00")
 	copy(b[64:], "Ultra Fit\x00")
 	binary.LittleEndian.PutUint32(b[28:], busUSB)
@@ -325,8 +332,8 @@ func TestSendCmdLayout(t *testing.T) {
 
 func TestExtrasLabelsEachValueWithItsDisk(t *testing.T) {
 	got := Extras([]Disk{
-		{Name: "nvme0", Model: "Samsung SSD 980", Passed: no(), Celsius: ptr(41), PercentageUsed: ptr(3)},
-		{Name: "Disk 1", PowerOnHours: ptr(10)},
+		{Name: "nvme0", Model: "Samsung SSD 980", Serial: "S64DNX0R1", Passed: no(), Celsius: ptr(41), PercentageUsed: ptr(3)},
+		{Name: "Disk 1", Passed: yes(), PowerOnHours: ptr(10)},
 	})
 
 	if len(got) != 1 || got[0].ID != "smart" || got[0].Title != "Disk health" || got[0].Titles["de"] != "Laufwerkszustand" {
@@ -337,24 +344,62 @@ func TestExtrasLabelsEachValueWithItsDisk(t *testing.T) {
 	for _, item := range items {
 		ids = append(ids, item.ID)
 	}
-	wantIDs := []string{"nvme0-health", "nvme0-temperature", "nvme0-used", "disk-1-power-on-hours"}
+	wantIDs := []string{"s64dnx0r1-health", "s64dnx0r1-temperature", "s64dnx0r1-used", "disk-1-health", "disk-1-power-on-hours"}
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Errorf("ids = %v, want %v", ids, wantIDs)
 	}
-	health := items[0]
-	if health.Unit != metrics.UnitText || health.Text != "FAILED" || health.History ||
-		health.Label != "Samsung SSD 980 (nvme0): Health" || health.Labels["fr"] != "Samsung SSD 980 (nvme0): État" {
-		t.Errorf("health = %+v, want FAILED as text without history", health)
+	failed := items[0]
+	if failed.Unit != metrics.UnitText || failed.Text != "✗" || failed.History ||
+		failed.Label != "Samsung SSD 980 (nvme0): SMART check FAILED" ||
+		failed.Labels["de"] != "Samsung SSD 980 (nvme0): SMART-Prüfung NICHT BESTANDEN" ||
+		failed.Labels["fr"] != "Samsung SSD 980 (nvme0): Contrôle SMART ÉCHOUÉ" ||
+		failed.Labels["es"] != "Samsung SSD 980 (nvme0): Comprobación SMART FALLIDA" {
+		t.Errorf("health = %+v, want FAILED in each language, as text without history", failed)
+	}
+	if passed := items[3]; passed.Text != "✓" || passed.Label != "Disk 1: SMART check passed" ||
+		passed.Labels["de"] != "Disk 1: SMART-Prüfung bestanden" {
+		t.Errorf("health = %+v, want passed", passed)
 	}
 	if temp := items[1]; temp.Unit != metrics.UnitCelsius || *temp.Value != 41 || !temp.History ||
 		temp.Labels["es"] != "Samsung SSD 980 (nvme0): Temperatura" {
 		t.Errorf("temperature = %+v, want 41 °C with history", temp)
 	}
-	if hours := items[3]; hours.Label != "Disk 1: Power-on hours" {
+	if hours := items[4]; hours.Label != "Disk 1: Power-on hours" {
 		t.Errorf("label = %q, want the disk without a model", hours.Label)
 	}
 	if clean := metrics.CleanExtras(got, 64); !reflect.DeepEqual(clean, got) {
 		t.Errorf("CleanExtras() changed the extras: %+v", clean)
+	}
+}
+
+func TestExtrasKeysEachDiskOnItsSerialNumber(t *testing.T) {
+	values := func(disks []Disk) map[string]float64 {
+		got := map[string]float64{}
+		for _, item := range Extras(disks)[0].Items {
+			got[item.ID] = *item.Value
+		}
+		return got
+	}
+
+	// sda and sdb go to each other's disk at the next start; the values stay
+	// with the disks.
+	before := values([]Disk{{Name: "sda", Serial: "WD-WX12D", Celsius: ptr(30)}, {Name: "sdb", Serial: "ZRT0ABCD", Celsius: ptr(40)}})
+	after := values([]Disk{{Name: "sda", Serial: "ZRT0ABCD", Celsius: ptr(40)}, {Name: "sdb", Serial: "WD-WX12D", Celsius: ptr(30)}})
+	want := map[string]float64{"wd-wx12d-temperature": 30, "zrt0abcd-temperature": 40}
+	if !reflect.DeepEqual(before, want) || !reflect.DeepEqual(after, want) {
+		t.Errorf("values = %v, then %v, want %v both times", before, after, want)
+	}
+
+	// Two disks that report the same serial number, and one without any, are
+	// told by their names.
+	got := values([]Disk{
+		{Name: "sdc", Serial: "0000000000", Celsius: ptr(32)},
+		{Name: "sdd", Serial: "0000000000", Celsius: ptr(33)},
+		{Name: "sde", Serial: " - ", Celsius: ptr(34)},
+	})
+	want = map[string]float64{"0000000000-temperature": 32, "sdd-temperature": 33, "sde-temperature": 34}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("values = %v, want %v", got, want)
 	}
 }
 
@@ -368,9 +413,18 @@ func TestExtrasOfNoDisksIsNothing(t *testing.T) {
 }
 
 func TestIDOfKeepsRoomForTheLongestValue(t *testing.T) {
-	id := idOf(strings.Repeat("disk", 20)) + "-power-on-hours"
-	if len(id) > 40 {
-		t.Errorf("id %q is longer than 40 characters", id)
+	a := idOf(strings.Repeat("disk", 20) + "1")
+	b := idOf(strings.Repeat("disk", 20) + "2")
+	if a == b || len(a+"-power-on-hours") > 40 || len(b+"-power-on-hours") > 40 {
+		t.Errorf("idOf() = %q and %q, want two different ids that leave room for the longest value", a, b)
+	}
+	if got := idOf("WD-WCC7K0000000"); got != "wd-wcc7k0000000" {
+		t.Errorf("idOf() = %q, want the serial number in lowercase", got)
+	}
+	for _, name := range []string{"", " ", "--"} {
+		if got := idOf(name); got != "" {
+			t.Errorf("idOf(%q) = %q, want nothing", name, got)
+		}
 	}
 }
 
@@ -388,7 +442,7 @@ func (f *fakeSource) list() ([]device, error) {
 	f.lists++
 	return []device{
 		{name: "sda", path: "/dev/sda"},
-		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980"},
+		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980", serial: "S64DNX0R1"},
 		{name: "sdb", path: "/dev/sdb"},
 	}, nil
 }
@@ -405,7 +459,7 @@ func (f *fakeSource) read(d device) (Disk, error) {
 	case f.asleep:
 		return Disk{}, errAsleep
 	}
-	return Disk{Model: "WDC", Celsius: ptr(34)}, nil
+	return Disk{Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)}, nil
 }
 
 func (f *fakeSource) counts() (lists, reads int) {
@@ -422,7 +476,10 @@ func TestReaderReadsEveryTenMinutesAndKeepsTheLastResult(t *testing.T) {
 
 	r.refresh(ctx, start)
 	got := r.Read(ctx, start.Add(5*time.Second))
-	want := []Disk{{Name: "sda", Model: "WDC", Celsius: ptr(34)}, {Name: "nvme0", Model: "Samsung SSD 980", Celsius: ptr(41)}}
+	want := []Disk{
+		{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)},
+		{Name: "nvme0", Model: "Samsung SSD 980", Serial: "S64DNX0R1", Celsius: ptr(41)},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Read() = %+v, want %+v", got, want)
 	}
