@@ -27,7 +27,11 @@ func (r *rapl) read(now time.Time) []Reading {
 	slices.Sort(zones)
 	current := map[string]uint64{}
 	var readings []Reading
-	seconds := now.Sub(r.at).Seconds()
+	elapsed := now.Sub(r.at)
+	seconds := elapsed.Seconds()
+	if slept(elapsed, now.Round(0).Sub(r.at.Round(0))) {
+		seconds = 0
+	}
 	for _, zone := range zones {
 		energy, ok := readUint(filepath.Join(zone, "energy_uj"))
 		if !ok {
@@ -53,6 +57,15 @@ func (r *rapl) read(now time.Time) []Reading {
 	}
 	r.previous, r.at = current, now
 	return readings
+}
+
+// slept reports whether the machine slept between two reads: Go's monotonic
+// clock, which elapsed is measured on, stops while it sleeps, but the wall
+// clock goes on. The energy counters may count on in light sleep or start
+// again after deep sleep, so a read across a sleep would be far off and is
+// left out. A wall clock set forward is left out the same way, once.
+func slept(elapsed, wall time.Duration) bool {
+	return wall-elapsed > time.Second
 }
 
 // zoneReading names a RAPL zone, such as intel-rapl:0 named package-0 or
