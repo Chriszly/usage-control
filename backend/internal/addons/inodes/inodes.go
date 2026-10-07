@@ -9,17 +9,27 @@
 package inodes
 
 import (
+	"fmt"
+	"hash/crc32"
+	"log/slog"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
-// maxMounts is the most filesystems reported, as many values as a group of
-// extras keeps.
-const maxMounts = 64
+const (
+	// maxMounts is the most filesystems reported, as many values as a group
+	// of extras keeps.
+	maxMounts = 64
+	// statTimeout is how long statfs may take for one filesystem. A local
+	// disk can stop answering too, such as a dying USB disk or a stuck
+	// fuseblk helper, and statfs then waits for it for good.
+	statTimeout = time.Second
+)
 
 // Mount is a filesystem from the mount table.
 type Mount struct {
@@ -55,27 +65,30 @@ var skipped = map[string]bool{
 
 // ParseMounts reads a mount table in the format of /proc/self/mounts and
 // returns the real filesystems, each once: a filesystem mounted at several
-// paths, such as through a bind mount, keeps the first. Filesystems in user
-// space ("fuse.sshfs" and the like) are left out like network filesystems,
-// except fuseblk, a disk such as an NTFS one.
+// paths, such as through a bind mount, keeps the first, and a path with
+// filesystems mounted over each other, of which statfs only sees the top
+// one, is listed once. Filesystems in user space ("fuse.sshfs" and the like)
+// are left out like network filesystems, except fuseblk, a disk such as an
+// NTFS one.
 func ParseMounts(table string) []Mount {
 	var mounts []Mount
-	seen := map[string]bool{}
+	sources, paths := map[string]bool{}, map[string]bool{}
 	for line := range strings.Lines(table) {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
 		m := Mount{Source: unescape(fields[0]), Path: unescape(fields[1]), Type: fields[2]}
-		if skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || !strings.HasPrefix(m.Path, "/") {
+		if skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || !strings.HasPrefix(m.Path, "/") || paths[m.Path] {
 			continue
 		}
 		if strings.HasPrefix(m.Source, "/") {
-			if seen[m.Source] {
+			if sources[m.Source] {
 				continue
 			}
-			seen[m.Source] = true
+			sources[m.Source] = true
 		}
+		paths[m.Path] = true
 		mounts = append(mounts, m)
 	}
 	return mounts
@@ -101,16 +114,41 @@ func UsedPercent(total, free uint64) (float64, bool) {
 	return float64(total-free) / float64(total) * 100, true
 }
 
-// Read returns the inode usage of each real filesystem in the mount table
-// file, in its order, or nothing when it cannot be read.
-func Read(file string) []Usage {
-	table, err := os.ReadFile(file) //nolint:gosec // the kernel's mount table, at a fixed path
+// Reader reads the inode usage of the filesystems in a mount table. It is
+// used by one goroutine at a time.
+type Reader struct {
+	table   string
+	statfs  func(path string) (total, free uint64, ok bool)
+	timeout time.Duration
+
+	// mu guards asking, the mount points whose statfs has not returned yet.
+	mu     sync.Mutex
+	asking map[string]bool
+	// hanging are the mount points whose statfs took too long, so that is
+	// logged once and not at every read.
+	hanging map[string]bool
+}
+
+// NewReader returns a Reader for the mount table file, such as
+// /proc/self/mounts.
+func NewReader(table string) *Reader {
+	return newReader(table, statInodes, statTimeout)
+}
+
+func newReader(table string, statfs func(string) (uint64, uint64, bool), timeout time.Duration) *Reader {
+	return &Reader{table: table, statfs: statfs, timeout: timeout, asking: map[string]bool{}, hanging: map[string]bool{}}
+}
+
+// Read returns the inode usage of each real filesystem in the mount table,
+// in its order, or nothing when the table cannot be read.
+func (r *Reader) Read() []Usage {
+	table, err := os.ReadFile(r.table)
 	if err != nil {
 		return nil
 	}
 	var usages []Usage
 	for _, m := range ParseMounts(string(table)) {
-		total, free, ok := statInodes(m.Path)
+		total, free, ok := r.stat(m.Path)
 		if !ok {
 			continue
 		}
@@ -124,19 +162,71 @@ func Read(file string) []Usage {
 	return usages
 }
 
+// stat asks statfs for the inodes of the filesystem at path and waits for
+// it at most r.timeout. A filesystem that does not answer in time is left
+// out, and is not asked again until the earlier statfs returns, so a disk
+// that hangs holds one goroutine and not one more at every read.
+func (r *Reader) stat(path string) (total, free uint64, ok bool) {
+	r.mu.Lock()
+	busy := r.asking[path]
+	r.asking[path] = true
+	r.mu.Unlock()
+	if busy {
+		return 0, 0, false
+	}
+
+	type answer struct {
+		total, free uint64
+		ok          bool
+	}
+	answers := make(chan answer, 1)
+	go func() {
+		var a answer
+		a.total, a.free, a.ok = r.statfs(path)
+		r.mu.Lock()
+		delete(r.asking, path)
+		r.mu.Unlock()
+		answers <- a
+	}()
+	timeout := time.NewTimer(r.timeout)
+	defer timeout.Stop()
+	select {
+	case a := <-answers:
+		if r.hanging[path] {
+			delete(r.hanging, path)
+			slog.Info("the filesystem answers again", "path", path)
+		}
+		return a.total, a.free, a.ok
+	case <-timeout.C:
+		if !r.hanging[path] {
+			r.hanging[path] = true
+			slog.Warn("the filesystem does not answer, so its inodes are left out until it does", "path", path, "timeout", r.timeout)
+		}
+		return 0, 0, false
+	}
+}
+
 var notInID = regexp.MustCompile(`[^a-z0-9]+`)
 
-// idOf turns a mount point into an id for an extra: "/" is "root" and
-// "/boot/firmware" is "boot-firmware", cut to 40 characters.
+// idOf turns a mount point into an id for an extra that depends on the path
+// alone, so each filesystem keeps its history however the others are
+// mounted: "/" is "root" and "/boot/firmware" is "boot-firmware". An id
+// that would not spell out the path, such as for /a-b, which /a/b has too,
+// or one longer than 40 characters, is cut to 31 and ends in a checksum of
+// the whole path.
 func idOf(path string) string {
-	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(path), "-"), "-")
-	if len(id) > 40 {
-		id = strings.TrimRight(id[:40], "-")
-	}
-	if id == "" {
+	if path == "/" {
 		return "root"
 	}
-	return id
+	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(path), "-"), "-")
+	if id != "root" && len(id) <= 40 && "/"+strings.ReplaceAll(id, "-", "/") == path {
+		return id
+	}
+	sum := fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(path)))
+	if id = strings.TrimRight(id[:min(len(id), 31)], "-"); id == "" {
+		return sum
+	}
+	return id + "-" + sum
 }
 
 // Extras returns the usages as the group of extras the collector shows,
@@ -150,17 +240,10 @@ func Extras(usages []Usage) []metrics.Extra {
 		Title:  "Inodes (files) in use",
 		Titles: map[string]string{"de": "Belegte Inodes (Dateien)", "fr": "Inodes (fichiers) utilisés", "es": "Inodos (archivos) en uso"},
 	}
-	ids := map[string]int{}
 	for _, u := range usages {
-		id := idOf(u.Path)
-		// Two paths can make the same id, such as /a-b and /a/b.
-		if ids[id]++; ids[id] > 1 {
-			suffix := "-" + strconv.Itoa(ids[id])
-			id = strings.TrimRight(id[:min(len(id), 40-len(suffix))], "-") + suffix
-		}
 		percent := u.UsedPercent
 		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:      id,
+			ID:      idOf(u.Path),
 			Label:   u.Path,
 			Unit:    metrics.UnitPercent,
 			Value:   &percent,

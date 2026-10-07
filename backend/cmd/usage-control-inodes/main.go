@@ -22,8 +22,9 @@ import (
 
 func main() {
 	addons.Main("inodes", "UsageControlInodes", func() addons.Read {
+		reader := inodes.NewReader("/proc/self/mounts")
 		return func(context.Context, time.Time) []metrics.Extra {
-			return inodes.Extras(inodes.Read("/proc/self/mounts"))
+			return inodes.Extras(reader.Read())
 		}
 	})
 }
