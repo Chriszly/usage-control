@@ -147,10 +147,13 @@ jobs:
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/usage-control-tests.exe ./cmd/usage-control
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/winservice-tests.exe ./internal/winservice
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/smart-tests.exe ./internal/addons/smart
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/power-tests.exe ./internal/addons/power
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/pressure-tests.exe ./internal/addons/pressure
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/kernel-tests.exe ./internal/addons/kernel
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/wifi-tests.exe ./internal/addons/wifi
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/memory-tests.exe ./internal/addons/memory
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/processes-tests.exe ./internal/addons/processes
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -181,6 +184,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           dist\tests\winservice-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Only the Windows tests: the others read testdata next to the package.
+          dist\tests\smart-tests.exe '-test.v' '-test.run=Windows'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           # Only the Windows reading: the other power tests are the same on Linux.
           dist\tests\power-tests.exe '-test.v' '-test.run=Windows'
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -189,6 +195,11 @@ jobs:
           dist\tests\kernel-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
           dist\tests\wifi-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dist\tests\memory-tests.exe '-test.v'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Only the Windows listing: the other processes tests are the same on Linux.
+          dist\tests\processes-tests.exe '-test.v' '-test.run=Windows'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
   installer:

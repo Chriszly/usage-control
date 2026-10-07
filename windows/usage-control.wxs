@@ -26,6 +26,17 @@
   WIFI=1 installs the Wi-Fi add-on, usage-control-wifi.exe, as "Usage
   Control Wi-Fi add-on", which reads the signal of each connected Wi-Fi
   adapter.
+  MEMORY=1 installs the memory add-on, usage-control-memory.exe, as the
+  service "Usage Control memory add-on", which reads the Memory performance
+  counters.
+  PORTS=1 installs the ports add-on, usage-control-ports.exe, as "Usage
+  Control ports add-on", which lists the ports the PC listens on.
+  SMART=1 installs the smart add-on, usage-control-smart.exe, as the
+  service "Usage Control smart add-on", which reads the disks' health; it
+  runs as LocalSystem, as only administrators may send disks SMART commands.
+  PROCESSES=1 installs the processes add-on, usage-control-processes.exe, as
+  "Usage Control processes add-on", which lists the processes using the most
+  CPU and memory.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -57,6 +68,10 @@
     PRESSURE        1 to install the pressure add-on, 0 to remove it in an update
     KERNEL          1 to install the kernel add-on, 0 to remove it in an update
     WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update
+    MEMORY          1 to install the memory add-on, 0 to remove it in an update
+    PORTS           1 to install the ports add-on, 0 to remove it in an update
+    SMART           1 to install the smart add-on, 0 to remove it in an update
+    PROCESSES       1 to install the processes add-on, 0 to remove it in an update
                     (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
@@ -85,7 +100,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -110,7 +125,7 @@
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
     -->
-    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
     <?endforeach?>
 
@@ -168,7 +183,7 @@
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -337,6 +352,121 @@
                      Name="TypesSupported" Type="integer" Value="7" />
     </Component>
 
+    <!-- The memory add-on, with MEMORY=1, set up like the power add-on. -->
+    <Component Directory="INSTALLFOLDER" Condition='MEMORY = "1"'>
+      <File Source="$(AddOns)\usage-control-memory.exe" Name="usage-control-memory.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlMemory"
+                      DisplayName="Usage Control memory add-on"
+                      Description="Reads details of this computer's memory for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlMemory" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlMemory" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlMemory"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlMemory"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!-- The ports add-on, with PORTS=1, like the power add-on. -->
+    <Component Directory="INSTALLFOLDER" Condition='PORTS = "1"'>
+      <File Source="$(AddOns)\usage-control-ports.exe" Name="usage-control-ports.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlPorts"
+                      DisplayName="Usage Control ports add-on"
+                      Description="Lists the ports this computer listens on for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlPorts" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlPorts" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPorts"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPorts"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
+      The smart add-on, with SMART=1: reads the disks' health with the SMART
+      commands of the disk drivers (SATA) and the NVMe driver's health log.
+      Windows lets only administrators and LocalSystem open a disk for the
+      read and write access these commands need, so this service runs as
+      LocalSystem, unlike the others. It sends only commands that read, asks
+      a SATA disk whether it sleeps before reading it, and leaves it asleep.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='SMART = "1"'>
+      <File Source="$(AddOns)\usage-control-smart.exe" Name="usage-control-smart.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlSmart"
+                      DisplayName="Usage Control smart add-on"
+                      Description="Reads the health of this computer's disks for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="LocalSystem">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlSmart" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlSmart" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlSmart"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlSmart"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
+      The processes add-on, with PROCESSES=1, like the power add-on. Local
+      Service sees every process: it asks Windows for all of them in one call
+      instead of opening each one.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='PROCESSES = "1"'>
+      <File Source="$(AddOns)\usage-control-processes.exe" Name="usage-control-processes.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlProcesses"
+                      DisplayName="Usage Control processes add-on"
+                      Description="Lists the processes using the most CPU and memory for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlProcesses" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlProcesses" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlProcesses"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlProcesses"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
     <!--
       The database: the history with WEBSITE=1, otherwise the minutes kept for
       a hub that cannot reach this PC (BUFFER_HOURS). Only the service,
@@ -411,9 +541,13 @@
         <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
         <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER_BOX" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
         <Control Id="Gpu" Type="CheckBox" X="20" Y="72" Width="330" Height="15" Property="GPU_BOX" CheckBoxValue="1" Text="&amp;Graphics card: fan, clocks, video engines and power limit" />
+        <Control Id="Processes" Type="CheckBox" X="20" Y="89" Width="330" Height="15" Property="PROCESSES_BOX" CheckBoxValue="1" Text="P&amp;rocesses: the ten using the most CPU and memory" />
+        <Control Id="Ports" Type="CheckBox" X="20" Y="106" Width="330" Height="15" Property="PORTS_BOX" CheckBoxValue="1" Text="P&amp;orts: which TCP and UDP ports the PC listens on" />
         <Control Id="Kernel" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="KERNEL_BOX" CheckBoxValue="1" Text="&amp;Kernel: context switches, interrupts, handles, TCP connections" />
+        <Control Id="Memory" Type="CheckBox" X="20" Y="140" Width="330" Height="15" Property="MEMORY_BOX" CheckBoxValue="1" Text="&amp;Memory: kernel pools, committed, page faults, paging" />
         <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
         <Control Id="Wifi" Type="CheckBox" X="20" Y="174" Width="330" Height="15" Property="WIFI_BOX" CheckBoxValue="1" Text="&amp;Wi-Fi: signal quality and strength of the connection" />
+        <Control Id="Smart" Type="CheckBox" X="20" Y="191" Width="330" Height="15" Property="SMART_BOX" CheckBoxValue="1" Text="&amp;Smart: the disks' health, temperature and wear" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -429,7 +563,7 @@
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
       <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI ?>
+      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
       <?endforeach?>

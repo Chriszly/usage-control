@@ -416,6 +416,460 @@ function wifiAddOn(name: string, id = name): Extra[] {
   ];
 }
 
+/** What the memory add-on reports; its values come from memoryValues() as "extra:memory/<id>". */
+function memoryAddOn(): Extra[] {
+  const bytes = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'bytes' as const,
+    history: true,
+  });
+  return [
+    {
+      id: 'memory',
+      title: 'Memory details',
+      titles: { de: 'Speicherdetails', fr: 'Détails de la mémoire', es: 'Detalles de la memoria' },
+      items: [
+        bytes('dirty', 'Dirty (waiting to be written)', {
+          de: 'Ungeschrieben (Dirty)',
+          fr: 'Modifiée, pas encore écrite (Dirty)',
+          es: 'Modificada, sin escribir (Dirty)',
+        }),
+        bytes('writeback', 'Being written back', {
+          de: 'Wird geschrieben (Writeback)',
+          fr: "En cours d'écriture (Writeback)",
+          es: 'Escribiéndose (Writeback)',
+        }),
+        bytes('slab', 'Kernel caches (slab)', {
+          de: 'Kernel-Caches (Slab)',
+          fr: 'Caches du noyau (slab)',
+          es: 'Cachés del núcleo (slab)',
+        }),
+        bytes('shared', 'Shared memory', {
+          de: 'Gemeinsamer Speicher',
+          fr: 'Mémoire partagée',
+          es: 'Memoria compartida',
+        }),
+        bytes('page-tables', 'Page tables', {
+          de: 'Seitentabellen',
+          fr: 'Tables de pages',
+          es: 'Tablas de páginas',
+        }),
+        bytes('committed', 'Committed', {
+          de: 'Zugesagt (Committed)',
+          fr: 'Engagée (Committed)',
+          es: 'Comprometida (Committed)',
+        }),
+        {
+          id: 'page-faults',
+          label: 'Page faults',
+          labels: { de: 'Seitenfehler', fr: 'Défauts de page', es: 'Fallos de página' },
+          unit: 'perSecond',
+          history: true,
+        },
+        {
+          id: 'major-page-faults',
+          label: 'Major page faults (read from disk)',
+          labels: {
+            de: 'Schwere Seitenfehler (von der Platte)',
+            fr: 'Défauts de page majeurs (lus sur disque)',
+            es: 'Fallos de página mayores (leídos del disco)',
+          },
+          unit: 'perSecond',
+          history: true,
+        },
+        {
+          id: 'swap-in',
+          label: 'Swapped in',
+          labels: { de: 'Aus dem Swap gelesen', fr: 'Lu depuis le swap', es: 'Leído del swap' },
+          unit: 'bytesPerSecond',
+          history: true,
+        },
+        {
+          id: 'swap-out',
+          label: 'Swapped out',
+          labels: {
+            de: 'In den Swap geschrieben',
+            fr: 'Écrit dans le swap',
+            es: 'Escrito en el swap',
+          },
+          unit: 'bytesPerSecond',
+          history: true,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * The memory add-on's values for a machine with memoryBytes of memory, busy
+ * by load (0 to 1), from seeds seed to seed + 9.
+ */
+function memoryValues(
+  t: number,
+  step: number,
+  seed: number,
+  memoryBytes: number,
+  load: number,
+): Record<string, number> {
+  const m = memoryBytes;
+  return {
+    'extra:memory/dirty': vary(t, step, seed, m * (0.0005 + 0.004 * load), [[m * 0.001, 30]], 0, m),
+    'extra:memory/writeback': vary(t, step, seed + 1, m * 0.0002 * load, [[m * 0.0002, 20]], 0, m),
+    'extra:memory/slab': vary(t, step, seed + 2, m * 0.03, [[m * 0.005, 3600]], 0, m),
+    'extra:memory/shared': vary(t, step, seed + 3, m * 0.01, [[m * 0.003, 1800]], 0, m),
+    'extra:memory/page-tables': vary(
+      t,
+      step,
+      seed + 4,
+      m * 0.002 * (1 + load),
+      [[m * 0.0005, 600]],
+      0,
+      m,
+    ),
+    'extra:memory/committed': vary(
+      t,
+      step,
+      seed + 5,
+      m * (0.4 + 0.3 * load),
+      [[m * 0.05, 900]],
+      0,
+      2 * m,
+    ),
+    'extra:memory/page-faults': vary(t, step, seed + 6, 800 + 40e3 * load, [[600, 30]], 0, 1e7),
+    'extra:memory/major-page-faults': vary(t, step, seed + 7, 0.5 + 20 * load, [[1, 60]], 0, 1e5),
+    'extra:memory/swap-in': vary(t, step, seed + 8, 0, [[4e3, 300]], 0, 1e9),
+    'extra:memory/swap-out': vary(t, step, seed + 9, 0, [[6e3, 600]], 0, 1e9),
+  };
+}
+
+/**
+ * What the memory add-on reports on Windows, from the Memory performance
+ * counters; its values come from windowsMemoryValues().
+ */
+function windowsMemoryAddOn(): Extra[] {
+  const item = (
+    id: string,
+    label: string,
+    labels: Record<string, string>,
+    unit: 'bytes' | 'perSecond' | 'bytesPerSecond',
+  ) => ({ id, label, labels, unit, history: true });
+  return [
+    {
+      id: 'memory',
+      title: 'Memory details',
+      titles: { de: 'Speicherdetails', fr: 'Détails de la mémoire', es: 'Detalles de la memoria' },
+      items: [
+        item(
+          'modified',
+          'Modified (waiting to be written)',
+          {
+            de: 'Geändert, ungeschrieben (Modified)',
+            fr: 'Modifiée, pas encore écrite (Modified)',
+            es: 'Modificada, sin escribir (Modified)',
+          },
+          'bytes',
+        ),
+        item(
+          'pool-paged',
+          'Kernel paged pool',
+          {
+            de: 'Kernel-Pool, auslagerbar',
+            fr: 'Pool paginé du noyau',
+            es: 'Bloque paginado del núcleo',
+          },
+          'bytes',
+        ),
+        item(
+          'pool-nonpaged',
+          'Kernel nonpaged pool',
+          {
+            de: 'Kernel-Pool, nicht auslagerbar',
+            fr: 'Pool non paginé du noyau',
+            es: 'Bloque no paginado del núcleo',
+          },
+          'bytes',
+        ),
+        item(
+          'committed',
+          'Committed',
+          {
+            de: 'Zugesagt (Committed)',
+            fr: 'Engagée (Committed)',
+            es: 'Comprometida (Committed)',
+          },
+          'bytes',
+        ),
+        item(
+          'page-faults',
+          'Page faults',
+          { de: 'Seitenfehler', fr: 'Défauts de page', es: 'Fallos de página' },
+          'perSecond',
+        ),
+        item(
+          'page-reads',
+          'Disk reads for page faults',
+          {
+            de: 'Lesezugriffe für Seitenfehler',
+            fr: 'Lectures disque pour défauts de page',
+            es: 'Lecturas de disco por fallos de página',
+          },
+          'perSecond',
+        ),
+        item(
+          'paged-in',
+          'Paged in (page file and mapped files)',
+          {
+            de: 'Eingelagert (Auslagerungsdatei und Dateien)',
+            fr: "Pages lues (fichier d'échange et fichiers)",
+            es: 'Páginas leídas (archivo de paginación y archivos)',
+          },
+          'bytesPerSecond',
+        ),
+        item(
+          'paged-out',
+          'Paged out (page file and mapped files)',
+          {
+            de: 'Ausgelagert (Auslagerungsdatei und Dateien)',
+            fr: "Pages écrites (fichier d'échange et fichiers)",
+            es: 'Páginas escritas (archivo de paginación y archivos)',
+          },
+          'bytesPerSecond',
+        ),
+      ],
+    },
+  ];
+}
+
+/**
+ * The Windows memory add-on's values for a machine with memoryBytes of
+ * memory, busy by load (0 to 1), from seeds seed to seed + 7.
+ */
+function windowsMemoryValues(
+  t: number,
+  step: number,
+  seed: number,
+  memoryBytes: number,
+  load: number,
+): Record<string, number> {
+  const m = memoryBytes;
+  return {
+    'extra:memory/modified': vary(
+      t,
+      step,
+      seed,
+      m * (0.002 + 0.006 * load),
+      [[m * 0.002, 60]],
+      0,
+      m,
+    ),
+    'extra:memory/pool-paged': vary(t, step, seed + 1, m * 0.008, [[m * 0.001, 3600]], 0, m),
+    'extra:memory/pool-nonpaged': vary(t, step, seed + 2, m * 0.004, [[m * 0.0005, 3600]], 0, m),
+    'extra:memory/committed': vary(
+      t,
+      step,
+      seed + 3,
+      m * (0.5 + 0.3 * load),
+      [[m * 0.05, 900]],
+      0,
+      2 * m,
+    ),
+    'extra:memory/page-faults': vary(t, step, seed + 4, 2e3 + 30e3 * load, [[1500, 30]], 0, 1e7),
+    'extra:memory/page-reads': vary(t, step, seed + 5, 2 + 30 * load, [[3, 60]], 0, 1e5),
+    'extra:memory/paged-in': vary(t, step, seed + 6, 50e3 + 2e6 * load, [[200e3, 120]], 0, 1e9),
+    'extra:memory/paged-out': vary(t, step, seed + 7, 10e3 * load, [[30e3, 600]], 0, 1e9),
+  };
+}
+
+const portsLabels = { de: 'Offene Ports', fr: 'Ports en écoute', es: 'Puertos en escucha' };
+
+/**
+ * What the ports add-on reports for the given ports, each as protocol, number
+ * and addresses; their count comes from values() as "extra:ports/count".
+ */
+function portsAddOn(ports: ['tcp' | 'udp', number, string][]): Extra[] {
+  return [
+    {
+      id: 'ports',
+      title: 'Listening ports',
+      titles: portsLabels,
+      items: [
+        {
+          id: 'count',
+          label: 'Listening ports',
+          labels: portsLabels,
+          unit: 'number',
+          history: true,
+        },
+        ...ports.map(([protocol, port, addresses]) => ({
+          id: `${protocol}-${port}`,
+          label: `${protocol.toUpperCase()} ${port}`,
+          unit: 'text' as const,
+          text: addresses,
+        })),
+      ],
+    },
+  ];
+}
+
+/** The values the smart add-on reports for a disk, with their unit and labels as the add-on writes them. */
+const smartValues = {
+  temperature: {
+    label: 'Temperature',
+    labels: { de: 'Temperatur', fr: 'Température', es: 'Temperatura' },
+    unit: 'celsius',
+  },
+  'power-on-hours': {
+    label: 'Power-on hours',
+    labels: {
+      de: 'Betriebsstunden',
+      fr: 'Heures de fonctionnement',
+      es: 'Horas de funcionamiento',
+    },
+    unit: 'number',
+  },
+  reallocated: {
+    label: 'Reallocated sectors',
+    labels: { de: 'Ersetzte Sektoren', fr: 'Secteurs réalloués', es: 'Sectores reasignados' },
+    unit: 'number',
+  },
+  'media-errors': {
+    label: 'Media errors',
+    labels: { de: 'Medienfehler', fr: 'Erreurs de support', es: 'Errores de medio' },
+    unit: 'number',
+  },
+  used: {
+    label: 'Wear',
+    labels: { de: 'Verschleiß', fr: 'Usure', es: 'Desgaste' },
+    unit: 'percent',
+  },
+} as const;
+
+const passedLabels = {
+  de: 'SMART-Prüfung bestanden',
+  fr: 'Contrôle SMART réussi',
+  es: 'Comprobación SMART superada',
+};
+
+/** Puts the disk before a label and each of its translations, as the smart add-on does. */
+function diskLabels(disk: string, label: string, labels: Record<string, string>) {
+  return {
+    label: `${disk}: ${label}`,
+    labels: Object.fromEntries(Object.entries(labels).map(([code, l]) => [code, `${disk}: ${l}`])),
+  };
+}
+
+/**
+ * What the smart add-on reports for the given disks: whether each one passes its own check, and
+ * the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>". The id is
+ * the disk's serial number, as the add-on keys each disk on it.
+ */
+function smartAddOn(
+  disks: { id: string; name: string; values: (keyof typeof smartValues)[] }[],
+): Extra[] {
+  return [
+    {
+      id: 'smart',
+      title: 'Disk health',
+      titles: { de: 'Laufwerkszustand', fr: 'Santé des disques', es: 'Salud de los discos' },
+      items: disks.flatMap((disk) => [
+        {
+          id: `${disk.id}-health`,
+          ...diskLabels(disk.name, 'SMART check passed', passedLabels),
+          unit: 'text' as const,
+          text: '✓',
+        },
+        ...disk.values.map((value) => ({
+          id: `${disk.id}-${value}`,
+          ...diskLabels(disk.name, smartValues[value].label, smartValues[value].labels),
+          unit: smartValues[value].unit,
+          history: true,
+        })),
+      ]),
+    },
+  ];
+}
+
+/**
+ * What the containers add-on reports for the given containers, each under its name; their
+ * values come from values() as "extra:containers-cpu/<name>" in percent and
+ * "extra:containers-memory/<name>" in bytes.
+ */
+function containersAddOn(names: string[]): Extra[] {
+  return [
+    {
+      id: 'containers-cpu',
+      title: 'Containers: CPU',
+      titles: { de: 'Container: CPU', fr: 'Conteneurs : processeur', es: 'Contenedores: CPU' },
+      items: names.map((name) => ({ id: name, label: name, unit: 'percent', history: true })),
+    },
+    {
+      id: 'containers-memory',
+      title: 'Containers: memory',
+      titles: {
+        de: 'Container: Arbeitsspeicher',
+        fr: 'Conteneurs : mémoire',
+        es: 'Contenedores: memoria',
+      },
+      items: names.map((name) => ({ id: name, label: name, unit: 'bytes', history: true })),
+    },
+  ];
+}
+
+/**
+ * What the processes add-on reports: the busiest processes by CPU and by memory, each as [pid, name], busiest
+ * first. Their values come from values() as "extra:processes-cpu/pid-<pid>" and "extra:processes-memory/pid-<pid>".
+ */
+function processesAddOn(cpu: [number, string][], memory: [number, string][]): Extra[] {
+  const items = (processes: [number, string][], unit: 'percent' | 'bytes') => {
+    const seen: Record<string, number> = {};
+    return processes.map(([pid, name]) => {
+      seen[name] = (seen[name] ?? 0) + 1;
+      const label = seen[name] > 1 ? `${name} (${seen[name]})` : name;
+      return { id: `pid-${pid}`, label, unit, history: false };
+    });
+  };
+  return [
+    {
+      id: 'processes-cpu',
+      title: 'Top processes by CPU',
+      titles: {
+        de: 'Prozesse mit der meisten CPU-Last',
+        fr: 'Processus les plus gourmands en CPU',
+        es: 'Procesos con más uso de CPU',
+      },
+      items: items(cpu, 'percent'),
+    },
+    {
+      id: 'processes-memory',
+      title: 'Top processes by memory',
+      titles: {
+        de: 'Prozesse mit dem meisten Arbeitsspeicher',
+        fr: 'Processus les plus gourmands en mémoire',
+        es: 'Procesos con más uso de memoria',
+      },
+      items: items(memory, 'bytes'),
+    },
+  ];
+}
+
+/** The values of the processes add-on: each process's share of cpu, and its memory, keyed by pid. */
+function processValues(
+  cpu: number,
+  shares: Record<number, number>,
+  memory: Record<number, number>,
+): Values {
+  const values: Values = {};
+  for (const [pid, share] of Object.entries(shares)) {
+    values[`extra:processes-cpu/pid-${pid}`] = cpu * share;
+  }
+  for (const [pid, bytes] of Object.entries(memory)) {
+    values[`extra:processes-memory/pid-${pid}`] = bytes;
+  }
+  return values;
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -449,6 +903,31 @@ const piHub: DemoMachine = {
     ]),
     ...pressureAddOn(),
     ...kernelAddOn(),
+    ...memoryAddOn(),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 9393, '0.0.0.0'],
+      ['udp', 68, '0.0.0.0'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
+    ...processesAddOn(
+      [
+        [812, 'usage-control'],
+        [655, 'dockerd'],
+        [1432, 'pihole-FTL'],
+        [610, 'containerd'],
+        [1, 'systemd'],
+        [433, 'systemd-journald'],
+      ],
+      [
+        [655, 'dockerd'],
+        [1432, 'pihole-FTL'],
+        [812, 'usage-control'],
+        [610, 'containerd'],
+        [433, 'systemd-journald'],
+        [1, 'systemd'],
+      ],
+    ),
   ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
@@ -501,6 +980,13 @@ const piHub: DemoMachine = {
       // The SD card makes the Pi wait for I/O now and then.
       ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
       ...kernelValues(t, step, 900, cpu, 1),
+      ...memoryValues(t, step, 140, 8 * GB, cpu / 100),
+      'extra:ports/count': 4,
+      ...processValues(
+        cpu,
+        { 812: 0.3, 655: 0.18, 1432: 0.12, 610: 0.08, 1: 0.03, 433: 0.02 },
+        { 655: 92e6, 1432: 61e6, 812: 38e6, 610: 34e6, 433: 21e6, 1: 12e6 },
+      ),
     };
   },
 };
@@ -681,6 +1167,7 @@ const windowsServer: DemoMachine = {
     { name: 'Ethernet 3' },
     { name: 'Ethernet 4' },
   ],
+  extras: windowsMemoryAddOn(),
   utc: true,
   bootedDaysAgo: 23.6,
   values: (t, step) => {
@@ -712,6 +1199,7 @@ const windowsServer: DemoMachine = {
       'network.send:Ethernet 1': vary(t, step, 61, 3e6 + 22e6 * busy, [[10e6, 90]], 0, 1e9),
       'network.receive:Ethernet 2': vary(t, step, 62, 800e3, [[600e3, 300]], 0, 1e9),
       'network.send:Ethernet 2': vary(t, step, 63, 300e3, [[250e3, 300]], 0, 1e9),
+      ...windowsMemoryValues(t, step, 170, 64 * GB, busy),
     };
   },
 };
@@ -796,12 +1284,31 @@ const linuxNas: DemoMachine = {
     { name: 'enp2s0', linkMbps: 2500 },
   ],
   fans: ['nct6798 fan1', 'nct6798 fan2'],
-  extras: pressureAddOn(),
+  extras: [
+    ...pressureAddOn(),
+    ...containersAddOn(['jellyfin', 'nextcloud', 'restic-backup']),
+    ...smartAddOn([
+      {
+        id: 'wd-x1g2h3jk',
+        name: 'WDC WD120EFBX-68B0EN0 (sda)',
+        values: ['temperature', 'power-on-hours', 'reallocated'],
+      },
+      {
+        id: 'zrt0abcd',
+        name: 'ST12000VN0008-2YS101 (sdb)',
+        values: ['temperature', 'power-on-hours', 'reallocated'],
+      },
+    ]),
+  ],
   utc: true,
   bootedDaysAgo: 41.8,
   values: (t, step) => {
     // The backup runs at night and writes for a few hours.
     const backup = Math.max(0, 1 - workday(t) * 3) * Math.max(0, drift(t, 7200, 99));
+    const drives = {
+      sda: 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
+      sdb: 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
+    };
     const cpu = vary(
       t,
       step,
@@ -822,8 +1329,15 @@ const linuxNas: DemoMachine = {
       // The backup keeps the disks busy, so tasks wait for them.
       ...ioPressure(vary(t, step, 304, 0.5 + 35 * backup, [[1, 300]]), 0.55),
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
-      'temperature:drivetemp sda': 34 + 4 * backup + vary(t, step, 93, 0, [[1.5, 1800]], -5, 5),
-      'temperature:drivetemp sdb': 35 + 4 * backup + vary(t, step, 94, 0, [[1.5, 1800]], -5, 5),
+      'temperature:drivetemp sda': drives.sda,
+      'temperature:drivetemp sdb': drives.sdb,
+      // The smart add-on reads the disks every 30 minutes.
+      'extra:smart/wd-x1g2h3jk-temperature': Math.round(drives.sda),
+      'extra:smart/wd-x1g2h3jk-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_408,
+      'extra:smart/wd-x1g2h3jk-reallocated': 0,
+      'extra:smart/zrt0abcd-temperature': Math.round(drives.sdb),
+      'extra:smart/zrt0abcd-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_395,
+      'extra:smart/zrt0abcd-reallocated': t < openedAt - 9 * 86400 ? 0 : 8,
       'disk:/': vary(t, step, 95, 31, [[0.3, 86400 * 5]]),
       'disk:/srv/data': vary(t, step, 96, 71, [[1.5, 86400 * 12]]),
       'disk:/srv/backup': vary(t, step, 97, 83, [[2, 86400 * 6]]),
@@ -857,6 +1371,28 @@ const linuxNas: DemoMachine = {
         0,
         3e8,
       ),
+      'extra:containers-cpu/jellyfin': vary(t, step, 106, 1.5, [[1.5, 300]]),
+      'extra:containers-cpu/nextcloud': vary(t, step, 107, 0.8, [[0.6, 120]]),
+      'extra:containers-cpu/restic-backup': 0.1 + 20 * backup,
+      'extra:containers-memory/jellyfin': vary(
+        t,
+        step,
+        108,
+        1.1 * GB,
+        [[0.2 * GB, 3600]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/nextcloud': vary(
+        t,
+        step,
+        109,
+        0.6 * GB,
+        [[0.1 * GB, 1800]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/restic-backup': 30e6 + 0.5 * GB * backup,
     };
   },
 };
@@ -896,6 +1432,43 @@ const linuxServer: DemoMachine = {
       { id: 'var-lib-docker', label: '/var/lib/docker' },
     ]),
     ...kernelAddOn(),
+    ...memoryAddOn(),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 53, '127.0.0.53, 127.0.0.54'],
+      ['tcp', 443, '0.0.0.0, ::'],
+      ['tcp', 5000, '0.0.0.0, ::'],
+      ['tcp', 9100, '::'],
+      ['tcp', 9393, '0.0.0.0, ::'],
+      ['udp', 53, '127.0.0.53, 127.0.0.54'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
+    ...containersAddOn(['gitea-runner', 'registry']),
+    ...smartAddOn([
+      {
+        id: 's69enx0t123456a',
+        name: 'Samsung SSD 980 PRO 2TB (nvme0)',
+        values: ['temperature', 'power-on-hours', 'media-errors', 'used'],
+      },
+    ]),
+    ...processesAddOn(
+      [
+        [48213, 'cc1plus'],
+        [48207, 'cc1plus'],
+        [48190, 'cc1plus'],
+        [47950, 'ld'],
+        [2210, 'dockerd'],
+        [3304, 'java'],
+      ],
+      [
+        [3304, 'java'],
+        [5120, 'postgres'],
+        [2210, 'dockerd'],
+        [48213, 'cc1plus'],
+        [48207, 'cc1plus'],
+        [1890, 'containerd'],
+      ],
+    ),
   ],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -933,6 +1506,29 @@ const linuxServer: DemoMachine = {
       'extra:inodes/root': vary(t, step, 126, 6, [[0.3, 86400 * 3]]),
       'extra:inodes/var-lib-docker': vary(t, step, 127, 38 + 2 * build, [[5, 86400 * 2]]),
       ...kernelValues(t, step, 950, cpu, 8),
+      ...memoryValues(t, step, 160, 128 * GB, build),
+      'extra:ports/count': 8,
+      // The runner does the builds.
+      'extra:containers-cpu/gitea-runner': 0.2 + 70 * build,
+      'extra:containers-cpu/registry': vary(t, step, 128, 0.3, [[0.3, 60]]) + 2 * build,
+      'extra:containers-memory/gitea-runner': 0.3 * GB + 30 * GB * build,
+      'extra:containers-memory/registry': vary(t, step, 129, 0.15 * GB, [[0.05 * GB, 3600]], 0, GB),
+      'extra:smart/s69enx0t123456a-temperature': Math.round(41 + 8 * build),
+      'extra:smart/s69enx0t123456a-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
+      'extra:smart/s69enx0t123456a-media-errors': 0,
+      'extra:smart/s69enx0t123456a-used': 4,
+      ...processValues(
+        cpu,
+        { 48213: 0.22, 48207: 0.2, 48190: 0.17, 47950: 0.08, 2210: 0.03, 3304: 0.02 },
+        {
+          3304: 8.2 * GB,
+          5120: 3.1 * GB,
+          2210: 0.9 * GB + 0.4 * GB * build,
+          48213: 0.15 * GB + 0.6 * GB * build,
+          48207: 0.15 * GB + 0.5 * GB * build,
+          1890: 0.2 * GB,
+        },
+      ),
     };
   },
 };
