@@ -682,6 +682,37 @@ function windowsMemoryValues(
   };
 }
 
+const portsLabels = { de: 'Offene Ports', fr: 'Ports en écoute', es: 'Puertos en escucha' };
+
+/**
+ * What the ports add-on reports for the given ports, each as protocol, number
+ * and addresses; their count comes from values() as "extra:ports/count".
+ */
+function portsAddOn(ports: ['tcp' | 'udp', number, string][]): Extra[] {
+  return [
+    {
+      id: 'ports',
+      title: 'Listening ports',
+      titles: portsLabels,
+      items: [
+        {
+          id: 'count',
+          label: 'Listening ports',
+          labels: portsLabels,
+          unit: 'number',
+          history: true,
+        },
+        ...ports.map(([protocol, port, addresses]) => ({
+          id: `${protocol}-${port}`,
+          label: `${protocol.toUpperCase()} ${port}`,
+          unit: 'text' as const,
+          text: addresses,
+        })),
+      ],
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -716,6 +747,12 @@ const piHub: DemoMachine = {
     ...pressureAddOn(),
     ...kernelAddOn(),
     ...memoryAddOn(),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 9393, '0.0.0.0'],
+      ['udp', 68, '0.0.0.0'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
   ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
@@ -769,6 +806,7 @@ const piHub: DemoMachine = {
       ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
       ...kernelValues(t, step, 900, cpu, 1),
       ...memoryValues(t, step, 140, 8 * GB, cpu / 100),
+      'extra:ports/count': 4,
     };
   },
 };
@@ -1167,6 +1205,16 @@ const linuxServer: DemoMachine = {
     ]),
     ...kernelAddOn(),
     ...memoryAddOn(),
+    ...portsAddOn([
+      ['tcp', 22, '0.0.0.0, ::'],
+      ['tcp', 53, '127.0.0.53, 127.0.0.54'],
+      ['tcp', 443, '0.0.0.0, ::'],
+      ['tcp', 5000, '0.0.0.0, ::'],
+      ['tcp', 9100, '::'],
+      ['tcp', 9393, '0.0.0.0, ::'],
+      ['udp', 53, '127.0.0.53, 127.0.0.54'],
+      ['udp', 5353, '0.0.0.0, ::'],
+    ]),
   ],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -1205,6 +1253,7 @@ const linuxServer: DemoMachine = {
       'extra:inodes/var-lib-docker': vary(t, step, 127, 38 + 2 * build, [[5, 86400 * 2]]),
       ...kernelValues(t, step, 950, cpu, 8),
       ...memoryValues(t, step, 160, 128 * GB, build),
+      'extra:ports/count': 8,
     };
   },
 };

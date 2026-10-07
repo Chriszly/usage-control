@@ -1,7 +1,7 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power, gpu, kernel, pressure, Wi-Fi and
-# memory add-ons on, checks the tray icon pauses, resumes and stops the
-# service, updates it to a newer version without options and checks the
+# installs it with the website and the power, gpu, kernel, pressure, Wi-Fi,
+# memory and ports add-ons on, checks the tray icon pauses, resumes and stops
+# the service, updates it to a newer version without options and checks the
 # options and the add-ons were kept and the tray icon was closed for the
 # update,
 # uninstalls it, then installs it with the defaults and checks it only serves
@@ -159,8 +159,15 @@ function Assert-MemoryAddOn {
     } 'the memory add-on wrote the committed memory'
 }
 
-Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi and memory add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1"
+function Assert-PortsAddOn {
+    if (-not (Get-Service UsageControlPorts -ErrorAction SilentlyContinue)) { throw 'The ports add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlPorts).Status -eq 'Running' } 'the ports add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\ports.json"
+    Wait-Until { (Test-Path $report) -and (Get-Content $report -Raw) -match '"id":"ports"' } 'the ports add-on wrote its ports'
+}
+
+Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory and ports add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
@@ -170,6 +177,7 @@ Assert-KernelAddOn
 Assert-PressureAddOn
 Assert-WifiAddOn
 Assert-MemoryAddOn
+Assert-PortsAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -189,6 +197,7 @@ Assert-KernelAddOn
 Assert-PressureAddOn
 Assert-WifiAddOn
 Assert-MemoryAddOn
+Assert-PortsAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
@@ -199,6 +208,7 @@ if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The k
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on is still installed' }
 if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on is still installed' }
+if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -218,6 +228,7 @@ if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The k
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on was installed without WIFI=1' }
 if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on was installed without MEMORY=1' }
+if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on was installed without PORTS=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'
