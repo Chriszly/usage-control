@@ -288,7 +288,7 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 		"gpu.memory:AMD GPU":      25,
 		"gpu:VideoCore GPU":       9,
 	}
-	if got, dropped := values(snapshot, DefaultMaxEntries); !reflect.DeepEqual(got, want) || dropped {
+	if got, dropped, _ := values(snapshot, DefaultMaxEntries); !reflect.DeepEqual(got, want) || dropped {
 		t.Errorf("values() = %v, %v; want %v and nothing dropped", got, dropped, want)
 	}
 }
@@ -301,7 +301,7 @@ func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 		GPUs:         []metrics.GPU{{Name: "g0", UsagePercent: 1}, {Name: "g1", UsagePercent: 2}, {Name: "g2", UsagePercent: 3}},
 	}
 
-	got, dropped := values(snapshot, 2)
+	got, dropped, _ := values(snapshot, 2)
 
 	want := map[string]float64{
 		"cpu": 0, "memory": 0,
@@ -313,7 +313,7 @@ func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 	if !reflect.DeepEqual(got, want) || !dropped {
 		t.Errorf("values(2 entries) = %v, %v; want %v with entries dropped", got, dropped, want)
 	}
-	if _, dropped := values(snapshot, 3); dropped {
+	if _, dropped, _ := values(snapshot, 3); dropped {
 		t.Error("values(3 entries) dropped entries, want none with three of each")
 	}
 }
@@ -329,14 +329,14 @@ func TestValuesLeavesOutEntriesWithTooLongNames(t *testing.T) {
 		GPUs:         []metrics.GPU{{Name: long, UsagePercent: 1}},
 	}
 
-	got, _ := values(snapshot, 1)
+	got, _, tooLong := values(snapshot, 1)
 
 	want := map[string]float64{
 		"cpu": 0, "memory": 0, "temperature:cpu": 2, "disk:/": 30,
 		"network.receive:" + fitting: 0, "network.send:" + fitting: 0,
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("values() = %v, want %v", got, want)
+	if !reflect.DeepEqual(got, want) || !tooLong {
+		t.Errorf("values() = %v, %v; want %v with names left out", got, tooLong, want)
 	}
 }
 
@@ -351,7 +351,7 @@ func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
 		extras = append(extras, group)
 	}
 
-	got, dropped := values(metrics.Snapshot{Extras: extras}, maxEntries)
+	got, dropped, _ := values(metrics.Snapshot{Extras: extras}, maxEntries)
 
 	stored := 0
 	for metric := range got {

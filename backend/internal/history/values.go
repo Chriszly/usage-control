@@ -50,8 +50,9 @@ const MaxMetricLength = 256
 // core's usage and throttling are only shown live. Of the disks, sensors,
 // network cards and GPUs whose names fit in MaxMetricLength, the first
 // maxEntries each are kept, and of the extras the first extrasPerEntry times
-// maxEntries; dropped tells whether any were left out.
-func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped bool) {
+// maxEntries; dropped tells whether any were left out for those limits, and
+// tooLong whether any were for their names.
+func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped, tooLong bool) {
 	v = map[string]float64{
 		MetricCPU:    s.CPU.UsagePercent,
 		MetricMemory: s.Memory.UsedPercent,
@@ -62,11 +63,11 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped b
 	if s.Battery != nil {
 		v[MetricBattery] = s.Battery.Percent
 	}
-	temperatures := named(s.Temperatures, MetricTemperature, func(t metrics.Temperature) string { return t.Sensor })
+	temperatures := named(s.Temperatures, MetricTemperature, func(t metrics.Temperature) string { return t.Sensor }, &tooLong)
 	for _, t := range first(temperatures, maxEntries, &dropped) {
 		v[MetricTemperature+":"+t.Sensor] = t.Celsius
 	}
-	disks := named(s.Disks, MetricDiskWrite, func(d metrics.Disk) string { return d.Path })
+	disks := named(s.Disks, MetricDiskWrite, func(d metrics.Disk) string { return d.Path }, &tooLong)
 	for _, d := range first(disks, maxEntries, &dropped) {
 		v[MetricDisk+":"+d.Path] = d.UsedPercent
 		if d.ReadBytesPerSecond != nil && d.WriteBytesPerSecond != nil {
@@ -74,12 +75,12 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped b
 			v[MetricDiskWrite+":"+d.Path] = *d.WriteBytesPerSecond
 		}
 	}
-	network := named(s.Network, MetricNetworkReceive, func(n metrics.NetworkInterface) string { return n.Name })
+	network := named(s.Network, MetricNetworkReceive, func(n metrics.NetworkInterface) string { return n.Name }, &tooLong)
 	for _, n := range first(network, maxEntries, &dropped) {
 		v[MetricNetworkReceive+":"+n.Name] = n.ReceiveBytesPerSecond
 		v[MetricNetworkSend+":"+n.Name] = n.SendBytesPerSecond
 	}
-	gpus := named(s.GPUs, MetricGPUMemory, func(g metrics.GPU) string { return g.Name })
+	gpus := named(s.GPUs, MetricGPUMemory, func(g metrics.GPU) string { return g.Name }, &tooLong)
 	for _, g := range first(gpus, maxEntries, &dropped) {
 		v[MetricGPU+":"+g.Name] = g.UsagePercent
 		if memory, ok := g.MemoryUsedPercent(); ok {
@@ -90,7 +91,7 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped b
 	for _, extra := range extras {
 		v[extra.metric] = *extra.item.Value
 	}
-	return v, dropped || extrasDropped
+	return v, dropped || extrasDropped, tooLong
 }
 
 // storedExtra is a value of an extra that is kept in the history, with its
@@ -151,11 +152,13 @@ func first[T any](list []T, n int, dropped *bool) []T {
 }
 
 // named returns the entries of list whose name makes metric names of at most
-// MaxMetricLength, after prefix, the longest of their kind's metrics.
-func named[T any](list []T, prefix string, name func(T) string) []T {
+// MaxMetricLength, after prefix, the longest of their kind's metrics, and
+// sets dropped when that leaves some out.
+func named[T any](list []T, prefix string, name func(T) string, dropped *bool) []T {
 	tooLong := func(entry T) bool { return len(prefix)+1+len(name(entry)) > MaxMetricLength }
 	if !slices.ContainsFunc(list, tooLong) {
 		return list
 	}
+	*dropped = true
 	return slices.DeleteFunc(slices.Clone(list), tooLong)
 }

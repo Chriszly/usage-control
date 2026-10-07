@@ -83,6 +83,8 @@ func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraI
 			}
 			continue
 		}
+		// One that was broken is logged again should it break once more.
+		s.brokenInfo.Delete(brokenInfoKey{device, metric})
 		info[metric] = description
 	}
 	return info, rows.Err()

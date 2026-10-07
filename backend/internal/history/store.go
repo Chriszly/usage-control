@@ -267,6 +267,15 @@ func (s *Store) DeleteDevice(ctx context.Context, device string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM extra_info WHERE device = ?`, device); err != nil {
 		return err
 	}
+	s.brokenInfo.Range(func(key, _ any) bool {
+		if key.(brokenInfoKey).device == device {
+			s.brokenInfo.Delete(key)
+		}
+		return true
+	})
+	// Again, as a range read while the values were deleted may have kept
+	// some of them.
+	s.cache.forget(device)
 	s.shrinkLog(ctx, deleted+hourly)
 	return nil
 }
