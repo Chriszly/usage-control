@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // readHwmon reads the power sensors the kernel lists under
@@ -22,16 +24,16 @@ func readHwmon(dir string) []Reading {
 	slices.Sort(files)
 	var readings []Reading
 	for _, file := range files {
-		microwatts, ok := readUint(file)
+		microwatts, ok := sysfile.Uint(file)
 		if !ok {
 			continue
 		}
 		sensor := filepath.Dir(file)
 		base := filepath.Base(file)
 		channel := base[:strings.LastIndex(base, "_")]
-		device := readText(filepath.Join(sensor, "name"))
+		device := sysfile.Text(filepath.Join(sensor, "name"))
 		label := device
-		if extra := readText(filepath.Join(sensor, channel+"_label")); extra != "" {
+		if extra := sysfile.Text(filepath.Join(sensor, channel+"_label")); extra != "" {
 			label += " " + extra
 		}
 		if label == "" {
