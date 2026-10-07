@@ -65,7 +65,9 @@ func Serve(ctx context.Context, name string, read Read) error {
 	file := filepath.Join(dir, name+".json")
 	slog.Info("writing to the add-on folder", "file", file)
 	run(ctx, read, file)
-	_ = os.Remove(file) //nolint:gosec // the add-on's own file, in the folder its setting names
+	if checkFolder(dir) == nil {
+		_ = os.Remove(file) //nolint:gosec // the add-on's own file, in the folder its setting names
+	}
 	return nil
 }
 
@@ -86,7 +88,7 @@ func run(ctx context.Context, read Read, file string) {
 	for {
 		// time.Now, not time.Now().UTC(), which drops the monotonic reading.
 		now := time.Now()
-		err := metrics.WriteAddOnReport(file, metrics.AddOnReport{Time: now.UTC(), Extras: read(ctx, now)})
+		err := writeReport(file, metrics.AddOnReport{Time: now.UTC(), Extras: read(ctx, now)})
 		switch {
 		case err != nil && !failing:
 			slog.Error("write the add-on's report", "file", file, "error", err)
@@ -100,4 +102,13 @@ func run(ctx context.Context, read Read, file string) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// writeReport writes report to file, unless its folder is one add-ons do not
+// write to (see checkFolder).
+func writeReport(file string, report metrics.AddOnReport) error {
+	if err := checkFolder(filepath.Dir(file)); err != nil {
+		return err
+	}
+	return metrics.WriteAddOnReport(file, report)
 }
