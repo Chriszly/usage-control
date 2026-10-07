@@ -8,7 +8,8 @@
 //	                not the one in LISTEN_ADDR (set by compose.yaml)
 //	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/",
 //	                or the system drive such as "C:\" on Windows)
-//	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
+//	DATABASE_PATH   SQLite file the history is kept in, or with DATA_ONLY the
+//	                minutes kept for a hub (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
 //	HISTORY_MAX_ENTRIES  how many disks, temperature sensors, network cards and
 //	                GPUs each the history keeps per device (default 64)
@@ -124,25 +125,22 @@ func run(parent context.Context) error {
 	if databasePath == "" {
 		databasePath = "usage-control.db"
 	}
-	store, err := history.Open(context.Background(), databasePath)
-	if err != nil {
-		return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
-	}
-	defer func() { _ = store.Close() }()
 
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
 	// device keeps only the minutes the hub has not fetched yet.
 	var handler http.Handler
 	var waitForRecorders func()
 	if dataOnly {
-		buffer, wait, err := withBuffer(ctx, sampler, store, bufferSpan, historyEntries)
-		if err != nil {
-			return err
-		}
+		minutes, wait := withBuffer(ctx, sampler, databasePath, bufferSpan, historyEntries)
 		waitForRecorders = wait
-		handler = server.NewDataOnly(sampler, buffer, listSetting("ALLOWED_HOSTS"))
+		handler = server.NewDataOnly(sampler, minutes, listSetting("ALLOWED_HOSTS"))
 		slog.Info("serving only the usage data, for a hub; the website is turned off", "bufferHours", int(bufferSpan/time.Hour))
 	} else {
+		store, err := history.Open(context.Background(), databasePath)
+		if err != nil {
+			return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
+		}
+		defer func() { _ = store.Close() }()
 		site, wait, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port)
 		if err != nil {
 			return err
@@ -261,14 +259,19 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 // between its own readings, so it never takes the same one twice.
 const reuseFor = history.RecentInterval - time.Second
 
-// withBuffer keeps this device's minutes in a buffer in store for a hub that
-// cannot reach it, for up to span, until ctx is done; the returned function
-// waits until the recorder has stopped. Of its disks, sensors, network cards
-// and GPUs, the first historyEntries are kept.
-func withBuffer(ctx context.Context, sampler *metrics.Sampler, store *history.Store, span time.Duration, historyEntries int) (*history.Buffer, func(), error) {
-	buffer, err := history.NewBuffer(ctx, store.DB(), span)
+// withBuffer keeps this device's minutes for a hub that cannot reach it, for
+// up to span, in a buffer in the database at path, until ctx is done; the
+// returned function waits until the recorder has stopped and closes the
+// database. Of its disks, sensors, network cards and GPUs, the first
+// historyEntries are kept. When the database cannot be opened, the device
+// still serves its usage, without minutes: the hub then stores the average of
+// its own readings, as for a device from before they were kept.
+func withBuffer(ctx context.Context, sampler *metrics.Sampler, path string, span time.Duration, historyEntries int) (server.MinuteSource, func()) {
+	buffer, err := history.OpenBuffer(ctx, path, span)
 	if err != nil {
-		return nil, nil, err
+		slog.Warn("could not open the database for the usage kept for a hub, so a hub that cannot reach this device has a gap in its history; set DATABASE_PATH to a writable file",
+			"path", path, "error", err)
+		return nil, func() {}
 	}
 	recorder := &history.Recorder{
 		Store: buffer,
@@ -280,7 +283,11 @@ func withBuffer(ctx context.Context, sampler *metrics.Sampler, store *history.St
 	}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
-	return buffer, recording.Wait, nil
+	wait := func() {
+		recording.Wait()
+		_ = buffer.Close()
+	}
+	return buffer, wait
 }
 
 // hubDevices lists this device and the devices the hub collects from.

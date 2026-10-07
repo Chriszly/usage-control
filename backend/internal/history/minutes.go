@@ -3,6 +3,7 @@ package history
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 )
 
@@ -36,15 +37,31 @@ CREATE TABLE IF NOT EXISTS buffer (
 type Buffer struct {
 	db   *sql.DB
 	span time.Duration
+
+	// mu lets one Since run at a time, as each deletes up to sent.
+	mu sync.Mutex
+	// sent is the time of the newest minute Since handed out.
+	sent int64
 }
 
-// NewBuffer returns the buffer kept in db, creating its table when needed,
-// which keeps minutes for up to span.
-func NewBuffer(ctx context.Context, db *sql.DB, span time.Duration) (*Buffer, error) {
+// OpenBuffer opens the buffer in the database at path, creating the file and
+// its table when needed, which keeps minutes for up to span. A device without
+// a history of its own needs no other table.
+func OpenBuffer(ctx context.Context, path string, span time.Duration) (*Buffer, error) {
+	db, err := openDB(path)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := db.ExecContext(ctx, bufferSchema); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 	return &Buffer{db: db, span: span}, nil
+}
+
+// Close closes the database.
+func (b *Buffer) Close() error {
+	return b.db.Close()
 }
 
 // Add keeps the averages measured at one time and deletes what is older than
@@ -74,15 +91,22 @@ func (b *Buffer) Add(ctx context.Context, _ string, at time.Time, values map[str
 
 // Since deletes the minutes up to and including after, which the hub asking
 // has stored, and returns the oldest of the ones after it, at most limit,
-// and whether more follow.
+// and whether more follow. Only minutes handed out before are deleted, so
+// no request deletes minutes that no hub has fetched yet.
 func (b *Buffer) Since(ctx context.Context, after time.Time, limit int) ([]Minute, bool, error) {
-	if _, err := b.db.ExecContext(ctx, `DELETE FROM buffer WHERE time <= ?`, after.Unix()); err != nil {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, err := b.db.ExecContext(ctx, `DELETE FROM buffer WHERE time <= ?`, min(after.Unix(), b.sent)); err != nil {
 		return nil, false, err
 	}
-	return readMinutes(ctx, b.db,
+	minutes, more, err := readMinutes(ctx, b.db,
 		`SELECT DISTINCT time FROM buffer WHERE time > ?1 ORDER BY time LIMIT ?2`,
 		`SELECT time, metric, value FROM buffer WHERE time > ?1 AND time <= ?2 ORDER BY time`,
 		after, limit)
+	if len(minutes) > 0 {
+		b.sent = max(b.sent, minutes[len(minutes)-1].Time)
+	}
+	return minutes, more, err
 }
 
 // Since returns the device's stored minutes after the given time, at most

@@ -20,12 +20,15 @@ type MinuteSource interface {
 
 // minutesHandler serves GET /api/minutes?after=<unix seconds>: the oldest
 // minutes after that time, hub.MinutesPerAnswer at most, on this machine's
-// clock. Asking with after tells that the hub has stored everything up to it.
+// clock. Asking with after tells that the hub has stored everything up to it,
+// so after may not be later than this machine's time: there are no minutes
+// after it yet.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now().Unix()
 		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-		if err != nil || after < 0 {
-			http.Error(w, "after must be a Unix time in seconds", http.StatusBadRequest)
+		if err != nil || after < 0 || after > now {
+			http.Error(w, "after must be a Unix time in seconds, not later than this device's time", http.StatusBadRequest)
 			return
 		}
 		minutes, more, err := source.Since(r.Context(), time.Unix(after, 0), hub.MinutesPerAnswer)

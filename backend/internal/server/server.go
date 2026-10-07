@@ -119,15 +119,17 @@ func New(site Site) http.Handler {
 
 // NewDataOnly returns the handler for a device that a hub collects from
 // without a website of its own: only GET /api/metrics, with the usage of the
-// machine it runs on, GET /api/minutes, with the minutes it kept for the hub,
-// and GET /api/hub, where that hub's page is. Requests from outside the local
-// network, and requests that address the machine by a name it does not know,
-// are refused.
+// machine it runs on, GET /api/minutes, with the minutes it kept for the hub
+// (left out when minutes is nil), and GET /api/hub, where that hub's page is.
+// Requests from outside the local network, and requests that address the
+// machine by a name it does not know, are refused.
 func NewDataOnly(collector Collector, minutes MinuteSource, allowedHosts []string) http.Handler {
 	mux := http.NewServeMux()
 	link := &hubLink{}
 	mux.HandleFunc("GET /api/metrics", link.remember(metricsHandler(Device{ID: hub.LocalID, Metrics: collector})))
-	mux.HandleFunc("GET "+hub.MinutesPath, minutesHandler(minutes))
+	if minutes != nil {
+		mux.HandleFunc("GET "+hub.MinutesPath, minutesHandler(minutes))
+	}
 	mux.HandleFunc("GET /api/hub", link.handler)
 	return withHeaders(localNetworkOnly(knownHostsOnly(newKnownHosts(allowedHosts), mux)))
 }

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 func TestDiskPaths(t *testing.T) {
@@ -193,5 +197,33 @@ func TestBufferHoursRefusesInvalidValues(t *testing.T) {
 		if _, err := bufferHours(); err == nil {
 			t.Errorf("bufferHours() with BUFFER_HOURS=%q error = nil, want an error", value)
 		}
+	}
+}
+
+func TestWithBufferKeepsTheMinutesInTheDatabase(t *testing.T) {
+	collector, err := metrics.NewCollector(context.Background(), []string{t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	path := filepath.Join(t.TempDir(), "usage-control.db")
+
+	minutes, wait := withBuffer(ctx, metrics.NewSampler(collector), path, time.Hour, 1)
+	cancel()
+	wait()
+
+	if _, err := os.Stat(path); minutes == nil || err != nil {
+		t.Errorf("withBuffer() = %v, and the database %v; want the buffer, kept in the database", minutes, err)
+	}
+}
+
+func TestWithBufferRunsWithoutADatabaseItCannotOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "usage-control.db")
+
+	minutes, wait := withBuffer(context.Background(), nil, path, time.Hour, 1)
+	wait()
+
+	if minutes != nil {
+		t.Errorf("withBuffer() with a database it cannot open = %v, want no minutes instead of failing", minutes)
 	}
 }

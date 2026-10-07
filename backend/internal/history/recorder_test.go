@@ -39,7 +39,8 @@ func TestRecorderStoresTheAverageOfItsReadings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Range() error = %v", err)
 	}
-	want := Series{Metric: MetricCPU, Points: []Point{{Time: now.Unix(), Value: 42}}}
+	// Stored at the start of the minute, as a hub stores the minutes it fetches.
+	want := Series{Metric: MetricCPU, Points: []Point{{Time: now.Truncate(time.Minute).Unix(), Value: 42}}}
 	if len(got) == 0 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("Range() = %+v, want it to start with %+v", got, want)
 	}

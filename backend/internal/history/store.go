@@ -62,17 +62,10 @@ type Point struct {
 
 // Open opens the database at path, creating it when it does not exist yet.
 func Open(ctx context.Context, path string) (*Store, error) {
-	// WAL lets the page read while the recorder writes; the busy timeout waits
-	// for a write in progress instead of failing.
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := openDB(path)
 	if err != nil {
 		return nil, err
 	}
-	// A few connections are enough for the recorders and the page; each one
-	// keeps its own page cache, and an idle one gives its memory back.
-	db.SetMaxOpenConns(4)
-	db.SetConnMaxIdleTime(time.Minute)
 	if err := migrate(ctx, db, path, migrations); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -84,14 +77,32 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return &Store{db: db, cache: newRangeCache()}, nil
 }
 
+// openDB opens the SQLite file at path, which is created once something is
+// written to it.
+func openDB(path string) (*sql.DB, error) {
+	// WAL lets the page read while the recorder writes; the busy timeout waits
+	// for a write in progress instead of failing.
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	// A few connections are enough for the recorders and the page; each one
+	// keeps its own page cache, and an idle one gives its memory back.
+	db.SetMaxOpenConns(4)
+	db.SetConnMaxIdleTime(time.Minute)
+	return db, nil
+}
+
 // Close closes the database.
 func (s *Store) Close() error {
 	return s.db.Close()
 }
 
 // Add stores the values of one device measured at one time, and counts them
-// into the averages of their hour. Each time is stored once; stored again, its
-// values would count twice in the hour.
+// into the averages of their hour. Each time is stored once: a value for a
+// time and metric that is stored already is left out, so it neither replaces
+// the stored one nor counts twice in the hour.
 func (s *Store) Add(ctx context.Context, device string, at time.Time, values map[string]float64) error {
 	return s.AddMinutes(ctx, device, []Minute{{Time: at.Unix(), Values: values}})
 }
@@ -105,7 +116,7 @@ func (s *Store) AddMinutes(ctx context.Context, device string, minutes []Minute)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	insert, err := tx.PrepareContext(ctx, `INSERT OR REPLACE INTO samples (device, time, metric, value) VALUES (?, ?, ?, ?)`)
+	insert, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO samples (device, time, metric, value) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -122,8 +133,17 @@ func (s *Store) AddMinutes(ctx context.Context, device string, minutes []Minute)
 	for _, minute := range minutes {
 		hour := minute.Time / 3600 * 3600
 		for metric, value := range minute.Values {
-			if _, err := insert.ExecContext(ctx, device, minute.Time, metric, value); err != nil {
+			result, err := insert.ExecContext(ctx, device, minute.Time, metric, value)
+			if err != nil {
 				return fmt.Errorf("store %s: %w", metric, err)
+			}
+			stored, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("store %s: %w", metric, err)
+			}
+			if stored == 0 {
+				// Stored already, and counted in its hour then.
+				continue
 			}
 			if _, err := average.ExecContext(ctx, device, hour, metric, value); err != nil {
 				return fmt.Errorf("average %s: %w", metric, err)

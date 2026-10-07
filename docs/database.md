@@ -1,6 +1,6 @@
 # Database and history
 
-Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file. A data-only device keeps no history, only the minutes the hub has not fetched yet, in a `buffer` table in the same kind of file (see [While the hub is away](architecture.md#while-the-hub-is-away)).
+Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file. A data-only device keeps no history, only the minutes the hub has not fetched yet, in a `buffer` table in the same kind of file, which has no other table (see [While the hub is away](architecture.md#while-the-hub-is-away)).
 
 - [Where the file is](#where-the-file-is)
 - [Tables](#tables)
@@ -48,7 +48,7 @@ flowchart LR
     h -- "longer ranges,<br/>1 h steps and up" --> chart
 ```
 
-**Writing.** Each device's recorder takes a reading every 5 seconds and keeps the readings of the last 30 minutes in memory. Every minute it writes their average to `samples` and, in the same transaction, adds it into the running average of the hour in `samples_hourly`. One write per device per minute keeps the SD card of a Raspberry Pi from wearing out. The first reading after a start is not kept, since its CPU usage is the average since the machine booted.
+**Writing.** Each device's recorder takes a reading every 5 seconds and keeps the readings of the last 30 minutes in memory. Every minute it writes their average to `samples`, at the start of the minute, and, in the same transaction, adds it into the running average of the hour in `samples_hourly`. A minute that is in `samples` already, as when a hub stored a minute itself and later fetches the device's, is not written again, so it counts once in its hour. One write per device per minute keeps the SD card of a Raspberry Pi from wearing out. The first reading after a start is not kept, since its CPU usage is the average since the machine booted.
 
 **Reading.** The page opens on the last 30 minutes. A chart asks for a range and gets at most 360 points per metric, each the average over one step:
 

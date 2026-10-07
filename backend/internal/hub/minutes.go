@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,31 +35,47 @@ type MinutesAnswer struct {
 const (
 	// maxMinutesBytes is the largest answer to GET /api/minutes that is read.
 	maxMinutesBytes = 8 << 20
-	// maxAnswersPerFetch is how many answers one fetch reads at most, so the
-	// recorder soon gets back to its readings; the rest follows a minute
-	// later. Ten answers are 20 hours.
+	// maxAnswersPerFetch is how many answers one fetch reads at most. Ten
+	// answers are 20 hours.
 	maxAnswersPerFetch = 10
+	// fetchFor is how long one fetch takes at most. The recorder waits for
+	// it, so it misses two of its readings at most, too few to make a gap in
+	// them (see history.Recent.Covers); the rest follows a minute later.
+	fetchFor = 10 * time.Second
 	// recheckAfter is how long a device too old to keep its minutes is
 	// stored the hub's way before it is asked again, as it may be updated.
 	recheckAfter = time.Hour
 	// maxMetricLength is the longest metric name stored.
 	maxMetricLength = 256
+	// maxClockJitter is how far the difference between the hub's clock and the
+	// device's may move before the minutes are moved by the new one. Measured
+	// with each reading, it varies by a second or two, which would now and
+	// then put a minute in the place of the one before or after it.
+	maxClockJitter = 10 * time.Second
 )
 
 // fetcher fetches the minutes a device keeps of its own usage into the hub's
 // history: every minute the newest one, and after the hub could not reach the
 // device, or was not running, the ones it missed meanwhile. Times are moved
-// from the device's clock to the hub's, as for the readings.
+// from the device's clock to the hub's, as for the readings, and put on whole
+// minutes, where the recorder stores its own.
 type fetcher struct {
 	agent  *Agent
 	store  *history.Store
 	device string
 	// maxValues is how many values of one minute are stored at most.
 	maxValues int
+	// budget, when set, is how long one fetch takes at most instead of
+	// fetchFor, for tests.
+	budget time.Duration
 
 	// after is the time, on the device's clock, of the newest minute the hub
-	// has; zero until the first fetch works it out from the database.
+	// has; zero until a fetch works it out from the database, as at the start
+	// and after the recorder stored a minute itself.
 	after int64
+	// offset is how many seconds the hub's clock is ahead of the device's, as
+	// the minutes are moved by; see maxClockJitter.
+	offset int64
 	// tooOld is when the device was found to keep no minutes.
 	tooOld time.Time
 	// failing is set while fetching fails, so that is logged once.
@@ -66,29 +83,45 @@ type fetcher struct {
 }
 
 // fetch stores the minutes the device has after the newest one the hub has.
-// It returns false when the device is too old to keep its minutes, so the
-// recorder stores the average of its own readings instead.
+// It returns false when the device is too old to keep its minutes, or answers
+// but its minutes cannot be fetched, so the recorder stores the average of
+// its own readings instead; the next fetch then starts after that minute.
 func (f *fetcher) fetch(ctx context.Context) bool {
 	if !f.tooOld.IsZero() && time.Since(f.tooOld) < recheckAfter {
 		return false
 	}
 	// A device that does not answer has nothing to fetch now; once it
 	// answers again, the minutes it kept meanwhile follow.
-	offset, ok := f.agent.clockOffset()
+	measured, ok := f.agent.clockOffset()
 	if !ok {
 		return true
 	}
+	if moved := measured - time.Duration(f.offset)*time.Second; moved > maxClockJitter || moved < -maxClockJitter {
+		f.offset = int64(measured / time.Second)
+	}
+	// The device's time as of its newest reading. A clock that went back has
+	// its new minutes before the ones the hub has, so those would never be
+	// fetched: the hub starts again from its newest minute at the new time.
+	deviceNow := time.Now().Add(-measured).Unix()
+	if f.after > deviceNow {
+		slog.Info("the clock of the device went back; fetching its minutes from the newest one the hub has, at the device's new time", "device", f.device)
+		f.after = 0
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(f.budget, fetchFor))
+	defer cancel()
 	if f.after == 0 {
 		newest, ok, err := f.store.Newest(ctx, f.device)
 		if err != nil {
-			f.failed(err)
-			return true
+			return f.failed(ctx, err)
 		}
 		if !ok {
 			// A device new to the hub starts now, not with what it kept for another.
 			newest = time.Now().Add(-history.SampleInterval)
 		}
-		f.after = newest.Add(-offset).Unix()
+		// Not later than the device's time, which it refuses, with room for the
+		// difference of the clocks to vary.
+		f.after = min(newest.Unix()-f.offset, deviceNow-int64(maxClockJitter/time.Second))
 	}
 
 	for range maxAnswersPerFetch {
@@ -100,8 +133,11 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 				slog.Info("the device runs an older version that keeps no minutes for the hub; update it so the hub's history has no gaps when it cannot reach it", "device", f.device)
 			}
 			f.tooOld = time.Now()
+			f.after = 0
 			return false
 		}
+		f.tooOld = time.Time{}
+		previous := f.after
 		if err == nil {
 			minutes, after := f.clean(answer)
 			if err = f.store.AddMinutes(ctx, f.device, minutes); err == nil {
@@ -109,27 +145,26 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 			}
 		}
 		if err != nil {
-			f.failed(err)
-			return true
+			return f.failed(ctx, err)
 		}
 		if f.failing {
 			f.failing = false
 			slog.Info("fetching the minutes of the device works again", "device", f.device)
 		}
-		if !answer.More {
+		// Asking again when nothing was new would get the same answer.
+		if !answer.More || f.after == previous {
 			break
 		}
 	}
-	f.tooOld = time.Time{}
 	return true
 }
 
 // clean returns the minutes of an answer that are new to the hub, at the
-// hub's time, without values that cannot be stored, and the device's time of
-// the last of them, which after becomes once they are stored. The device is not trusted to keep to its side: minutes must be in
+// hub's time on whole minutes, without values that cannot be stored, and the
+// device's time of the last of them, which after becomes once they are
+// stored. The device is not trusted to keep to its side: minutes must be in
 // order, a good part of a minute apart and not in its future.
 func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
-	offset := time.Now().Unix() - answer.Now
 	minGap := int64(history.SampleInterval / time.Second / 2)
 	after := f.after
 	var minutes []history.Minute
@@ -148,18 +183,29 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 			}
 		}
 		if len(values) > 0 {
-			minutes = append(minutes, history.Minute{Time: minute.Time + offset, Values: values})
+			at := time.Unix(minute.Time+f.offset, 0).Truncate(history.SampleInterval)
+			minutes = append(minutes, history.Minute{Time: at.Unix(), Values: values})
 		}
 	}
 	return minutes, after
 }
 
-// failed logs a failed fetch, unless the previous one failed too.
-func (f *fetcher) failed(err error) {
+// failed ends a fetch that failed. When it ran out of time, or the program is
+// stopping, the rest follows next time. Otherwise it logs the failure, unless
+// the previous fetch failed too, and returns false, so the recorder stores
+// the average of its own readings for this minute; the next fetch starts after
+// the newest minute the hub has, so the device's minute for the same time is
+// not stored as well.
+func (f *fetcher) failed(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return true
+	}
 	if !f.failing {
 		f.failing = true
-		slog.Error("fetch the minutes of the device", "device", f.device, "error", err)
+		slog.Error("fetch the minutes of the device; storing the average of the hub's own readings meanwhile", "device", f.device, "error", err)
 	}
+	f.after = 0
+	return false
 }
 
 // maxValues returns how many values of one minute are stored at most, when

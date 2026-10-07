@@ -38,8 +38,8 @@ type Recorder struct {
 	// Fetch, when set, takes the place of storing the average every
 	// SampleInterval: a hub fetches the averages the device keeps itself,
 	// which also cover the time the hub could not reach it. It returns false
-	// for a device too old to keep them, whose average is then stored as
-	// before.
+	// for a device too old to keep them, or one whose minutes cannot be
+	// fetched now, whose average is then stored as before.
 	Fetch func(ctx context.Context) bool
 
 	// failing is set while readings fail, so an unreachable device is logged
@@ -108,7 +108,9 @@ func (r *Recorder) failed(err error) {
 	}
 }
 
-// store saves the average of the readings from from up to to, at time to.
+// store saves the average of the readings from from up to to, at the start of
+// the minute to falls in: on whole minutes, where a hub also puts the minutes
+// it fetches from a device, so a minute both store is stored once.
 func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if r.Fetch != nil && r.Fetch(ctx) {
 		return
@@ -117,7 +119,7 @@ func (r *Recorder) store(ctx context.Context, from, to time.Time) {
 	if averages == nil {
 		return
 	}
-	if err := r.Store.Add(ctx, r.Device, to, averages); err != nil {
+	if err := r.Store.Add(ctx, r.Device, to.Truncate(SampleInterval), averages); err != nil {
 		slog.Error("store usage in the history", "error", err)
 	}
 }
