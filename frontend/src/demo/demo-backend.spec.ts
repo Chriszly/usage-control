@@ -77,6 +77,21 @@ describe('DemoBackend', () => {
     expect(points[0].time).toBeGreaterThanOrEqual(to - DEMO_RETENTION_DAYS * 86400);
   });
 
+  it("keeps the Wi-Fi quality's history but not the signal's, with labels the hub keeps whole", async () => {
+    const s = await firstValueFrom(metrics.current('windows-laptop'));
+    const items = s.extras?.find((g) => g.id === 'wifi')?.items ?? [];
+    // The adapter's long description is cut, so what each value is stays in its label.
+    expect(items.map((i) => i.label.slice(-12))).toEqual(['link quality', 'signal (dBm)']);
+    for (const item of items) {
+      expect(item.label.length).toBeLessThanOrEqual(80);
+      expect(item.labels?.['de']?.length).toBeLessThanOrEqual(80);
+    }
+    const to = Math.floor(Date.now() / 1000);
+    const history = await firstValueFrom(metrics.history(to - 3600, to, 'windows-laptop'));
+    const wifi = history.series.map((s) => s.metric).filter((m) => m.startsWith('extra:wifi/'));
+    expect(wifi).toEqual([expect.stringMatching(/-quality$/)]);
+  });
+
   it('refuses to add or remove devices, and says why', async () => {
     const i18n = TestBed.inject(I18n);
     i18n.language.set('en-GB');

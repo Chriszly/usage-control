@@ -1,0 +1,51 @@
+# The pressure add-on of usage-control: reads from /proc/pressure how much of
+# the time tasks waited for the CPU, memory and disks, and writes it to
+# /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control pressure add-on: shows how often tasks wait for the CPU, memory or disks (Linux pressure stall information); runs as root without capabilities
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-pressure
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Reading /proc/pressure needs no privileges; it runs as root only to write
+# to the add-on folder the add-ons share, which root owns, and without any
+# capability. It writes nothing but its folder, needs no network and starts
+# no other program.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+# Without capabilities the clock cannot be set anyway; this also blocks the
+# calls that set it, as in the other add-ons' units.
+SystemCallFilter=~@clock
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=usage-control.service

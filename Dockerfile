@@ -26,10 +26,11 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
       -ldflags="-s -w -X github.com/Chriszly/usage-control/backend/internal/version.Version=$VERSION" \
       -o /out/usage-control ./cmd/usage-control
 # The add-ons, each run as a container of its own when its profile in
-# compose.yaml is picked: every command but usage-control and the Windows tray.
+# compose.yaml is picked: every command but usage-control, the Windows tray
+# and the smart add-on, which has no container.
 RUN mkdir /out/addons && for cmd in cmd/usage-control-*/; do \
       name="$(basename "$cmd")"; \
-      [ "$name" = usage-control-tray ] && continue; \
+      case "$name" in usage-control-tray|usage-control-smart) continue ;; esac; \
       CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
         go build -trimpath -ldflags="-s -w" -o "/out/addons/$name" "./$cmd" || exit 1; \
     done
