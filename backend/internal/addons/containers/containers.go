@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // MaxContainers is the most containers the add-on reports, as many values as
@@ -108,7 +109,7 @@ func NewReader(sysDir, dockerDir string) *Reader {
 	return &Reader{
 		cgroups: cgroups,
 		docker:  dockerDir,
-		cpus:    countCPUs(readText(filepath.Join(cgroups, "cpuset.cpus.effective"))),
+		cpus:    countCPUs(sysfile.Text(filepath.Join(cgroups, "cpuset.cpus.effective"))),
 		names:   map[string]knownName{},
 		podman:  PodmanContainers,
 	}
@@ -150,7 +151,7 @@ func (r *Reader) Read(now time.Time) []Container {
 		}
 		// Without the kernel's memory controller there is no memory.current,
 		// but the CPU is still counted.
-		memory, hasMemory := readUint(filepath.Join(dir, "memory.current"))
+		memory, hasMemory := sysfile.Uint(filepath.Join(dir, "memory.current"))
 		if hasMemory {
 			if inactive, ok := statValue(filepath.Join(dir, "memory.stat"), "inactive_file"); ok && inactive < memory {
 				memory -= inactive
@@ -443,21 +444,6 @@ func statValue(path, key string) (uint64, bool) {
 		}
 	}
 	return 0, false
-}
-
-// readText reads a short file, or returns "" when it cannot be read.
-func readText(path string) string {
-	text, err := os.ReadFile(path) //nolint:gosec // a cgroup file, below the folder its setting names
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(text))
-}
-
-// readUint reads a file that holds one whole number.
-func readUint(path string) (uint64, bool) {
-	n, err := strconv.ParseUint(readText(path), 10, 64)
-	return n, err == nil
 }
 
 // HostSys returns where /sys is: HOST_SYS in a container that mounts the

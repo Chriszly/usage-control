@@ -26,6 +26,7 @@ Backend packages, in `backend/internal/`:
 | `update` | the daily check for a newer release |
 | `version` | the version, set at build time |
 | `web` | the built website, embedded into the binary |
+| `sysfile` | reads the small one-value files under `/sys` and `/proc`, for `metrics` and the add-ons |
 
 `backend/cmd/usage-control/main.go` reads the settings and wires these together; on Windows `service_windows.go` runs it as a service. `backend/cmd/usage-control-tray` is the Windows tray icon, and `backend/cmd/tray-icons` draws its icons. How the parts work together is in [How it works](architecture.md).
 

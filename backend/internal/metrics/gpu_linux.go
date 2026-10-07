@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // gpuReader reads the GPUs Linux reports usage for without special rights:
@@ -68,10 +70,10 @@ func (*gpuReader) temperatures(context.Context) []Temperature { return nil }
 // kernel does not report, such as a display controller.
 func (r *gpuReader) readCard(card string) (GPU, bool) {
 	device := filepath.Join(card, "device")
-	if busy, err := readUint(filepath.Join(device, "gpu_busy_percent")); err == nil {
+	if busy, ok := sysfile.Uint(filepath.Join(device, "gpu_busy_percent")); ok {
 		return readAMDGPU(device, busy), true
 	}
-	stats, err := readFile(filepath.Join(device, "gpu_stats"))
+	stats, err := sysfile.Read(filepath.Join(device, "gpu_stats"))
 	if err != nil {
 		return GPU{}, false
 	}
@@ -91,17 +93,17 @@ func (r *gpuReader) readCard(card string) (GPU, bool) {
 // percent of the time.
 func readAMDGPU(device string, busy uint64) GPU {
 	gpu := GPU{Name: "AMD GPU", UsagePercent: min(100, float64(busy))}
-	if name, err := readFile(filepath.Join(device, "product_name")); err == nil && strings.TrimSpace(string(name)) != "" {
+	if name, err := sysfile.Read(filepath.Join(device, "product_name")); err == nil && strings.TrimSpace(string(name)) != "" {
 		gpu.Name = strings.TrimSpace(string(name))
 	}
-	total, totalErr := readUint(filepath.Join(device, "mem_info_vram_total"))
-	used, usedErr := readUint(filepath.Join(device, "mem_info_vram_used"))
-	if totalErr == nil && usedErr == nil {
+	total, totalOK := sysfile.Uint(filepath.Join(device, "mem_info_vram_total"))
+	used, usedOK := sysfile.Uint(filepath.Join(device, "mem_info_vram_used"))
+	if totalOK && usedOK {
 		gpu.MemoryTotalBytes, gpu.MemoryUsedBytes = total, used
 	}
 	sensors, _ := filepath.Glob(filepath.Join(device, "hwmon", "hwmon*", "temp1_input"))
 	if len(sensors) > 0 {
-		if milli, err := readUint(sensors[0]); err == nil {
+		if milli, ok := sysfile.Uint(sensors[0]); ok {
 			celsius := float64(milli) / 1000
 			gpu.Celsius = &celsius
 		}

@@ -8,6 +8,8 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -96,8 +98,13 @@ type Collector struct {
 	throttlingFile string
 	fans           []fanSensor
 
+	// readCounters reads the network counters; nil reads the machine's.
+	readCounters func(ctx context.Context) (map[string]counters, error)
+	temperatures *temperatureReader
+
 	// mu guards the readings of the previous call, which CPU usage and
-	// network and disk speeds are measured against.
+	// network and disk speeds are measured against, and whether reading
+	// the network failed last time.
 	mu              sync.Mutex
 	cpuTimes        cpu.TimesStat
 	coreTimes       []cpu.TimesStat
@@ -105,6 +112,7 @@ type Collector struct {
 	networkTime     time.Time
 	diskCounters    map[string]ioCounters
 	diskTime        time.Time
+	networkFailing  bool
 
 	// linkMu guards the speed and addresses of the network interfaces,
 	// which are read again every linkInterval.
@@ -127,6 +135,7 @@ func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
 		clockFiles:     clockFiles(),
 		throttlingFile: throttlingFile(),
 		fans:           fanSensors(),
+		temperatures:   newTemperatureReader(),
 	}, nil
 }
 
@@ -148,10 +157,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read uptime: %w", err)
 	}
-	network, err := c.readNetwork(ctx)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("read network traffic: %w", err)
-	}
+	network := c.readNetwork(ctx)
 	c.addLinks(network)
 
 	now := time.Now()
@@ -173,7 +179,7 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 			CachedBytes:    memory.Cached + memory.Buffers,
 			Swap:           readSwap(ctx, memory),
 		},
-		Temperatures: append(readTemperatures(ctx), c.gpus.temperatures(ctx)...),
+		Temperatures: append(c.temperatures.read(ctx, now), c.gpus.temperatures(ctx)...),
 		Disks:        c.readDisks(ctx),
 		Network:      network,
 		GPUs:         c.gpus.read(ctx),
@@ -199,19 +205,78 @@ func (c *Collector) readDisks(ctx context.Context) []Disk {
 }
 
 // readNetwork returns the traffic of each network interface, with the speed
-// measured since the previous call.
-func (c *Collector) readNetwork(ctx context.Context) ([]NetworkInterface, error) {
-	current, err := readNetworkCounters(ctx)
-	if err != nil {
-		return nil, err
+// measured since the previous call. When the counters cannot be read, the
+// rest of the reading is still worth having, so the list is empty instead;
+// that is logged once, and the next reading measures its speed since the
+// last one that worked.
+func (c *Collector) readNetwork(ctx context.Context) []NetworkInterface {
+	read := c.readCounters
+	if read == nil {
+		read = readNetworkCounters
 	}
+	current, err := read(ctx)
 	now := time.Now()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	switch {
+	case err != nil && !c.networkFailing:
+		slog.Warn("read network traffic; reporting no network until it works again", "error", err)
+	case err == nil && c.networkFailing:
+		slog.Info("reading network traffic works again")
+	}
+	c.networkFailing = err != nil
+	if err != nil {
+		return []NetworkInterface{}
+	}
 	interfaces := throughput(c.networkCounters, current, now.Sub(c.networkTime))
 	c.networkCounters, c.networkTime = current, now
-	return interfaces, nil
+	return interfaces
+}
+
+// temperatureRetry is how long the temperature sensors are left alone after
+// a reading found none, on Windows: there gopsutil asks WMI's
+// MSAcpi_ThermalZoneTemperature, a costly query that in the Local Service
+// account usually fails or finds nothing. Elsewhere reading the sensors is a
+// few file reads, so they are read every time.
+const temperatureRetry = 10 * time.Minute
+
+// temperatureReader reads the temperature sensors, and on Windows, after a
+// reading that found none, waits temperatureRetry before trying again.
+type temperatureReader struct {
+	// sensors reads the sensors; retry is how long to wait after finding none,
+	// 0 to read every time.
+	sensors func(ctx context.Context) []Temperature
+	retry   time.Duration
+
+	mu      sync.Mutex
+	retryAt time.Time
+}
+
+func newTemperatureReader() *temperatureReader {
+	r := &temperatureReader{sensors: readTemperatures}
+	if runtime.GOOS == "windows" {
+		r.retry = temperatureRetry
+	}
+	return r
+}
+
+// read returns the temperatures at now, or none while it waits to try again.
+// A nil temperatureReader reads the sensors every time.
+func (r *temperatureReader) read(ctx context.Context, now time.Time) []Temperature {
+	if r == nil {
+		return readTemperatures(ctx)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now.Before(r.retryAt) {
+		return []Temperature{}
+	}
+	temperatures := r.sensors(ctx)
+	if len(temperatures) == 0 && r.retry > 0 {
+		r.retryAt = now.Add(r.retry)
+	}
+	return temperatures
 }
 
 // readTemperatures returns every sensor reading the OS exposes. Many machines

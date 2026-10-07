@@ -63,7 +63,7 @@ A device that did not answer has no values for that time, which shows as a gap i
 
 ## Retention
 
-`RETENTION_DAYS` (default 30, from 1 to 3650) sets how long values are kept, for every device on the hub alike. Once at start and then once a day, everything older is deleted from `samples` and `samples_hourly`. The API never returns values older than the retention, so values waiting for the next cleanup are not shown. With more than 30 days, the page also offers an *All* range.
+`RETENTION_DAYS` (default 30, from 1 to 3650) sets how long values are kept, for every device on the hub alike. Once at start and then once a day, everything older is deleted from `samples` and `samples_hourly`. The API never returns values older than the retention, so values waiting for the next cleanup are not shown. When more is kept than the longest range the page offers within it (for example 10 days, where the longest is 7 days), the page also offers an *All* range.
 
 Changing `RETENTION_DAYS` takes effect at the next start. Shortening it deletes the older values then; lengthening it cannot bring back what was already deleted.
 
