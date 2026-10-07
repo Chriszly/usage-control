@@ -146,6 +146,24 @@ func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
 	}
 }
 
+func TestLastReadingsAsksThePMICEveryTenSeconds(t *testing.T) {
+	calls := 0
+	read := func() []Reading {
+		calls++
+		return []Reading{{ID: "raspberry-pi", Watts: float64(calls)}}
+	}
+	last := NewReader(t.TempDir()).lastPMIC
+	start := time.Now()
+
+	last.get(start, read)
+	if got := last.get(start.Add(pmicInterval-time.Second), read); got[0].Watts != 1 {
+		t.Errorf("get() within the interval = %v, want the first answer", got)
+	}
+	if got := last.get(start.Add(pmicInterval), read); got[0].Watts != 2 || pmicInterval >= addons.ProgramInterval {
+		t.Errorf("get() after %v = %v, want a new answer before addons.ProgramInterval", pmicInterval, got)
+	}
+}
+
 func TestParseNvidiaCountsALostGPU(t *testing.T) {
 	// A GPU nvidia-smi cannot reach gets only a message, no row; GPU 0
 	// keeps the ID it has while both work.

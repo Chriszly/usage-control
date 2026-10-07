@@ -38,27 +38,34 @@ type Reader struct {
 	system *system
 
 	// lastPMIC and lastNvidia keep what vcgencmd and nvidia-smi answered,
-	// which is asked only every addons.ProgramInterval.
+	// which is asked only every pmicInterval and addons.ProgramInterval.
 	lastPMIC   lastReadings
 	lastNvidia lastReadings
 }
+
+// pmicInterval is how often vcgencmd is asked for the power of a Raspberry
+// Pi 5. It is more often than addons.ProgramInterval, so the minute
+// averages of the history catch short spikes: vcgencmd only asks the
+// firmware and answers at once, while nvidia-smi may first start the driver.
+const pmicInterval = 10 * time.Second
 
 // NewReader returns a Reader for the machine. sysDir is where /sys is, which
 // in a container is where the host's /sys is mounted.
 func NewReader(sysDir string) *Reader {
 	return &Reader{
-		rapl:   newRAPL(filepath.Join(sysDir, "class", "powercap")),
-		hwmon:  filepath.Join(sysDir, "class", "hwmon"),
-		pmic:   lookPath("vcgencmd"),
-		nvidia: lookPath("nvidia-smi"),
-		system: newSystem(),
+		rapl:     newRAPL(filepath.Join(sysDir, "class", "powercap")),
+		hwmon:    filepath.Join(sysDir, "class", "hwmon"),
+		pmic:     lookPath("vcgencmd"),
+		nvidia:   lookPath("nvidia-smi"),
+		system:   newSystem(),
+		lastPMIC: lastReadings{interval: pmicInterval},
 	}
 }
 
 // Read returns the power values, in a fixed order. Power measured from an
 // energy counter is the average since the previous call, so the first call
-// leaves those out. vcgencmd and nvidia-smi are asked only every
-// addons.ProgramInterval, and their last answer is used in between.
+// leaves those out. vcgencmd is asked only every pmicInterval and nvidia-smi
+// every addons.ProgramInterval, and their last answer is used in between.
 func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	var readings []Reading
 	readings = append(readings, r.lastPMIC.get(now, func() []Reading { return r.pmicTotal(ctx) })...)
