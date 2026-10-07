@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -160,6 +159,3 @@ func busyShare(busyBefore, busyNow, clockBefore, clockNow uint64) float64 {
 	}
 	return min(100, float64(busyNow-busyBefore)/float64(clockNow-clockBefore)*100)
 }
-
-// hideWindow does nothing: only Windows opens a window for a started program.
-func hideWindow(*exec.Cmd) {}
