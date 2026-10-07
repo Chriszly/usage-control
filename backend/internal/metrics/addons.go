@@ -127,5 +127,22 @@ func WriteAddOnReport(file string, report AddOnReport) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporary.Name(), file)
+	// Windows refuses to replace a file while another program has it open,
+	// as the collector has for a moment while it reads it, so a failed
+	// replace is tried again a few times.
+	for try := 1; ; try++ {
+		err := os.Rename(temporary.Name(), file)
+		if err == nil || try == renameTries {
+			return err
+		}
+		time.Sleep(renameRetryDelay)
+	}
 }
+
+// renameTries is how often WriteAddOnReport tries to replace the report, and
+// renameRetryDelay how long it waits between tries; reading a report takes
+// far less.
+const (
+	renameTries      = 5
+	renameRetryDelay = 20 * time.Millisecond
+)
