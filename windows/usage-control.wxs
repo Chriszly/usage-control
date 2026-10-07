@@ -428,8 +428,9 @@
       commands of the disk drivers (SATA) and the NVMe driver's health log.
       Windows lets only administrators and LocalSystem open a disk for the
       read and write access these commands need, so this service runs as
-      LocalSystem, unlike the others. It sends only commands that read, asks
-      a SATA disk whether it sleeps before reading it, and leaves it asleep.
+      LocalSystem, unlike the others. It sends only commands that read.
+      Before reading a disk it asks Windows whether it has switched the disk
+      off, and a SATA disk also whether it sleeps, and leaves it asleep.
     -->
     <Component Directory="INSTALLFOLDER" Condition='SMART = "1"'>
       <File Source="$(AddOns)\usage-control-smart.exe" Name="usage-control-smart.exe" KeyPath="yes" />
