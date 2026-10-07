@@ -2,10 +2,10 @@ package metrics
 
 import "fmt"
 
-// numberDuplicates numbers the names that occur more than once, in order:
+// NumberDuplicates numbers the names that occur more than once, in order:
 // two "coretemp" become "coretemp 1" and "coretemp 2", so each name stands
 // for one sensor or GPU in the history. Names that occur once are unchanged.
-func numberDuplicates(names []string) []string {
+func NumberDuplicates(names []string) []string {
 	count := make(map[string]int, len(names))
 	for _, name := range names {
 		count[name]++

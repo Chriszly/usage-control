@@ -45,7 +45,9 @@ type AddOns struct {
 
 // Read returns the extras of every report that is not older than
 // addOnStaleAfter, in the order of the file names, cut down like another
-// device's extras by CleanExtras.
+// device's extras by CleanExtras. A report from further in the future is
+// left out too: it was written before the clock was set back, so its add-on
+// may have stopped long ago.
 func (a *AddOns) Read(now time.Time) []Extra {
 	if a == nil || a.Dir == "" {
 		return nil
@@ -59,7 +61,7 @@ func (a *AddOns) Read(now time.Time) []Extra {
 	for _, file := range files {
 		report, err := readAddOnReport(file)
 		a.logOnce(file, err)
-		if err != nil || now.Sub(report.Time) > addOnStaleAfter {
+		if err != nil || now.Sub(report.Time) > addOnStaleAfter || report.Time.Sub(now) > addOnStaleAfter {
 			continue
 		}
 		extras = append(extras, report.Extras...)
