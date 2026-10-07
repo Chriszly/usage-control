@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -118,7 +118,21 @@ if systemctl cat usage-control-gpu > /dev/null 2>&1 || [[ -e /usr/local/bin/usag
   echo "--addons= left the gpu add-on behind" >&2
   exit 1
 fi
+
+# The smart add-on runs and writes its report also where no disk answers
+# SMART commands, as on a CI machine's virtual disks.
+"$folder/install.sh" --addons=smart
+systemctl is-active --quiet usage-control-smart || { journalctl -u usage-control-smart --no-pager | tail -20 >&2; echo "the smart add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  [[ -f /run/usage-control-addons/smart.json ]] && break
+  sleep 1
+done
+test -f /run/usage-control-addons/smart.json || { echo "the smart add-on wrote no report" >&2; exit 1; }
 "$folder/install.sh" --addons=power
+if systemctl cat usage-control-smart > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-smart ]]; then
+  echo "--addons=power left the smart add-on behind" >&2
+  exit 1
+fi
 
 # The inodes add-on runs next to them and reports at least the root
 # filesystem; the power add-on stays installed. The memory add-on runs next
@@ -159,4 +173,4 @@ if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-p
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, gpu, inodes and memory add-ons and uninstall work."
+echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, gpu, smart, inodes and memory add-ons and uninstall work."

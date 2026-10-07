@@ -31,6 +31,9 @@
   counters.
   PORTS=1 installs the ports add-on, usage-control-ports.exe, as "Usage
   Control ports add-on", which lists the ports the PC listens on.
+  SMART=1 installs the smart add-on, usage-control-smart.exe, as the
+  service "Usage Control smart add-on", which reads the disks' health; it
+  runs as LocalSystem, as only administrators may send disks SMART commands.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -62,6 +65,7 @@
     WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update
     MEMORY          1 to install the memory add-on, 0 to remove it in an update
     PORTS           1 to install the ports add-on, 0 to remove it in an update
+    SMART           1 to install the smart add-on, 0 to remove it in an update
                     (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
@@ -90,7 +94,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -115,7 +119,7 @@
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
     -->
-    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS ?>
+    <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
     <?endforeach?>
 
@@ -172,7 +176,7 @@
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -394,6 +398,39 @@
     </Component>
 
     <!--
+      The smart add-on, with SMART=1: reads the disks' health with the SMART
+      commands of the disk drivers (SATA) and the NVMe driver's health log.
+      Windows lets only administrators and LocalSystem open a disk for the
+      read and write access these commands need, so this service runs as
+      LocalSystem, unlike the others. It sends only commands that read, asks
+      a SATA disk whether it sleeps before reading it, and leaves it asleep.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='SMART = "1"'>
+      <File Source="$(AddOns)\usage-control-smart.exe" Name="usage-control-smart.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlSmart"
+                      DisplayName="Usage Control smart add-on"
+                      Description="Reads the health of this computer's disks for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="LocalSystem">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlSmart" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlSmart" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlSmart"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlSmart"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
       The history database, used with WEBSITE=1. Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
@@ -471,6 +508,7 @@
         <Control Id="Memory" Type="CheckBox" X="20" Y="140" Width="330" Height="15" Property="MEMORY_BOX" CheckBoxValue="1" Text="&amp;Memory: kernel pools, committed, page faults, paging" />
         <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
         <Control Id="Wifi" Type="CheckBox" X="20" Y="174" Width="330" Height="15" Property="WIFI_BOX" CheckBoxValue="1" Text="&amp;Wi-Fi: signal quality and strength of the connection" />
+        <Control Id="Smart" Type="CheckBox" X="20" Y="191" Width="330" Height="15" Property="SMART_BOX" CheckBoxValue="1" Text="&amp;Smart: the disks' health, temperature and wear" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -486,7 +524,7 @@
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
       <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS ?>
+      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART ?>
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
       <?endforeach?>

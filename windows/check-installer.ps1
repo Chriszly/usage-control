@@ -1,9 +1,9 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
 # installs it with the website and the power, gpu, kernel, pressure, Wi-Fi,
-# memory and ports add-ons on, checks the tray icon pauses, resumes and stops
-# the service, updates it to a newer version without options and checks the
-# options and the add-ons were kept and the tray icon was closed for the
-# update,
+# memory, ports and smart add-ons on, checks the tray icon pauses, resumes
+# and stops the service, updates it to a newer version without options and
+# checks the options and the add-ons were kept and the tray icon was closed
+# for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -166,8 +166,18 @@ function Assert-PortsAddOn {
     Wait-Until { (Test-Path $report) -and (Get-Content $report -Raw) -match '"id":"ports"' } 'the ports add-on wrote its ports'
 }
 
-Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory and ports add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1"
+# The smart add-on runs as LocalSystem, as SMART commands need an
+# administrator. Its report may hold no disks on a virtual machine.
+function Assert-SmartAddOn {
+    $addOn = Get-CimInstance Win32_Service -Filter "Name = 'UsageControlSmart'"
+    if (-not $addOn) { throw 'The smart add-on is not installed' }
+    if ($addOn.StartName -ne 'LocalSystem') { throw "The smart add-on runs as $($addOn.StartName), not LocalSystem" }
+    Wait-Until { (Get-Service UsageControlSmart).Status -eq 'Running' } 'the smart add-on runs'
+    Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\smart.json" } 'the smart add-on wrote its report'
+}
+
+Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports and smart add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1 SMART=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
@@ -178,6 +188,7 @@ Assert-PressureAddOn
 Assert-WifiAddOn
 Assert-MemoryAddOn
 Assert-PortsAddOn
+Assert-SmartAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
 Assert-Tray
@@ -198,6 +209,7 @@ Assert-PressureAddOn
 Assert-WifiAddOn
 Assert-MemoryAddOn
 Assert-PortsAddOn
+Assert-SmartAddOn
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
@@ -209,6 +221,7 @@ if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on is still installed' }
 if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on is still installed' }
 if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on is still installed' }
+if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The smart add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
@@ -229,6 +242,7 @@ if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The
 if (Get-Service UsageControlWifi -ErrorAction SilentlyContinue) { throw 'The Wi-Fi add-on was installed without WIFI=1' }
 if (Get-Service UsageControlMemory -ErrorAction SilentlyContinue) { throw 'The memory add-on was installed without MEMORY=1' }
 if (Get-Service UsageControlPorts -ErrorAction SilentlyContinue) { throw 'The ports add-on was installed without PORTS=1' }
+if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The smart add-on was installed without SMART=1' }
 Invoke-Installer "/x `"$Msi`""
 
 Write-Host 'The installer works'
