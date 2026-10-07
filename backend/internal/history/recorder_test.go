@@ -226,6 +226,38 @@ func TestRecorderStoresUnderTheMinuteItWasDueFor(t *testing.T) {
 	}
 }
 
+func TestRecorderStoresUnderTheMinuteTheClockShowsAfterAJump(t *testing.T) {
+	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
+	for _, lag := range []time.Duration{0, fetchLag} {
+		recorder := &Recorder{}
+		if lag != 0 {
+			recorder.Fetch = func(context.Context, time.Time) bool { return true }
+		}
+		at := minute.Add(storeAt + lag)
+		last := minute.Add(-time.Minute)
+		// On time, or with the clock set by some seconds: the minute it was due for.
+		for _, off := range []time.Duration{0, 20 * time.Second, -20 * time.Second} {
+			if got, ok := recorder.storedUnder(at.Add(off), minute, last); !ok || !got.Equal(minute) {
+				t.Errorf("lag %v, off %v: storedUnder() = %v, %v; want %v", lag, off, got, ok, minute)
+			}
+		}
+		// The clock jumped hours forward, as by NTP after a start from a saved
+		// time or a resume from suspend: the minute the clock shows.
+		later := at.Add(3 * time.Hour)
+		if got, ok := recorder.storedUnder(later, minute, last); !ok || !got.Equal(minute.Add(3*time.Hour)) {
+			t.Errorf("lag %v: storedUnder() after a jump forward = %v, %v; want %v", lag, got, ok, minute.Add(3*time.Hour))
+		}
+		// Hours back: before the minute stored last, so nothing is stored.
+		if got, ok := recorder.storedUnder(at.Add(-3*time.Hour), minute, last); ok {
+			t.Errorf("lag %v: storedUnder() after a jump back = %v, true; want nothing stored", lag, got)
+		}
+		// The next minute is due after the one the clock shows.
+		if _, due := recorder.next(later, minute.Add(3*time.Hour)); !due.Equal(minute.Add(3*time.Hour + time.Minute)) {
+			t.Errorf("lag %v: next() after a jump forward = %v, want %v", lag, due, minute.Add(3*time.Hour+time.Minute))
+		}
+	}
+}
+
 func TestRecorderOfAnotherDeviceStoresUnderTheMinuteBefore(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

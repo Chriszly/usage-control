@@ -89,9 +89,10 @@ func ValidID(id string) bool {
 // and a unit the hub does not know turned into UnitNumber. Groups and values
 // with an id that is invalid or already used, and values without a value for
 // their unit, are left out. Where there are more groups or values than kept,
-// the ones that keep a history are kept first, then the others, each by id,
-// in the order the device listed them: the same ones a hub keeps of the
-// minutes it fetches, which have no order (see history.Keep).
+// the ones that keep a history are kept first, by id: the same ones a hub
+// keeps of the minutes it fetches, which have no order (see history.Keep).
+// The others fill the places left in the order the device listed them. What
+// is kept stays in the order the device listed it.
 func CleanExtras(extras []Extra, maxEntries int) []Extra {
 	var clean []Extra
 	groups := map[string]bool{}
@@ -143,19 +144,23 @@ func cleanItems(items []ExtraItem, maxEntries int) []ExtraItem {
 }
 
 // first returns n of list, whose ids are unique, in the order of list: the
-// ones that keep a history by id, then the others by id.
+// ones that keep a history by id, then the others in the order of list, as
+// an add-on puts the ones that matter most first, such as its top processes.
 func first[T any](list []T, n int, id func(T) string, history func(T) bool) []T {
 	if len(list) <= n {
 		return list
 	}
-	ranked := slices.SortedFunc(slices.Values(list), func(a, b T) int {
-		if history(a) != history(b) {
-			if history(a) {
-				return -1
-			}
+	ranked := slices.Clone(list)
+	slices.SortStableFunc(ranked, func(a, b T) int {
+		switch {
+		case history(a) && history(b):
+			return cmp.Compare(id(a), id(b))
+		case history(a):
+			return -1
+		case history(b):
 			return 1
 		}
-		return cmp.Compare(id(a), id(b))
+		return 0
 	})
 	kept := map[string]bool{}
 	for _, entry := range ranked[:n] {

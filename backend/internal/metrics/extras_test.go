@@ -97,6 +97,26 @@ func TestCleanExtrasKeepsTheOnesWithAHistoryFirstByID(t *testing.T) {
 	}
 }
 
+func TestCleanExtrasFillsUpWithTheOthersInTheDevicesOrder(t *testing.T) {
+	item := func(id string) ExtraItem { return ExtraItem{ID: id, Unit: UnitNumber, Value: number(1)} }
+	// Top processes, the busiest first, as the processes add-on lists them.
+	extras := []Extra{
+		{ID: "pid-900", Items: []ExtraItem{item("cpu"), item("memory"), item("disk")}},
+		{ID: "pid-10", Items: []ExtraItem{item("cpu")}},
+		{ID: "pid-1", Items: []ExtraItem{item("cpu")}},
+		{ID: "history", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(1), History: true}}},
+	}
+
+	got := CleanExtras(extras, 2)
+
+	if len(got) != 2 || got[0].ID != "pid-900" || got[1].ID != "history" {
+		t.Fatalf("CleanExtras() = %+v, want the group with a history and then the busiest process", got)
+	}
+	if items := got[0].Items; len(items) != 2 || items[0].ID != "cpu" || items[1].ID != "memory" {
+		t.Errorf("values of the busiest process = %+v, want the first two the device listed", items)
+	}
+}
+
 func TestCleanTranslationsKeepsTheSameLanguagesEveryTime(t *testing.T) {
 	texts := map[string]string{"af": ""}
 	for _, language := range []string{"zu", "de", "fr", "es", "it", "nl", "pl", "pt", "sv", "da", "fi"} {

@@ -165,7 +165,7 @@ func (s *Store) AddMinutes(ctx context.Context, device string, minutes []Minute)
 // Steps of an hour and more are whole hours (see stepFor) and come from the
 // hourly averages, each weighted by how many values it is over: the same
 // averages as from the values themselves, from 60 times fewer rows. They
-// include the whole hour from falls in.
+// include the whole step from falls in.
 func (s *Store) Range(ctx context.Context, device string, from, to time.Time, step time.Duration) ([]Series, error) {
 	stepSeconds := max(1, int64(step/time.Second))
 	query := `
@@ -184,9 +184,10 @@ func (s *Store) Range(ctx context.Context, device string, from, to time.Time, st
 	}
 	start := from.Unix()
 	if step >= time.Hour {
-		// The hour from falls in is stored at its start, before from, and
-		// would be left out.
-		start = from.Truncate(time.Hour).Unix()
+		// From the start of the step from falls in: its hours are stored at
+		// their start, before from, and would be left out, and the step
+		// would depend on the hour from is in, which the cache does not.
+		start = start / stepSeconds * stepSeconds
 	}
 	rows, err := s.db.QueryContext(ctx, query, stepSeconds, device, start, to.Unix())
 	if err != nil {

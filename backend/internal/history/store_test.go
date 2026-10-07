@@ -115,6 +115,26 @@ func TestRangeOfHoursKeepsTheHourItStartsIn(t *testing.T) {
 	}
 }
 
+func TestRangeOfLongerStepsKeepsTheWholeStepItStartsIn(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	start := time.Unix(1_800_000_000/7200*7200, 0) // the start of a 2 hour step
+	for i, at := range []time.Duration{10 * time.Minute, time.Hour + 10*time.Minute, 2*time.Hour + 10*time.Minute} {
+		if err := store.Add(ctx, LocalDevice, start.Add(at), map[string]float64{MetricCPU: float64(10 * (i + 1))}); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+
+	// From either hour of the first step: the same answer, as the cache gives.
+	for _, from := range []time.Time{start.Add(30 * time.Minute), start.Add(90 * time.Minute)} {
+		got, err := store.Range(ctx, LocalDevice, from, start.Add(4*time.Hour), 2*time.Hour)
+		want := []Series{{Metric: MetricCPU, Points: []Point{{start.Unix(), 15}, {start.Unix() + 7200, 30}}}}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("Range(from %v) = %+v, %v; want %+v, with the whole first step", from, got, err, want)
+		}
+	}
+}
+
 func TestRangeIsNotCachedAcrossADeleteOfTheDevice(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

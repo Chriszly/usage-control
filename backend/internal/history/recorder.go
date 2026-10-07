@@ -97,8 +97,11 @@ func (r *Recorder) Run(ctx context.Context) {
 			r.storeLast(ctx, stored, last, time.Now())
 			return
 		case now := <-store.C:
-			r.store(ctx, stored, now, due)
-			stored, last = now, due
+			if minute, ok := r.storedUnder(now, due, last); ok {
+				r.store(ctx, stored, now, minute)
+				last = minute
+			}
+			stored = now
 			wait, due = r.next(time.Now(), last)
 			store.Reset(wait)
 		case <-read.C:
@@ -120,6 +123,22 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 		wait, due = wait+SampleInterval, due.Add(SampleInterval)
 	}
 	return wait, due
+}
+
+// storedUnder returns the minute the average is stored under when the timer
+// fires at now: due, the minute it was set for, as long as the clock shows
+// about the time it was due at, which a clock set by a few seconds or so
+// keeps. A timer runs on the time since it was set, not on the clock, so
+// after the clock jumped further, as when it was set by NTP after a
+// Raspberry Pi started from a saved time, or the machine resumed from
+// suspend, due would be far from the readings; the minute the clock shows is
+// taken then, but only when it is after last, the one stored last.
+func (r *Recorder) storedUnder(now, due, last time.Time) (time.Time, bool) {
+	if off := now.Sub(due.Add(storeAt + r.lag())); off > -SampleInterval/2 && off < SampleInterval/2 {
+		return due, true
+	}
+	minute := r.minuteOf(now)
+	return minute, minute.After(last)
 }
 
 // lag returns how much later than storeAt the recorder stores.

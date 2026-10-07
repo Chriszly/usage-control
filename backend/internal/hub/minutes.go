@@ -234,9 +234,11 @@ func (f *fetcher) fetch(ctx context.Context, minute time.Time) bool {
 		slog.Info("fetching the minutes of the device works again", "device", f.device)
 	}
 	// The hub fetches a few seconds after the device keeps its minute, which
-	// a device whose clock is further behind has not done yet. Should it then
-	// stop, the minute would be missing: the recorder stores its own, and the
-	// device's, fetched next time, is not stored again.
+	// a device whose clock is further behind has not done yet. The minute is
+	// missing too while more minutes follow, and when the device's clock is
+	// ahead, which puts its minutes a minute earlier on the hub's. Should the
+	// device then stop, the minute would be lost: the recorder stores its
+	// own, and the device's, fetched later, is not stored again.
 	return !time.Unix(f.after+f.offset, 0).Truncate(history.SampleInterval).Before(minute)
 }
 
