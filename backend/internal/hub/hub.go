@@ -30,6 +30,9 @@ type Hub struct {
 	// historyEntries is how many disks, sensors, network cards and GPUs each
 	// the history keeps per device.
 	historyEntries int
+	// retention is how long the history is kept; older minutes of a device
+	// are not fetched.
+	retention time.Duration
 	// pagePort is the port the hub's page is reachable on, which every
 	// device is told; see PagePortHeader.
 	pagePort string
@@ -66,10 +69,11 @@ type Remote struct {
 
 // New starts collecting from the fixed devices and the ones added on the page
 // earlier, until ctx is done. The history is kept in store, with the first
-// historyEntries disks, sensors, network cards and GPUs each of a device.
-// Every device is told pagePort, the port the hub's page is reachable on.
-func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, pagePort string) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
+// historyEntries disks, sensors, network cards and GPUs each of a device, for
+// retention. Every device is told pagePort, the port the hub's page is
+// reachable on.
+func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string) (*Hub, error) {
+	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
 	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -296,7 +300,7 @@ func (h *Hub) start(device Device, fixed bool) {
 		recorded: make(chan struct{}),
 		kind:     kind,
 	}
-	fetcher := &fetcher{agent: agent, store: h.store, device: device.ID, maxValues: maxValues(h.historyEntries)}
+	fetcher := &fetcher{agent: agent, store: h.store, device: device.ID, maxEntries: h.historyEntries, retention: h.retention}
 	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries, Fetch: fetcher.fetch}
 	h.recording.Go(func() {
 		defer close(remote.recorded)

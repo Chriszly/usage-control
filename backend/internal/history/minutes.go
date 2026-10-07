@@ -3,8 +3,11 @@ package history
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // Minute is the average of a device's readings over one SampleInterval, as
@@ -19,7 +22,10 @@ type Minute struct {
 const DefaultBufferSpan = 24 * time.Hour
 
 // bufferSchema keeps the minutes of a device without a history of its own,
-// one row per value, until the hub has fetched them.
+// one row per value, until every hub that fetches them has them;
+// buffer_hubs keeps, per hub, up to which minute it has them (see Since);
+// buffer_extra_info describes the extras among the values, as extra_info
+// does in a history.
 const bufferSchema = `
 CREATE TABLE IF NOT EXISTS buffer (
 	time   INTEGER NOT NULL, -- Unix time in seconds
@@ -27,26 +33,36 @@ CREATE TABLE IF NOT EXISTS buffer (
 	value  REAL    NOT NULL,
 	PRIMARY KEY (time, metric)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS buffer_hubs (
+	hub     TEXT    NOT NULL PRIMARY KEY, -- the address the hub asks from
+	fetched INTEGER NOT NULL, -- Unix time of the newest minute the hub has
+	sent    INTEGER NOT NULL, -- Unix time of the newest minute handed to it
+	asked   INTEGER NOT NULL  -- Unix time it last asked
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS buffer_extra_info (
+	metric  TEXT    NOT NULL PRIMARY KEY,
+	info    TEXT    NOT NULL, -- ExtraInfo as JSON
+	written INTEGER NOT NULL  -- Unix time in seconds
+) WITHOUT ROWID;
 `
 
 // Buffer keeps the minutes of a device without a history of its own, so a
 // hub that cannot reach it for a while fetches them later and its history
-// has no gap. Minutes are deleted once the hub has them, and in any case once
-// they are older than Span. It is a table on disk, so a restart of the device
-// loses nothing either.
+// has no gap. Minutes are deleted once every hub that asks for them has them,
+// and in any case once they are older than Span. It is a table on disk, so a
+// restart of the device loses nothing either.
 type Buffer struct {
 	db   *sql.DB
 	span time.Duration
 
-	// mu lets one Since run at a time, as each deletes up to sent.
+	// mu lets one Since run at a time, as each moves a hub's place and
+	// deletes up to the place of the hub furthest behind.
 	mu sync.Mutex
-	// sent is the time of the newest minute Since handed out.
-	sent int64
 }
 
 // OpenBuffer opens the buffer in the database at path, creating the file and
-// its table when needed, which keeps minutes for up to span. A device without
-// a history of its own needs no other table.
+// its tables when needed, which keeps minutes for up to span. A device
+// without a history of its own needs no other table.
 func OpenBuffer(ctx context.Context, path string, span time.Duration) (*Buffer, error) {
 	db, err := openDB(path)
 	if err != nil {
@@ -65,8 +81,9 @@ func (b *Buffer) Close() error {
 }
 
 // Add keeps the averages measured at one time and deletes what is older than
-// the span. The buffer holds only the machine's own minutes, so device is
-// not stored; it is there so a Recorder can use a Buffer like a Store.
+// the span, minutes and descriptions of extras alike. The buffer holds only
+// the machine's own minutes, so device is not stored; it is there so a
+// Recorder can use a Buffer like a Store.
 func (b *Buffer) Add(ctx context.Context, _ string, at time.Time, values map[string]float64) error {
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -83,68 +100,121 @@ func (b *Buffer) Add(ctx context.Context, _ string, at time.Time, values map[str
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM buffer WHERE time < ?`, at.Add(-b.span).Unix()); err != nil {
-		return err
+	before := at.Add(-b.span).Unix()
+	for _, query := range []string{
+		`DELETE FROM buffer WHERE time < ?`,
+		`DELETE FROM buffer_extra_info WHERE written < ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, before); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
 
-// Since deletes the minutes up to and including after, which the hub asking
-// has stored, and returns the oldest of the ones after it, at most limit,
-// and whether more follow. Only minutes handed out before are deleted, so
-// no request deletes minutes that no hub has fetched yet.
-func (b *Buffer) Since(ctx context.Context, after time.Time, limit int) ([]Minute, bool, error) {
+// SetExtraInfo keeps how the given extras are described, for a hub to fetch
+// with the minutes. The buffer holds only the machine's own, so device is
+// not stored, as for Add.
+func (b *Buffer) SetExtraInfo(ctx context.Context, _ string, info map[string]ExtraInfo, now time.Time) error {
+	return writeExtraInfo(ctx, b.db, `INSERT OR REPLACE INTO buffer_extra_info (metric, info, written) VALUES (?2, ?3, ?4)`, "", info, now)
+}
+
+// ExtraInfo returns how the extras among the minutes are described, by the
+// metric they are stored under.
+func (b *Buffer) ExtraInfo(ctx context.Context) (map[string]ExtraInfo, error) {
+	return readExtraInfo(ctx, b.db, `SELECT metric, info FROM buffer_extra_info`)
+}
+
+// Since returns to the hub at the given address the oldest minutes after the
+// given time, at most minutes of them and values values in all (one minute at
+// least), and whether more follow. Asking after a time tells that the hub has
+// stored everything up to it. The buffer keeps that per hub, as far as it
+// handed the minutes out to that hub, and deletes the minutes that every hub
+// which asked within the span has. So neither a second hub nor any other
+// client deletes minutes a hub has not fetched yet; one that stops asking
+// holds them back for the span at most.
+func (b *Buffer) Since(ctx context.Context, hub string, after time.Time, minutes, values int) ([]Minute, bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, err := b.db.ExecContext(ctx, `DELETE FROM buffer WHERE time <= ?`, min(after.Unix(), b.sent)); err != nil {
+	var sent int64
+	err := b.db.QueryRowContext(ctx, `SELECT sent FROM buffer_hubs WHERE hub = ?`, hub).Scan(&sent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, false, err
 	}
-	minutes, more, err := readMinutes(ctx, b.db,
-		`SELECT DISTINCT time FROM buffer WHERE time > ?1 ORDER BY time LIMIT ?2`,
+	list, more, err := readMinutes(ctx, b.db,
+		`SELECT time, COUNT(*) FROM buffer WHERE time > ?1 GROUP BY time ORDER BY time LIMIT ?2`,
 		`SELECT time, metric, value FROM buffer WHERE time > ?1 AND time <= ?2 ORDER BY time`,
-		after, limit)
-	if len(minutes) > 0 {
-		b.sent = max(b.sent, minutes[len(minutes)-1].Time)
+		after, minutes, values)
+	if err != nil {
+		return nil, false, err
 	}
-	return minutes, more, err
+	fetched := min(after.Unix(), sent)
+	if len(list) > 0 {
+		sent = max(sent, list[len(list)-1].Time)
+	}
+	now := time.Now()
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, step := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT OR REPLACE INTO buffer_hubs (hub, fetched, sent, asked) VALUES (?, ?, ?, ?)`, []any{hub, fetched, sent, now.Unix()}},
+		{`DELETE FROM buffer_hubs WHERE asked < ?`, []any{now.Add(-b.span).Unix()}},
+		{`DELETE FROM buffer WHERE time <= (SELECT MIN(fetched) FROM buffer_hubs)`, nil},
+	} {
+		if _, err := tx.ExecContext(ctx, step.query, step.args...); err != nil {
+			return nil, false, err
+		}
+	}
+	return list, more, tx.Commit()
 }
 
 // Since returns the device's stored minutes after the given time, at most
-// limit, and whether more follow. They are its history, so unlike a Buffer's
-// they stay until the retention deletes them.
-func (r Reader) Since(ctx context.Context, after time.Time, limit int) ([]Minute, bool, error) {
+// minutes of them and values values in all (one minute at least), and
+// whether more follow. They are its history, so unlike a Buffer's they stay
+// until the retention deletes them, whichever hub asks.
+func (r Reader) Since(ctx context.Context, _ string, after time.Time, minutes, values int) ([]Minute, bool, error) {
 	return readMinutes(ctx, r.Store.db,
-		`SELECT DISTINCT time FROM samples WHERE device = ?3 AND time > ?1 ORDER BY time LIMIT ?2`,
+		`SELECT time, COUNT(*) FROM samples WHERE device = ?3 AND time > ?1 GROUP BY time ORDER BY time LIMIT ?2`,
 		`SELECT time, metric, value FROM samples WHERE device = ?3 AND time > ?1 AND time <= ?2 ORDER BY time`,
-		after, limit, r.Device)
+		after, minutes, values, r.Device)
 }
 
-// readMinutes reads the minutes after the given time, at most limit: times
-// lists the times of the minutes (?1 after, ?2 how many), values the values
-// up to the last of them (?1 after, ?2 the last time); further arguments go to
-// both as ?3 and on, such as the device.
-func readMinutes(ctx context.Context, db *sql.DB, times, values string, after time.Time, limit int, args ...any) ([]Minute, bool, error) {
+// readMinutes reads the oldest minutes after the given time, at most minutes
+// of them and maxValues values in all, but one minute at least: times lists
+// the times of the minutes with how many values each has (?1 after, ?2 how
+// many), values the values up to the last of them (?1 after, ?2 the last
+// time); further arguments go to both as ?3 and on, such as the device.
+func readMinutes(ctx context.Context, db *sql.DB, times, values string, after time.Time, minutes, maxValues int, args ...any) ([]Minute, bool, error) {
 	// One more than asked for tells whether more follow.
 	var last int64
-	var count int
-	rows, err := db.QueryContext(ctx, times, append([]any{after.Unix(), limit + 1}, args...)...)
+	var taken, total int
+	more := false
+	rows, err := db.QueryContext(ctx, times, append([]any{after.Unix(), minutes + 1}, args...)...)
 	if err != nil {
 		return nil, false, err
 	}
 	for rows.Next() {
 		var t int64
-		if err := rows.Scan(&t); err != nil {
+		var count int
+		if err := rows.Scan(&t, &count); err != nil {
 			_ = rows.Close()
 			return nil, false, err
 		}
-		if count++; count <= limit {
-			last = t
+		if more || taken == minutes || (taken > 0 && total+count > maxValues) {
+			more = true
+			continue
 		}
+		taken, total, last = taken+1, total+count, t
 	}
 	if err := rows.Close(); err != nil {
 		return nil, false, err
 	}
-	if err := rows.Err(); err != nil || count == 0 {
+	if err := rows.Err(); err != nil || taken == 0 {
 		return []Minute{}, false, err
 	}
 
@@ -153,7 +223,7 @@ func readMinutes(ctx context.Context, db *sql.DB, times, values string, after ti
 		return nil, false, err
 	}
 	defer func() { _ = rows.Close() }()
-	minutes := []Minute{}
+	list := []Minute{}
 	for rows.Next() {
 		var t int64
 		var metric string
@@ -161,10 +231,17 @@ func readMinutes(ctx context.Context, db *sql.DB, times, values string, after ti
 		if err := rows.Scan(&t, &metric, &value); err != nil {
 			return nil, false, err
 		}
-		if len(minutes) == 0 || minutes[len(minutes)-1].Time != t {
-			minutes = append(minutes, Minute{Time: t, Values: map[string]float64{}})
+		if len(list) == 0 || list[len(list)-1].Time != t {
+			list = append(list, Minute{Time: t, Values: map[string]float64{}})
 		}
-		minutes[len(minutes)-1].Values[metric] = value
+		list[len(list)-1].Values[metric] = value
 	}
-	return minutes, count > limit, rows.Err()
+	return list, more, rows.Err()
+}
+
+// DescribeExtras describes the extras that ask for their history, by the
+// metric they are stored under, as a recorder does: for a hub that fetched
+// the minutes of a device with how their extras are described.
+func DescribeExtras(extras []metrics.Extra) map[string]ExtraInfo {
+	return extraInfo(extras)
 }

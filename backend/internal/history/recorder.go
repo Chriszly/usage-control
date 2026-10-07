@@ -12,6 +12,14 @@ import (
 // readings in the database.
 const SampleInterval = time.Minute
 
+// storeAt is the second of each minute the recorder stores the average at,
+// under that minute. Storing at the same second every minute, not a minute
+// after the program started, means a restart of less than about 40 seconds
+// never skips a minute: the minute it stops in is stored then, unless it was
+// already, and the minute it starts again in is stored at its storeAt,
+// unless that passed before it stopped.
+const storeAt = 55 * time.Second
+
 // Collector reads the current usage of the machine.
 type Collector interface {
 	Collect(ctx context.Context) (metrics.Snapshot, error)
@@ -55,6 +63,10 @@ type Recorder struct {
 // Run records until ctx is cancelled. Failures are logged and the next
 // reading is tried again, so a full disk does not stop the website.
 func (r *Recorder) Run(ctx context.Context) {
+	// stored is when the readings not stored yet began, last the minute the
+	// last average was stored under, zero before the first.
+	stored := time.Now()
+	var last time.Time
 	// The first reading measures CPU usage since the machine booted and no
 	// network speed, so it only starts the first interval and is not kept.
 	if _, err := r.Collector.Collect(ctx); err != nil {
@@ -63,21 +75,33 @@ func (r *Recorder) Run(ctx context.Context) {
 
 	read := time.NewTicker(RecentInterval)
 	defer read.Stop()
-	store := time.NewTicker(SampleInterval)
+	store := time.NewTimer(untilStore(stored))
 	defer store.Stop()
-	stored := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
-			r.storeLast(ctx, stored, time.Now())
+			r.storeLast(ctx, stored, last, time.Now())
 			return
 		case <-read.C:
 			r.read(ctx)
 		case now := <-store.C:
 			r.store(ctx, stored, now)
-			stored = now
+			stored, last = now, now.Truncate(SampleInterval)
+			store.Reset(untilStore(time.Now()))
 		}
 	}
+}
+
+// untilStore returns how long until the recorder stores next: at storeAt of
+// a minute, at least a quarter of a minute from now, so a timer that fires a
+// little early, or the start just before storeAt, does not store the same
+// minute twice or an average of hardly any readings.
+func untilStore(now time.Time) time.Duration {
+	next := now.Truncate(SampleInterval).Add(storeAt)
+	for next.Sub(now) < SampleInterval/4 {
+		next = next.Add(SampleInterval)
+	}
+	return next.Sub(now)
 }
 
 func (r *Recorder) read(ctx context.Context) {
@@ -102,9 +126,9 @@ func (r *Recorder) read(ctx context.Context) {
 		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
 			"device", r.Device, "kept", r.MaxEntries)
 	}
-	// Only a history keeps how the extras are described; a hub reads that
-	// from a data-only device's own answers.
-	if store, ok := r.Store.(*Store); ok {
+	// A history keeps how the extras are described, and so does a data-only
+	// device's buffer, for the hub to fetch with the minutes.
+	if store, ok := r.Store.(extraInfoSetter); ok {
 		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras), snapshot.Time); err != nil {
 			slog.Error("store how the extras are described", "device", r.Device, "error", err)
 		}
@@ -120,14 +144,13 @@ func (r *Recorder) failed(err error) {
 	}
 }
 
-// storeLast stores the average of the readings since the last minute was
-// stored when the recorder stops, as for an update or when the machine is shut
-// down, so a hub fetching this device's minutes gets that one too. Only a
-// minute after the last one stored is stored: a buffer replaces a minute it
-// has. A hub's recorder of another device leaves it, as the device keeps its
-// own.
-func (r *Recorder) storeLast(ctx context.Context, from, now time.Time) {
-	if r.Fetch != nil || now.Truncate(SampleInterval).Equal(from.Truncate(SampleInterval)) {
+// storeLast stores the average of the readings from from when the recorder
+// stops, as for an update or when the machine is shut down, so a hub fetching
+// this device's minutes gets that one too. Only a minute other than last, the
+// one stored last, is stored: a buffer replaces a minute it has. A hub's
+// recorder of another device leaves it, as the device keeps its own.
+func (r *Recorder) storeLast(ctx context.Context, from, last, now time.Time) {
+	if r.Fetch != nil || now.Truncate(SampleInterval).Equal(last) {
 		return
 	}
 	averages := r.Recent.Average(from, now)

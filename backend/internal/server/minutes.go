@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
@@ -12,17 +14,21 @@ import (
 )
 
 // MinuteSource has the averages a machine keeps of its own usage, one per
-// minute, for a hub to fetch: its history, or the buffer of a machine without
-// one, which forgets the minutes a hub has fetched.
+// minute, for a hub to fetch, and how the extras among them are described:
+// its history, or the buffer of a machine without one, which forgets the
+// minutes every hub has fetched.
 type MinuteSource interface {
-	Since(ctx context.Context, after time.Time, limit int) ([]history.Minute, bool, error)
+	Since(ctx context.Context, hub string, after time.Time, minutes, values int) ([]history.Minute, bool, error)
+	ExtraInfo(ctx context.Context) (map[string]history.ExtraInfo, error)
 }
 
-// minutesHandler serves GET /api/minutes?after=<unix seconds>: the oldest
-// minutes after that time, hub.MinutesPerAnswer at most, on this machine's
-// clock. Asking with after tells that the hub has stored everything up to it,
-// so after may not be later than this machine's time: there are no minutes
-// after it yet.
+// minutesHandler serves GET /api/minutes?after=<unix seconds>[&values=<n>]:
+// the oldest minutes after that time, hub.MinutesPerAnswer at most and
+// hub.ValuesPerAnswer values in all, or fewer when the hub asks for fewer,
+// on this machine's clock, with how the extras among them are described.
+// Asking with after tells that the hub has stored everything up to it, so
+// after may not be later than this machine's time: there are no minutes
+// after it yet. Each hub is told apart by the address it asks from.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
@@ -31,12 +37,63 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 			http.Error(w, "after must be a Unix time in seconds, not later than this device's time", http.StatusBadRequest)
 			return
 		}
-		minutes, more, err := source.Since(r.Context(), time.Unix(after, 0), hub.MinutesPerAnswer)
+		values := hub.ValuesPerAnswer
+		if asked := r.URL.Query().Get("values"); asked != "" {
+			n, err := strconv.Atoi(asked)
+			if err != nil || n < 1 {
+				http.Error(w, "values must be a whole number of at least 1", http.StatusBadRequest)
+				return
+			}
+			values = min(values, n)
+		}
+		minutes, more, err := source.Since(r.Context(), askedFrom(r), time.Unix(after, 0), hub.MinutesPerAnswer, values)
 		if err != nil {
 			slog.Error("read the minutes for a hub", "error", err)
 			http.Error(w, "could not read the minutes", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, hub.MinutesAnswer{Now: time.Now().Unix(), Minutes: minutes, More: more})
+		extras, err := extrasAmong(r.Context(), source, minutes)
+		if err != nil {
+			slog.Error("read how the extras are described for a hub", "error", err)
+			http.Error(w, "could not read the minutes", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, hub.MinutesAnswer{Now: time.Now().Unix(), Minutes: minutes, More: more, Extras: extras})
 	}
+}
+
+// askedFrom returns the address a request came from, without its port, which
+// changes from one connection to the next.
+func askedFrom(r *http.Request) string {
+	if sender, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
+		return sender.Addr().Unmap().WithZone("").String()
+	}
+	return r.RemoteAddr
+}
+
+// extrasAmong returns how the extras among minutes are described, or nil
+// when they have none.
+func extrasAmong(ctx context.Context, source MinuteSource, minutes []history.Minute) (map[string]history.ExtraInfo, error) {
+	used := map[string]bool{}
+	for _, minute := range minutes {
+		for metric := range minute.Values {
+			if strings.HasPrefix(metric, history.MetricExtra+":") {
+				used[metric] = true
+			}
+		}
+	}
+	if len(used) == 0 {
+		return nil, nil
+	}
+	all, err := source.ExtraInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	extras := map[string]history.ExtraInfo{}
+	for metric := range used {
+		if info, ok := all[metric]; ok {
+			extras[metric] = info
+		}
+	}
+	return extras, nil
 }

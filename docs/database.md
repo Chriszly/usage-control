@@ -1,6 +1,6 @@
 # Database and history
 
-Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file. A data-only device keeps no history, only the minutes the hub has not fetched yet, in a `buffer` table in the same kind of file, which has no other table (see [While the hub is away](architecture.md#while-the-hub-is-away)).
+Every device with a website keeps its history in one SQLite file. A hub keeps the history of every device it collects from in its own file. A data-only device keeps no history, only the minutes the hub has not fetched yet, in a `buffer` table in the same kind of file, with how far each hub has fetched them in `buffer_hubs` and how its extras are described in `buffer_extra_info`, and no other table (see [While the hub is away](architecture.md#while-the-hub-is-away)).
 
 - [Where the file is](#where-the-file-is)
 - [Tables](#tables)
@@ -29,7 +29,9 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | `samples_hourly` | the average of each hour per device and metric, with `count`, how many minute values it is over | for the retention |
 | `extra_info` | how each stored [extra](data.md#extras) is described: `device`, `metric`, `info` (title, label and unit as JSON), `written` (Unix seconds) | while the extra has values, or for the retention after it was last written |
 | `hub_devices` | devices added on the page: `id`, `name`, `address`, `added` | until removed on the page |
-| `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until the hub has fetched it, at most `BUFFER_HOURS` |
+| `buffer` | data-only devices: one row per minute and metric of the device's own usage, `time`, `metric`, `value` | until every hub has fetched it, at most `BUFFER_HOURS` |
+| `buffer_hubs` | data-only devices: per hub, by the address it asks from, `fetched`, the newest minute it has, `sent`, the newest handed to it, and `asked`, when it last asked (Unix seconds) | until it has not asked for `BUFFER_HOURS` |
+| `buffer_extra_info` | data-only devices: how each of its own [extras](data.md#extras) is described, as `extra_info` without `device` | for `BUFFER_HOURS` after it was last written |
 | `hub_watched` | per other device, since when the hub collects from it | as long as the device is collected from |
 | `hub_outages` | per other device, every time it did not answer: `started`, `ended` (Unix milliseconds) | as long as the device is collected from |
 | `hub_device_kinds` | per other device that is a PC or laptop: `device`, `kind` (`pc`); a device without a row is a server or IoT device | as long as the device is collected from |
@@ -49,7 +51,7 @@ flowchart LR
     h -- "longer ranges,<br/>1 h steps and up" --> chart
 ```
 
-**Writing.** Each device's recorder takes a reading every 5 seconds and keeps the readings of the last 30 minutes in memory. Every minute it writes their average to `samples`, at the start of the minute, and, in the same transaction, adds it into the running average of the hour in `samples_hourly`. A minute that is in `samples` already, as when a hub stored a minute itself and later fetches the device's, is not written again, so it counts once in its hour. One write per device per minute keeps the SD card of a Raspberry Pi from wearing out. The first reading after a start is not kept, since its CPU usage is the average since the machine booted.
+**Writing.** Each device's recorder takes a reading every 5 seconds and keeps the readings of the last 30 minutes in memory. Every minute, at its 55th second, it writes their average to `samples`, at the start of that minute, and, in the same transaction, adds it into the running average of the hour in `samples_hourly`. A minute that is in `samples` already, as when a hub stored a minute itself and later fetches the device's, is not written again, so it counts once in its hour. One write per device per minute keeps the SD card of a Raspberry Pi from wearing out. The first reading after a start is not kept, since its CPU usage is the average since the machine booted.
 
 **Reading.** The page opens on the last 30 minutes. A chart asks for a range and gets at most 360 points per metric, each the average over one step:
 

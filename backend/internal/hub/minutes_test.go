@@ -7,12 +7,14 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // minutesDevice is a usage-control whose clock is behind by an hour and that
@@ -23,6 +25,13 @@ type minutesDevice struct {
 	clock   time.Duration
 	minutes []history.Minute
 	asked   []int64
+	// values is how many values each answer was asked to have at most.
+	values []int
+	// slowAfter, when set, is how many answers the device gives before it
+	// answers no more in time.
+	slowAfter int
+	// extras describes the extras among the minutes.
+	extras map[string]history.ExtraInfo
 	// broken, when set, answers GET /api/minutes in place of the device.
 	broken http.HandlerFunc
 }
@@ -49,6 +58,12 @@ func (d *minutesDevice) start(t *testing.T) *Agent {
 		case MinutesPath:
 			after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 			d.asked = append(d.asked, after)
+			values, _ := strconv.Atoi(r.URL.Query().Get("values"))
+			d.values = append(d.values, values)
+			if d.slowAfter > 0 && len(d.asked) > d.slowAfter {
+				<-r.Context().Done()
+				return
+			}
 			if d.broken != nil {
 				d.broken(w, r)
 				return
@@ -57,7 +72,7 @@ func (d *minutesDevice) start(t *testing.T) *Agent {
 				http.Error(w, "after is later than this device's time", http.StatusBadRequest)
 				return
 			}
-			answer := MinutesAnswer{Now: now.Unix(), Minutes: []history.Minute{}}
+			answer := MinutesAnswer{Now: now.Unix(), Minutes: []history.Minute{}, Extras: d.extras}
 			for _, m := range d.minutes {
 				if m.Time <= after {
 					continue
@@ -119,7 +134,7 @@ func TestFetcherFillsTheGapFromTheMinutesTheDeviceKept(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
 	if !f.fetch(ctx) {
 		t.Fatal("fetch() = false, want true for a device that keeps its minutes")
@@ -160,7 +175,7 @@ func TestFetcherStartsWithANewDeviceNow(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
 	f.fetch(ctx)
 
@@ -184,7 +199,7 @@ func TestFetcherLeavesAnOlderDeviceToTheRecorder(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "old-pi", maxValues: 10}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "old-pi", maxEntries: 10}
 
 	if f.fetch(ctx) {
 		t.Error("fetch() = true, want false for a device without minutes")
@@ -198,7 +213,7 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhileTheDeviceDoesNotAnswer(t *testi
 	ctx := context.Background()
 	device := newMinutesDevice(time.Now(), 10)
 	agent := device.start(t)
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: 10, back: time.Now().Add(-time.Hour)}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, back: time.Now().Add(-time.Hour)}
 
 	if f.fetch(ctx) || len(device.asked) != 0 || f.failing {
 		t.Errorf("fetch() before the device answered asked %d times; want false without asking or logging, so the recorder stores the readings it has of the minute", len(device.asked))
@@ -209,14 +224,14 @@ func TestFetcherLeavesTheMinuteToTheRecorderWhileTheDeviceDoesNotAnswer(t *testi
 }
 
 func TestFetcherCleansTheMinutesOfTheDevice(t *testing.T) {
-	f := &fetcher{after: 1000, offset: 3600, maxValues: 2}
+	f := &fetcher{after: 1000, offset: 3600, maxEntries: 2}
 	answer := MinutesAnswer{Now: 2000, Minutes: []history.Minute{
-		{Time: 900, Values: map[string]float64{"cpu": 1}},                     // the hub has it
-		{Time: 1060, Values: map[string]float64{"cpu": 2, "bad": math.NaN()}}, // NaN dropped
-		{Time: 1061, Values: map[string]float64{"cpu": 3}},                    // too close to the one before
-		{Time: 1120, Values: map[string]float64{strings.Repeat("x", 300): 4}}, // only a too long name
-		{Time: 1180, Values: map[string]float64{"a": 1, "b": 2, "c": 3}},      // too many values
-		{Time: 2060, Values: map[string]float64{"cpu": 5}},                    // in the device's future
+		{Time: 900, Values: map[string]float64{"cpu": 1}},                                  // the hub has it
+		{Time: 1060, Values: map[string]float64{"cpu": 2, "memory": math.NaN()}},           // NaN dropped
+		{Time: 1061, Values: map[string]float64{"cpu": 3}},                                 // too close to the one before
+		{Time: 1120, Values: map[string]float64{"disk:/" + strings.Repeat("x", 300): 4}},   // only a too long name
+		{Time: 1180, Values: map[string]float64{"disk:/a": 1, "disk:/b": 2, "disk:/c": 3}}, // too many disks
+		{Time: 2060, Values: map[string]float64{"cpu": 5}},                                 // in the device's future
 	}}
 
 	got, after := f.clean(answer)
@@ -225,6 +240,9 @@ func TestFetcherCleansTheMinutesOfTheDevice(t *testing.T) {
 	first, second := int64(1060+3600)/60*60, int64(1180+3600)/60*60
 	if len(got) != 2 || got[0].Time != first || len(got[0].Values) != 1 || got[1].Time != second || len(got[1].Values) != 2 {
 		t.Errorf("clean() = %+v, want the minutes at %d with only cpu and at %d with two values", got, first, second)
+	}
+	if !f.dropped {
+		t.Error("dropped = false, want it set once disks were left out, so that is logged")
 	}
 	if after != 1180 || f.after != 1000 {
 		t.Errorf("after = %d, fetcher's after %d; want 1180, the last minute taken, and the fetcher's unchanged until they are stored", after, f.after)
@@ -242,7 +260,7 @@ func TestFetcherKeepsTheMinutesInPlaceWhileTheClocksDifferBySecondsMoreOrLess(t 
 	if err := store.Add(ctx, "office-pc", newest, map[string]float64{history.MetricCPU: 99}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
@@ -277,7 +295,7 @@ func TestFetcherStartsAgainWhenTheClockOfTheDeviceGoesBack(t *testing.T) {
 	if err := store.Add(ctx, "office-pc", newest, map[string]float64{history.MetricCPU: 99}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
@@ -319,7 +337,7 @@ func TestFetcherStartsAfterTheHubsOwnMinutesOnceAnOlderDeviceIsUpdated(t *testin
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "old-pi", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "old-pi", maxEntries: history.DefaultMaxEntries}
 	if f.fetch(ctx) || f.after != 0 {
 		t.Fatalf("fetch() of an older device = true, after %d; want false and after unset", f.after)
 	}
@@ -364,7 +382,7 @@ func TestFetcherLeavesAMinuteItCannotFetchToTheRecorder(t *testing.T) {
 		if _, err := agent.Collect(ctx); err != nil {
 			t.Fatalf("Collect() error = %v", err)
 		}
-		f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+		f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
 		if f.fetch(ctx) {
 			t.Errorf("%s: fetch() = true, want false, so the recorder stores the minute", name)
@@ -412,7 +430,7 @@ func TestFetcherFetchesTheDevicesMinuteBeforeOneTheHubStoredItselfAfterARestart(
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
 	if !f.fetch(ctx) {
 		t.Fatal("fetch() = false, want true for a device that keeps its minutes")
@@ -429,7 +447,7 @@ func TestFetcherStartsAgainWhenTheDeviceRefusesAfter(t *testing.T) {
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: history.DefaultMaxEntries}
 	device.broken = func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "after is later than this device's time", http.StatusBadRequest)
 	}
@@ -454,7 +472,7 @@ func TestFetcherLeavesAMinuteToTheRecorderWhenTheDeviceKeepsNone(t *testing.T) {
 	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-11*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries), back: now.Add(-time.Hour)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries, back: now.Add(-time.Hour)}
 
 	if f.fetch(ctx) {
 		t.Error("fetch() = true for a device that keeps no minutes now, want false, so the recorder stores its own")
@@ -478,7 +496,7 @@ func TestFetcherLeavesTheMinutesToTheRecorderQuietlyUntilADeviceThatIsBackKeepsO
 	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-time.Hour), map[string]float64{history.MetricCPU: 99}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: store, device: "office-pc", maxValues: maxValues(history.DefaultMaxEntries)}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
 
 	if f.fetch(ctx) || f.failing {
 		t.Error("fetch() for a device that is back = true or logged a failure; want false without logging, so the recorder stores its own until the device keeps its first minute")
@@ -487,7 +505,7 @@ func TestFetcherLeavesTheMinutesToTheRecorderQuietlyUntilADeviceThatIsBackKeepsO
 
 func TestFetcherLeavesAMinuteInTheHubsFutureForTheNextFetch(t *testing.T) {
 	next := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
-	f := &fetcher{after: next - 120, maxValues: 10}
+	f := &fetcher{after: next - 120, maxEntries: 10}
 	answer := MinutesAnswer{Now: next + 1, Minutes: []history.Minute{
 		{Time: next - 60, Values: map[string]float64{"cpu": 1}},
 		{Time: next, Values: map[string]float64{"cpu": 2}}, // in the hub's future
@@ -502,13 +520,19 @@ func TestFetcherLeavesAMinuteInTheHubsFutureForTheNextFetch(t *testing.T) {
 
 func TestFetcherStopsInTimeForTheReadings(t *testing.T) {
 	ctx := context.Background()
-	device := newMinutesDevice(time.Now(), 10)
-	device.broken = func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	store := openTestStore(t)
+	now := time.Now()
+	device := newMinutesDevice(now, 8)
+	// The first answer comes in time, the next no more.
+	device.slowAfter = 1
 	agent := device.start(t)
+	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-8*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
 	if _, err := agent.Collect(ctx); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxValues: 10, budget: 100 * time.Millisecond}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, budget: 200 * time.Millisecond}
 
 	start := time.Now()
 	fetched := f.fetch(ctx)
@@ -516,8 +540,155 @@ func TestFetcherStopsInTimeForTheReadings(t *testing.T) {
 	if took := time.Since(start); took > time.Second {
 		t.Errorf("fetch() took %v, want it to stop after its budget", took)
 	}
-	// Running out of time is no failure: the rest follows next minute.
-	if !fetched || f.failing || f.after == 0 {
-		t.Errorf("fetch() = %v, failing %v, after %d; want true, not failing and after kept", fetched, f.failing, f.after)
+	// Running out of time after storing some is no failure: the rest follows
+	// next minute.
+	if !fetched || f.failing || f.after != device.minutes[2].Time {
+		t.Errorf("fetch() = %v, failing %v, after %d; want true, not failing and after the last minute stored, %d", fetched, f.failing, f.after, device.minutes[2].Time)
+	}
+}
+
+func TestFetcherLeavesTheMinuteToTheRecorderWhenItStoresNothingInTime(t *testing.T) {
+	ctx := context.Background()
+	device := newMinutesDevice(time.Now(), 10)
+	device.broken = func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, budget: 100 * time.Millisecond}
+
+	fetched := f.fetch(ctx)
+
+	// As when a page is too long to store in time on a slow disk: the recorder
+	// stores its own average, and the next fetch asks for a shorter page.
+	if fetched || !f.failing || f.after == 0 || f.values != ValuesPerAnswer/2 {
+		t.Errorf("fetch() = %v, failing %v, after %d, values %d; want false, failing, after kept and %d values", fetched, f.failing, f.after, f.values, ValuesPerAnswer/2)
+	}
+	// The device answers in time again.
+	device = newMinutesDevice(time.Now(), 10)
+	f.agent = device.start(t)
+	if _, err := f.agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if !f.fetch(ctx) || len(device.values) == 0 || device.values[0] != ValuesPerAnswer/2 || f.values != ValuesPerAnswer {
+		t.Errorf("next fetch asked for %v values, now %d; want %d, and back to %d once it ran in time", device.values, f.values, ValuesPerAnswer/2, ValuesPerAnswer)
+	}
+}
+
+func TestFetcherLeavesStoppingToTheProgram(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	device := newMinutesDevice(time.Now(), 10)
+	device.broken = func(_ http.ResponseWriter, r *http.Request) {
+		stop()
+		<-r.Context().Done()
+	}
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10}
+
+	if !f.fetch(ctx) || f.failing {
+		t.Errorf("fetch() while the program stops = false or failing; want true quietly, as the recorder stops too")
+	}
+}
+
+func TestFetcherFetchesNothingOlderThanTheRetention(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now()
+	device := newMinutesDevice(now, 10)
+	agent := device.start(t)
+	// The hub was off for longer than it keeps its history.
+	own := now.Truncate(time.Minute).Add(-90 * time.Minute)
+	if err := store.Add(ctx, "office-pc", own, map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10, retention: 5 * time.Minute}
+
+	f.fetch(ctx)
+
+	if oldest := now.Add(-5*time.Minute).Add(device.clock).Unix() - 1; device.asked[0] < oldest {
+		t.Errorf("asked after %d, want after %d at the earliest, the start of the retention on the device's clock", device.asked[0], oldest)
+	}
+	got := storedTimes(t, store, "office-pc")
+	if len(got) < 4 || got[0] != own.Unix() || got[1] < now.Add(-5*time.Minute).Unix() {
+		t.Errorf("stored minutes %v, want the hub's own and the ones within the retention", got)
+	}
+}
+
+func TestFetcherDescribesTheExtrasItFetches(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now()
+	device := newMinutesDevice(now, 3)
+	for _, minute := range device.minutes {
+		minute.Values["extra:power/cpu"] = 10
+		minute.Values["extra:power/gpu"] = 20
+	}
+	device.extras = map[string]history.ExtraInfo{
+		"extra:power/cpu": {Title: "Power", Label: "CPU", Unit: metrics.UnitWatts},
+		"extra:power/gpu": {Title: "Power", Label: strings.Repeat("x", 200), Unit: "lumen"},
+		"extra:other/one": {Title: "Not among the minutes", Label: "One", Unit: metrics.UnitNumber},
+	}
+	agent := device.start(t)
+	if err := store.Add(ctx, "office-pc", now.Truncate(time.Minute).Add(-3*time.Minute), map[string]float64{history.MetricCPU: 99}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	// The hub knows how one is described already, from the device's readings.
+	known := history.ExtraInfo{Title: "Power", Label: "Processor", Unit: metrics.UnitWatts}
+	if err := store.SetExtraInfo(ctx, "office-pc", map[string]history.ExtraInfo{"extra:power/cpu": known}, now); err != nil {
+		t.Fatalf("SetExtraInfo() error = %v", err)
+	}
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: 10}
+
+	if !f.fetch(ctx) {
+		t.Fatal("fetch() = false, want true")
+	}
+
+	got, err := store.ExtraInfo(ctx, "office-pc")
+	if err != nil || len(got) != 2 || !reflect.DeepEqual(got["extra:power/cpu"], known) {
+		t.Fatalf("ExtraInfo() = %+v, %v; want the known one kept and the other added", got, err)
+	}
+	// Cut down as the extras of a reading are.
+	if gpu := got["extra:power/gpu"]; len(gpu.Label) != 80 || gpu.Unit != metrics.UnitNumber {
+		t.Errorf("the fetched description = %+v, want its label cut to 80 characters and an unknown unit a number", gpu)
+	}
+}
+
+func TestKeepKeepsWhatTheRecorderKeeps(t *testing.T) {
+	values := map[string]float64{
+		"cpu": 1, "memory": 2, "swap": 3, "battery": 4,
+		"temperature:b": 5, "temperature:a": 6, "temperature:c": 7,
+		"disk:/b": 8, "disk.read:/b": 9, "disk.write:/b": 10, "disk:/a": 11, "disk.read:/c": 12,
+		"network.receive:eth0": 13, "network.send:eth0": 14, "network.send:eth1": 15, "network.send:wlan0": 16,
+		"gpu:one": 17, "gpu.memory:one": 18,
+		"extra:power/cpu": 19, "extra:power/gpu": 20, "extra:power/soc": 21,
+		"extra:alpha/one": 22, "extra:zeta/one": 23, "extra:Bad/one": 24,
+		"unknown": 25, "fan:one": 26,
+	}
+	want := map[string]float64{
+		"cpu": 1, "memory": 2, "swap": 3, "battery": 4,
+		"temperature:a": 6, "temperature:b": 5,
+		"disk:/b": 8, "disk.read:/b": 9, "disk.write:/b": 10, "disk:/a": 11,
+		"network.receive:eth0": 13, "network.send:eth0": 14, "network.send:eth1": 15,
+		"gpu:one": 17, "gpu.memory:one": 18,
+		"extra:alpha/one": 22, "extra:power/cpu": 19, "extra:power/gpu": 20,
+	}
+	// The same every time, not whichever the order of a map picks.
+	for range 20 {
+		got, dropped := keep(values, 2)
+		if !reflect.DeepEqual(got, want) || !dropped {
+			t.Fatalf("keep() = %v, %v; want %v, true", got, dropped, want)
+		}
+	}
+	if _, dropped := keep(map[string]float64{"cpu": 1, "disk:/a": 2}, 2); dropped {
+		t.Error("keep() of fewer entries than kept dropped some")
 	}
 }

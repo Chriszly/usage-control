@@ -6,21 +6,33 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // MinutesPath is where a device serves the averages it keeps of its own
 // usage, one per minute, for the hub to fetch: GET /api/minutes?after=<unix
-// seconds>, answered with a MinutesAnswer.
+// seconds>[&values=<n>], answered with a MinutesAnswer.
 const MinutesPath = "/api/minutes"
 
 // MinutesPerAnswer is how many minutes a device sends at most per answer:
 // two hours, some hundred kilobytes.
 const MinutesPerAnswer = 120
+
+// ValuesPerAnswer is how many values a device sends at most per answer, in
+// all its minutes, but always one minute at least: a few seconds of storing
+// on a Raspberry Pi, and well within maxMinutesBytes with the longest metric
+// names stored. A device with many disks or network cards sends fewer minutes
+// per answer, so its answers neither run out of time nor get too long. A hub
+// may ask for fewer with values.
+const ValuesPerAnswer = 10_000
 
 // MinutesAnswer is the body of GET /api/minutes. Times are Unix seconds on
 // the device's clock.
@@ -30,6 +42,10 @@ type MinutesAnswer struct {
 	Minutes []history.Minute `json:"minutes"`
 	// More tells that more minutes follow the last one.
 	More bool `json:"more"`
+	// Extras describes the extras among the minutes, by the metric they are
+	// stored under, so the hub can draw them though it could not reach the
+	// device while they were measured.
+	Extras map[string]history.ExtraInfo `json:"extras,omitempty"`
 }
 
 const (
@@ -68,8 +84,13 @@ type fetcher struct {
 	agent  *Agent
 	store  *history.Store
 	device string
-	// maxValues is how many values of one minute are stored at most.
-	maxValues int
+	// maxEntries is how many disks, sensors, network cards and GPUs each, and
+	// groups of extras and values in each, the history keeps of the device,
+	// as the recorder keeps of its readings.
+	maxEntries int
+	// retention is how long the hub keeps its history: older minutes are not
+	// fetched. Zero fetches any.
+	retention time.Duration
 	// budget, when set, is how long one fetch takes at most instead of
 	// fetchFor, for tests.
 	budget time.Duration
@@ -82,6 +103,10 @@ type fetcher struct {
 	// offset is how many seconds the hub's clock is ahead of the device's, as
 	// the minutes are moved by; see maxClockJitter.
 	offset int64
+	// values is how many values one answer has at most; zero is
+	// ValuesPerAnswer. It halves after a fetch could not store one answer in
+	// time, and doubles back after one that ran in time.
+	values int
 	// tooOld is when the device was found to keep no minutes.
 	tooOld time.Time
 	// back is when the device last began to answer, as after it was switched
@@ -89,6 +114,9 @@ type fetcher struct {
 	back time.Time
 	// failing is set while fetching fails, so that is logged once.
 	failing bool
+	// dropped is set once a minute had more entries than are kept, so that is
+	// logged once too.
+	dropped bool
 }
 
 // fetch stores the minutes the device has after the newest one fetched, or,
@@ -126,12 +154,13 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		f.after = 0
 	}
 
+	stopping := ctx
 	ctx, cancel := context.WithTimeout(ctx, cmp.Or(f.budget, fetchFor))
 	defer cancel()
 	if f.after == 0 {
 		newest, ok, err := f.store.Newest(ctx, f.device)
 		if err != nil {
-			return f.failed(ctx, err)
+			return f.failed(stopping, ctx, err, false)
 		}
 		if ok {
 			// A few minutes before the hub's newest, which may be one the hub
@@ -147,11 +176,17 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		// difference of the clocks to vary.
 		f.after = min(newest.Unix()-f.offset, deviceNow-int64(maxClockJitter/time.Second))
 	}
+	// Minutes older than the retention, as after the hub was off for longer,
+	// would only be deleted again, and counted in their hour until then.
+	if f.retention > 0 {
+		f.after = max(f.after, time.Now().Add(-f.retention).Unix()-f.offset)
+	}
+	start := f.after
 
 	var answer MinutesAnswer
 	for range maxAnswersPerFetch {
 		answer = MinutesAnswer{}
-		err := f.agent.get(ctx, fmt.Sprintf("%s?after=%d", f.agent.minutesURL, f.after), maxMinutesBytes, &answer)
+		err := f.agent.get(ctx, fmt.Sprintf("%s?after=%d&values=%d", f.agent.minutesURL, f.after, f.pageValues()), maxMinutesBytes, &answer)
 		var status *statusError
 		if errors.As(err, &status) && status.Code == http.StatusNotFound {
 			if f.tooOld.IsZero() {
@@ -165,17 +200,22 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		previous := f.after
 		if err == nil {
 			minutes, after := f.clean(answer)
-			if err = f.store.AddMinutes(ctx, f.device, minutes); err == nil {
-				f.after = after
+			if err = f.describe(ctx, answer.Extras, minutes); err == nil {
+				if err = f.store.AddMinutes(ctx, f.device, minutes); err == nil {
+					f.after = after
+				}
 			}
 		}
 		if err != nil {
-			return f.failed(ctx, err)
+			return f.failed(stopping, ctx, err, f.after != start)
 		}
 		// Asking again when nothing was new would get the same answer.
 		if !answer.More || f.after == previous {
 			break
 		}
+	}
+	if f.values != 0 {
+		f.values = min(ValuesPerAnswer, 2*f.values)
 	}
 	// A device that answers but has kept no minute for a while, as when it
 	// cannot write to its disk, would leave a gap: the recorder stores the
@@ -186,7 +226,7 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 		if time.Since(f.back) <= keptWithin {
 			return false
 		}
-		return f.failed(ctx, errors.New("the device has kept no minute of its usage for a while"))
+		return f.failed(stopping, ctx, errors.New("the device has kept no minute of its usage for a while"), true)
 	}
 	if f.failing {
 		f.failing = false
@@ -195,8 +235,14 @@ func (f *fetcher) fetch(ctx context.Context) bool {
 	return true
 }
 
+// pageValues returns how many values the device is asked to send at most
+// per answer.
+func (f *fetcher) pageValues() int {
+	return cmp.Or(f.values, ValuesPerAnswer)
+}
+
 // clean returns the minutes of an answer that are new to the hub, at the
-// hub's time on whole minutes, without values that cannot be stored, and the
+// hub's time on whole minutes, with the values the history keeps, and the
 // device's time of the last of them, which after becomes once they are
 // stored. The device is not trusted to keep to its side: minutes must be in
 // order, a good part of a minute apart and not in its future. A minute in the
@@ -216,14 +262,11 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 			break
 		}
 		after = minute.Time
-		values := map[string]float64{}
-		for metric, value := range minute.Values {
-			if len(values) == f.maxValues {
-				break
-			}
-			if metric != "" && len(metric) <= maxMetricLength && !math.IsNaN(value) && !math.IsInf(value, 0) {
-				values[metric] = value
-			}
+		values, dropped := keep(minute.Values, f.maxEntries)
+		if dropped && !f.dropped {
+			f.dropped = true
+			slog.Warn("the device kept more disks, sensors, network cards, GPUs or extras than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
+				"device", f.device, "kept", f.maxEntries)
 		}
 		if len(values) > 0 {
 			minutes = append(minutes, history.Minute{Time: at.Unix(), Values: values})
@@ -232,18 +275,155 @@ func (f *fetcher) clean(answer MinutesAnswer) ([]history.Minute, int64) {
 	return minutes, after
 }
 
-// failed ends a fetch that failed. When it ran out of time, or the program is
-// stopping, the rest follows next time. Otherwise it logs the failure, unless
-// the previous fetch failed too, and returns false, so the recorder stores
-// the average of its own readings for this minute. The next fetch goes on
-// from where this one stopped, so the minutes the device kept meanwhile are
-// not lost; one it kept for a minute the recorder stored is not stored again.
-// Only when the device refuses where the hub goes on from, after its clock
-// went back further than the hub measured, does the next fetch start again
-// from shortly before the newest minute the hub has.
-func (f *fetcher) failed(ctx context.Context, err error) bool {
-	if ctx.Err() != nil {
+// single are the metrics a device has once.
+var single = map[string]bool{
+	history.MetricCPU: true, history.MetricMemory: true, history.MetricSwap: true, history.MetricBattery: true,
+}
+
+// perEntry names, for the metrics that exist once per disk, sensor, network
+// card or GPU, what they exist once per.
+var perEntry = map[string]string{
+	history.MetricTemperature:    history.MetricTemperature,
+	history.MetricDisk:           history.MetricDisk,
+	history.MetricDiskRead:       history.MetricDisk,
+	history.MetricDiskWrite:      history.MetricDisk,
+	history.MetricNetworkReceive: history.MetricNetworkReceive,
+	history.MetricNetworkSend:    history.MetricNetworkReceive,
+	history.MetricGPU:            history.MetricGPU,
+	history.MetricGPUMemory:      history.MetricGPU,
+}
+
+// entry is one disk, sensor, network card, GPU, group of extras or extra:
+// kind says which (for an extra, its group), name which one.
+type entry struct{ kind, name string }
+
+// keep returns the values of one minute the history keeps of a device, as
+// the recorder keeps of its readings: the ones it knows, with names and
+// values that can be stored, of at most maxEntries disks, sensors, network
+// cards and GPUs each, and of at most maxEntries groups of extras of
+// maxEntries extras each. Where there are more, the first by name are kept,
+// so every minute keeps the same ones; dropped tells whether any were left
+// out.
+func keep(values map[string]float64, maxEntries int) (kept map[string]float64, dropped bool) {
+	entries := map[string][]entry{}
+	names := map[string]map[string]bool{}
+	for metric, value := range values {
+		if metric == "" || len(metric) > maxMetricLength || math.IsNaN(value) || math.IsInf(value, 0) {
+			continue
+		}
+		of, ok := entriesOf(metric)
+		if !ok {
+			continue
+		}
+		entries[metric] = of
+		for _, e := range of {
+			if names[e.kind] == nil {
+				names[e.kind] = map[string]bool{}
+			}
+			names[e.kind][e.name] = true
+		}
+	}
+	keptEntries := map[entry]bool{}
+	for kind, set := range names {
+		sorted := slices.Sorted(maps.Keys(set))
+		if len(sorted) > maxEntries {
+			sorted, dropped = sorted[:maxEntries], true
+		}
+		for _, name := range sorted {
+			keptEntries[entry{kind, name}] = true
+		}
+	}
+	kept = map[string]float64{}
+	for metric, of := range entries {
+		if !slices.ContainsFunc(of, func(e entry) bool { return !keptEntries[e] }) {
+			kept[metric] = values[metric]
+		}
+	}
+	return kept, dropped
+}
+
+// entriesOf returns what a metric belongs to, and false for one the history
+// does not keep.
+func entriesOf(metric string) ([]entry, bool) {
+	if single[metric] {
+		return nil, true
+	}
+	kind, name, ok := strings.Cut(metric, ":")
+	if !ok || name == "" {
+		return nil, false
+	}
+	if kind == history.MetricExtra {
+		group, item, ok := strings.Cut(name, "/")
+		if !ok || !metrics.ValidID(group) || !metrics.ValidID(item) {
+			return nil, false
+		}
+		return []entry{{kind, group}, {kind + ":" + group, item}}, true
+	}
+	if of, ok := perEntry[kind]; ok {
+		return []entry{{of, name}}, true
+	}
+	return nil, false
+}
+
+// describe stores how the extras among minutes are described, as far as the
+// hub has no description of them yet, as when they existed only while it
+// could not reach the device. They are cut down as the extras of a reading
+// are.
+func (f *fetcher) describe(ctx context.Context, extras map[string]history.ExtraInfo, minutes []history.Minute) error {
+	if len(extras) == 0 {
+		return nil
+	}
+	known, err := f.store.ExtraInfo(ctx, f.device)
+	if err != nil {
+		return err
+	}
+	var groups []metrics.Extra
+	for _, metric := range slices.Sorted(maps.Keys(extras)) {
+		group, item, ok := strings.Cut(strings.TrimPrefix(metric, history.MetricExtra+":"), "/")
+		_, isKnown := known[metric]
+		if !ok || !strings.HasPrefix(metric, history.MetricExtra+":") || isKnown ||
+			!slices.ContainsFunc(minutes, func(m history.Minute) bool { _, ok := m.Values[metric]; return ok }) {
+			continue
+		}
+		info := extras[metric]
+		if len(groups) == 0 || groups[len(groups)-1].ID != group {
+			groups = append(groups, metrics.Extra{ID: group, Title: info.Title, Titles: info.Titles})
+		}
+		value := 0.0
+		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, metrics.ExtraItem{
+			ID: item, Label: info.Label, Labels: info.Labels, Unit: info.Unit, Value: &value, History: true,
+		})
+	}
+	described := history.DescribeExtras(metrics.CleanExtras(groups, f.maxEntries))
+	if len(described) == 0 {
+		return nil
+	}
+	return f.store.SetExtraInfo(ctx, f.device, described, time.Now())
+}
+
+// failed ends a fetch that failed; stopping is done when the program is
+// stopping, and progressed tells whether it stored minutes before it failed.
+// When the program is stopping, or the fetch ran out of time after it stored
+// some, the rest follows next time. Otherwise it logs the failure, unless the
+// previous fetch failed too, and returns false, so the recorder stores the
+// average of its own readings for this minute. A fetch that ran out of time
+// before it stored one answer asks for half as many values next time, so
+// one answer can be stored in time even on a slow disk. The next fetch goes
+// on from where this one stopped, so the minutes the device kept meanwhile
+// are not lost; one it kept for a minute the recorder stored is not stored
+// again. Only when the device refuses where the hub goes on from, after its
+// clock went back further than the hub measured, does the next fetch start
+// again from shortly before the newest minute the hub has.
+func (f *fetcher) failed(stopping, ctx context.Context, err error, progressed bool) bool {
+	if stopping.Err() != nil {
 		return true
+	}
+	if ctx.Err() != nil {
+		if progressed {
+			return true
+		}
+		f.values = max(1, f.pageValues()/2)
+		err = fmt.Errorf("could not fetch and store one answer in time; asking for at most %d values per answer now: %w", f.values, err)
 	}
 	if !f.failing {
 		f.failing = true
@@ -254,11 +434,4 @@ func (f *fetcher) failed(ctx context.Context, err error) bool {
 		f.after = 0
 	}
 	return false
-}
-
-// maxValues returns how many values of one minute are stored at most, when
-// the history keeps historyEntries disks, sensors, network cards and GPUs
-// each: room for every value of each, with plenty to spare.
-func maxValues(historyEntries int) int {
-	return historyEntries * (historyEntries + 16)
 }

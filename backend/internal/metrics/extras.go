@@ -76,6 +76,11 @@ var (
 	validLanguage = regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`)
 )
 
+// ValidID reports whether id can name a group of extras or a value in one.
+func ValidID(id string) bool {
+	return validID.MatchString(id)
+}
+
 // CleanExtras returns what can safely be stored and shown of the extras
 // another device reported: at most maxEntries groups of at most maxEntries
 // values each, every title, label and text cut to maxTextLength characters,

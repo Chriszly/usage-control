@@ -220,7 +220,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
 	}
 
-	others, err := hub.New(ctx, store, fixed, historyEntries, pagePort)
+	others, err := hub.New(ctx, store, fixed, historyEntries, retention, pagePort)
 	if err != nil {
 		return server.Site{}, nil, err
 	}

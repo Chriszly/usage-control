@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -38,12 +39,18 @@ CREATE TABLE IF NOT EXISTS extra_info (
 
 // SetExtraInfo stores how the given extras of a device are described.
 func (s *Store) SetExtraInfo(ctx context.Context, device string, info map[string]ExtraInfo, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return writeExtraInfo(ctx, s.db, `INSERT OR REPLACE INTO extra_info (device, metric, info, written) VALUES (?1, ?2, ?3, ?4)`, device, info, now)
+}
+
+// writeExtraInfo stores info with query, which takes the device as ?1, the
+// metric as ?2, the description as ?3 and the time as ?4.
+func writeExtraInfo(ctx context.Context, db *sql.DB, query, device string, info map[string]ExtraInfo, now time.Time) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	insert, err := tx.PrepareContext(ctx, `INSERT OR REPLACE INTO extra_info (device, metric, info, written) VALUES (?, ?, ?, ?)`)
+	insert, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return err
 	}
@@ -63,7 +70,12 @@ func (s *Store) SetExtraInfo(ctx context.Context, device string, info map[string
 // ExtraInfo returns how the extras in a device's history are described, by
 // the metric they are stored under.
 func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraInfo, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT metric, info FROM extra_info WHERE device = ?`, device)
+	return readExtraInfo(ctx, s.db, `SELECT metric, info FROM extra_info WHERE device = ?`, device)
+}
+
+// readExtraInfo reads the descriptions query lists, as metric and info.
+func readExtraInfo(ctx context.Context, db *sql.DB, query string, args ...any) (map[string]ExtraInfo, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +89,7 @@ func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraI
 		var description ExtraInfo
 		if err := json.Unmarshal([]byte(text), &description); err != nil {
 			// One broken description leaves out its chart, not every chart.
-			slog.Warn("read the description of an extra", "device", device, "metric", metric, "error", err)
+			slog.Warn("read the description of an extra", "metric", metric, "error", err)
 			continue
 		}
 		info[metric] = description
@@ -103,6 +115,12 @@ func (s *Store) deleteUnusedExtraInfo(ctx context.Context, before time.Time) err
 // extras again, though they did not change, so they are not deleted as unused.
 const extraInfoRefresh = time.Hour
 
+// extraInfoSetter keeps how a device's extras are described: a Store, or the
+// Buffer of a device without a history of its own.
+type extraInfoSetter interface {
+	SetExtraInfo(ctx context.Context, device string, info map[string]ExtraInfo, now time.Time) error
+}
+
 // extraInfoWriter writes the descriptions of a device's extras when they
 // change, and every extraInfoRefresh.
 type extraInfoWriter struct {
@@ -111,7 +129,7 @@ type extraInfoWriter struct {
 }
 
 // write stores info unless the same was stored within extraInfoRefresh.
-func (w *extraInfoWriter) write(ctx context.Context, store *Store, device string, info map[string]ExtraInfo, now time.Time) error {
+func (w *extraInfoWriter) write(ctx context.Context, store extraInfoSetter, device string, info map[string]ExtraInfo, now time.Time) error {
 	if len(info) == 0 || (now.Sub(w.writtenAt) < extraInfoRefresh && maps.EqualFunc(info, w.written, sameInfo)) {
 		return nil
 	}

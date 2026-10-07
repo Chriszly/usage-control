@@ -27,7 +27,7 @@ func startDevice(t *testing.T) string {
 func openTestHub(t *testing.T, store *history.Store, fixed []Device) *Hub {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	h, err := New(ctx, store, fixed, history.DefaultMaxEntries, "9393")
+	h, err := New(ctx, store, fixed, history.DefaultMaxEntries, 30*24*time.Hour, "9393")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -185,7 +185,7 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
 	nas := Device{ID: "nas", Name: "NAS", Address: startDevice(t)}
 	first, cancel := context.WithCancel(ctx)
-	h, err := New(first, store, []Device{pi, nas}, 0, "9393")
+	h, err := New(first, store, []Device{pi, nas}, 0, 30*24*time.Hour, "9393")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
