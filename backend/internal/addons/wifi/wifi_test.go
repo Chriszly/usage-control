@@ -70,3 +70,19 @@ func TestExtrasDescribeEachInterface(t *testing.T) {
 		t.Errorf("signal = %v, want -54", *got[0].Items[1].Value)
 	}
 }
+
+func TestIDKeepsItsSuffix(t *testing.T) {
+	name := "Killer(R) Wi-Fi 6E AX1675x 160MHz Wireless Network Adapter (211NGW)"
+	quality, signal := idOf(name, "-quality"), idOf(name, "-signal")
+	if quality != "killer-r-wi-fi-6e-ax1675x-160mhz-quality" || signal != "killer-r-wi-fi-6e-ax1675x-160mhz-signal" {
+		t.Errorf("ids = %q, %q", quality, signal)
+	}
+	name = "Qualcomm FastConnect 7800 Wi-Fi 7 High Band Simultaneous (HBS) Network Adapter"
+	if quality, signal := idOf(name, "-quality"), idOf(name, "-signal"); quality != "qualcomm-fastconnect-7800-wi-fi-quality" ||
+		signal != "qualcomm-fastconnect-7800-wi-fi-signal" {
+		t.Errorf("ids = %q, %q", quality, signal)
+	}
+	if got := idOf("Ω", "-quality"); got != "wifi-quality" {
+		t.Errorf("idOf() of a name without letters = %q, want wifi-quality", got)
+	}
+}

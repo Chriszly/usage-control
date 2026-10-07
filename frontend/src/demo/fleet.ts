@@ -124,8 +124,11 @@ function powerAddOn(
   ];
 }
 
-/** What the Wi-Fi add-on reports for the interface name; its values come from values() as "extra:wifi/<name>-quality" and "-signal". */
-function wifiAddOn(name: string): Extra[] {
+/**
+ * What the Wi-Fi add-on reports for the interface name: on Linux its name, on Windows the adapter's description, whose
+ * ids are cut to id. Its values come from values() as "extra:wifi/<id>-quality" and "-signal".
+ */
+function wifiAddOn(name: string, id = name): Extra[] {
   return [
     {
       id: 'wifi',
@@ -133,7 +136,7 @@ function wifiAddOn(name: string): Extra[] {
       titles: { de: 'WLAN', fr: 'Wi-Fi', es: 'Wi-Fi' },
       items: [
         {
-          id: `${name}-quality`,
+          id: `${id}-quality`,
           label: `${name} link quality`,
           labels: {
             de: `${name} Verbindungsqualität`,
@@ -144,7 +147,7 @@ function wifiAddOn(name: string): Extra[] {
           history: true,
         },
         {
-          id: `${name}-signal`,
+          id: `${id}-signal`,
           label: `${name} signal (dBm)`,
           labels: {
             de: `${name} Signal (dBm)`,
@@ -305,6 +308,9 @@ const windowsPc: DemoMachine = {
   },
 };
 
+/** The id the Wi-Fi add-on makes of the Windows laptop's adapter description. */
+const WINDOWS_WIFI = 'qualcomm-fastconnect-7800-wi-fi';
+
 const windowsLaptop: DemoMachine = {
   device: {
     id: 'windows-laptop',
@@ -325,6 +331,10 @@ const windowsLaptop: DemoMachine = {
     { name: 'LAN-Verbindung* 1' },
   ],
   gpus: [{ name: 'Qualcomm Adreno X1-85 GPU' }],
+  extras: wifiAddOn(
+    'Qualcomm FastConnect 7800 Wi-Fi 7 High Band Simultaneous (HBS) Network Adapter',
+    WINDOWS_WIFI,
+  ),
   bootedDaysAgo: 2.1,
   values: (t, step) => ({
     cpu: vary(
@@ -358,6 +368,22 @@ const windowsLaptop: DemoMachine = {
     ),
     'network.send:WLAN': vary(t, step, 48, 60e3, [[50e3, 30]], 0, 1e9),
     'gpu:Qualcomm Adreno X1-85 GPU': vary(t, step, 49, 9, [[7, 90]]),
+    ...wifiValues(
+      WINDOWS_WIFI,
+      vary(
+        t,
+        step,
+        50,
+        -62,
+        [
+          [5, 90],
+          [6, 3600],
+        ],
+        -88,
+        -40,
+      ),
+      'windows',
+    ),
   }),
 };
 
@@ -633,12 +659,17 @@ export function offlineSince(online: (t: number) => boolean, now: number): numbe
   return t;
 }
 
-/** The Wi-Fi add-on's values of wlp1s0 at a signal level, with the link quality cfg80211 derives from it. */
-function wifiValues(signal: number): Values {
-  return {
-    'extra:wifi/wlp1s0-signal': Math.round(signal),
-    'extra:wifi/wlp1s0-quality': (Math.min(70, Math.max(0, Math.round(signal) + 110)) / 70) * 100,
-  };
+/**
+ * The Wi-Fi add-on's values of the interface id at a signal level, with the quality the system derives from it: Linux's
+ * cfg80211 link quality, or on Windows its signal quality, 0 % at -100 dBm and 100 % at -50 dBm.
+ */
+function wifiValues(id: string, signal: number, os: 'linux' | 'windows' = 'linux'): Values {
+  const dBm = Math.round(signal);
+  const quality =
+    os === 'windows'
+      ? Math.min(100, Math.max(0, (dBm + 100) * 2))
+      : (Math.min(70, Math.max(0, dBm + 110)) / 70) * 100;
+  return { [`extra:wifi/${id}-signal`]: dBm, [`extra:wifi/${id}-quality`]: quality };
 }
 
 const linuxLaptop: DemoMachine = {
@@ -686,6 +717,7 @@ const linuxLaptop: DemoMachine = {
       'network.receive:wlp1s0': vary(t, step, 137, 300e3, [[250e3, 60]], 0, 1e9),
       'network.send:wlp1s0': vary(t, step, 138, 50e3, [[40e3, 60]], 0, 1e9),
       ...wifiValues(
+        'wlp1s0',
         vary(
           t,
           step,

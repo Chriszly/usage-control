@@ -1,7 +1,7 @@
-// Package wifi reads the link quality and signal of each wireless interface,
-// for the Wi-Fi add-on, from /proc/net/wireless. Linux lists an interface
-// there only while it is connected, so the rest report nothing. Windows and
-// macOS have no such file and report nothing either.
+// Package wifi reads the link quality and signal of each connected wireless
+// interface, for the Wi-Fi add-on: on Linux from /proc/net/wireless, which
+// lists an interface only while it is connected, and on Windows through its
+// Native Wifi API (see wlan.go). macOS reports nothing.
 //
 // It only reads; nothing in here changes the machine.
 package wifi
@@ -18,8 +18,11 @@ import (
 
 // Reading is what one wireless interface reports.
 type Reading struct {
+	// Interface names the interface: its name on Linux, such as wlan0, and
+	// the adapter's description on Windows.
 	Interface string
-	// QualityPercent is the link quality from 0 to 100.
+	// QualityPercent is the link quality from 0 to 100, as the system rates
+	// it: the driver's link quality on Linux, the signal quality on Windows.
 	QualityPercent float64
 	// SignalDBm is the signal level in dBm, when HasSignal is true: drivers
 	// that report no level in dBm leave it out.
@@ -97,7 +100,7 @@ func Extras(readings []Reading) []metrics.Extra {
 	for _, r := range readings {
 		quality := r.QualityPercent
 		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:    idOf(r.Interface, "quality"),
+			ID:    idOf(r.Interface, "-quality"),
 			Label: r.Interface + " link quality",
 			Labels: map[string]string{
 				"de": r.Interface + " Verbindungsqualität",
@@ -113,7 +116,7 @@ func Extras(readings []Reading) []metrics.Extra {
 		}
 		signal := r.SignalDBm
 		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:    idOf(r.Interface, "signal"),
+			ID:    idOf(r.Interface, "-signal"),
 			Label: r.Interface + " signal (dBm)",
 			Labels: map[string]string{
 				"de": r.Interface + " Signal (dBm)",
@@ -139,12 +142,18 @@ func HostProc() string {
 
 var notInID = regexp.MustCompile(`[^a-z0-9]+`)
 
-// idOf turns parts of a name into an id for an extra: lowercase letters and
-// digits joined by "-", at most 40 characters.
-func idOf(parts ...string) string {
-	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(strings.Join(parts, "-")), "-"), "-")
-	if len(id) > 40 {
-		id = strings.TrimRight(id[:40], "-")
+// idOf turns a name into an id for an extra that ends in suffix ("-quality"
+// or "-signal"): lowercase letters and digits joined by "-", at most 40
+// characters. A long name, such as a Windows adapter's description, is cut
+// the same for both suffixes, never the suffix, so the ids of one interface
+// stay apart and alike.
+func idOf(name, suffix string) string {
+	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(name), "-"), "-")
+	if limit := 40 - len("-quality"); len(id) > limit {
+		id = strings.TrimRight(id[:limit], "-")
 	}
-	return id
+	if id == "" {
+		id = "wifi"
+	}
+	return id + suffix
 }
