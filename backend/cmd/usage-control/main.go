@@ -173,8 +173,8 @@ func run(ctx context.Context) error {
 		ReadTimeout:       10 * time.Second,
 		// The page gives up on an answer after ANSWER_TIMEOUT_MS (15 s,
 		// frontend/src/app/connection/connection.ts); keep this below it.
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
