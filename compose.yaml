@@ -204,6 +204,40 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # The containers add-on, started with COMPOSE_PROFILES=containers: reads
+  # the CPU and memory of each running container from the host's cgroups
+  # (v2), never through the Docker socket. It runs as root in its container,
+  # as only root may read the containers' names in Docker's data folder, but
+  # without any capability, without network and with both mounts read-only.
+  containers:
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
+    profiles: [containers]
+    restart: unless-stopped
+    entrypoint: ["/usage-control-containers"]
+    user: "0:0"
+    environment:
+      HOST_SYS: /host/sys
+      ADDONS_DIR: /addons
+      DOCKER_DIR: /host/docker
+    volumes:
+      - addons:/addons
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+      # The containers' settings, for their names, from Docker's data folder
+      # (DOCKER_DIR in .env). Compose does not create the folder where it is
+      # missing, so the host stays as it is.
+      - type: bind
+        source: ${DOCKER_DIR:-/var/lib/docker}/containers
+        target: /host/docker/containers
+        read_only: true
+        bind:
+          create_host_path: false
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   data:
   # In memory only: the add-ons' newest values.

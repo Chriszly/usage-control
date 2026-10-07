@@ -791,6 +791,32 @@ function smartAddOn(
   ];
 }
 
+/**
+ * What the containers add-on reports for the given containers, each under its name; their
+ * values come from values() as "extra:containers-cpu/<name>" in percent and
+ * "extra:containers-memory/<name>" in bytes.
+ */
+function containersAddOn(names: string[]): Extra[] {
+  return [
+    {
+      id: 'containers-cpu',
+      title: 'Containers: CPU',
+      titles: { de: 'Container: CPU', fr: 'Conteneurs : processeur', es: 'Contenedores: CPU' },
+      items: names.map((name) => ({ id: name, label: name, unit: 'percent', history: true })),
+    },
+    {
+      id: 'containers-memory',
+      title: 'Containers: memory',
+      titles: {
+        de: 'Container: Arbeitsspeicher',
+        fr: 'Conteneurs : mémoire',
+        es: 'Contenedores: memoria',
+      },
+      items: names.map((name) => ({ id: name, label: name, unit: 'bytes', history: true })),
+    },
+  ];
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -1184,6 +1210,7 @@ const linuxNas: DemoMachine = {
   fans: ['nct6798 fan1', 'nct6798 fan2'],
   extras: [
     ...pressureAddOn(),
+    ...containersAddOn(['jellyfin', 'nextcloud', 'restic-backup']),
     ...smartAddOn([
       {
         id: 'wd-x1g2h3jk',
@@ -1268,6 +1295,28 @@ const linuxNas: DemoMachine = {
         0,
         3e8,
       ),
+      'extra:containers-cpu/jellyfin': vary(t, step, 106, 1.5, [[1.5, 300]]),
+      'extra:containers-cpu/nextcloud': vary(t, step, 107, 0.8, [[0.6, 120]]),
+      'extra:containers-cpu/restic-backup': 0.1 + 20 * backup,
+      'extra:containers-memory/jellyfin': vary(
+        t,
+        step,
+        108,
+        1.1 * GB,
+        [[0.2 * GB, 3600]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/nextcloud': vary(
+        t,
+        step,
+        109,
+        0.6 * GB,
+        [[0.1 * GB, 1800]],
+        0,
+        GB * 4,
+      ),
+      'extra:containers-memory/restic-backup': 30e6 + 0.5 * GB * backup,
     };
   },
 };
@@ -1318,6 +1367,7 @@ const linuxServer: DemoMachine = {
       ['udp', 53, '127.0.0.53, 127.0.0.54'],
       ['udp', 5353, '0.0.0.0, ::'],
     ]),
+    ...containersAddOn(['gitea-runner', 'registry']),
     ...smartAddOn([
       {
         id: 's69enx0t123456a',
@@ -1364,6 +1414,11 @@ const linuxServer: DemoMachine = {
       ...kernelValues(t, step, 950, cpu, 8),
       ...memoryValues(t, step, 160, 128 * GB, build),
       'extra:ports/count': 8,
+      // The runner does the builds.
+      'extra:containers-cpu/gitea-runner': 0.2 + 70 * build,
+      'extra:containers-cpu/registry': vary(t, step, 128, 0.3, [[0.3, 60]]) + 2 * build,
+      'extra:containers-memory/gitea-runner': 0.3 * GB + 30 * GB * build,
+      'extra:containers-memory/registry': vary(t, step, 129, 0.15 * GB, [[0.05 * GB, 3600]], 0, GB),
       'extra:smart/s69enx0t123456a-temperature': Math.round(41 + 8 * build),
       'extra:smart/s69enx0t123456a-power-on-hours': Math.floor((t - openedAt) / 3600) + 9_874,
       'extra:smart/s69enx0t123456a-media-errors': 0,

@@ -11,7 +11,7 @@ version="$2"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
-trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart --no-pager | tail -40 >&2' ERR
+trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart -u usage-control-containers --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
 folder="$(find "$work" -mindepth 1 -maxdepth 1 -type d)"
 
@@ -47,16 +47,37 @@ for _ in $(seq 1 10); do
   sleep 1
 done
 test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote no report" >&2; exit 1; }
+
+# The containers add-on reports a running container by its name, which it
+# reads from Docker's settings, where the runner has Docker.
+"$folder/install.sh" --addons=power,containers
+systemctl is-active --quiet usage-control-containers || { journalctl -u usage-control-containers --no-pager | tail -20 >&2; echo "the containers add-on is not running" >&2; exit 1; }
+if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/fs/cgroup/cgroup.controllers ]]; then
+  docker run -d --rm --name usage-control-check busybox sleep 60 > /dev/null
+  for _ in $(seq 1 15); do
+    grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null && break
+    sleep 1
+  done
+  docker rm -f usage-control-check > /dev/null
+  grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json || { echo "the containers add-on did not report the running container" >&2; exit 1; }
+else
+  for _ in $(seq 1 10); do
+    [[ -f /run/usage-control-addons/containers.json ]] && break
+    sleep 1
+  done
+  test -f /run/usage-control-addons/containers.json || { echo "the containers add-on wrote no report" >&2; exit 1; }
+fi
 "$folder/install.sh" < /dev/null
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
+systemctl is-active --quiet usage-control-containers || { echo "the update removed the containers add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
 # The pressure add-on reads /proc/pressure, which a kernel without pressure
 # stall information lacks; it then runs but reports nothing. The kernel add-on
 # reads /proc, which every runner has. The Wi-Fi add-on runs too; a runner
 # without Wi-Fi gets a report without values. The ports add-on reads the
-# host's socket tables, which every runner has. All five add-ons are
+# host's socket tables, which every runner has. All six add-ons are
 # installed, so --addons= below has to remove them all.
-"$folder/install.sh" --addons=power,pressure,kernel,wifi,ports
+"$folder/install.sh" --addons=power,pressure,kernel,wifi,ports,containers
 systemctl is-active --quiet usage-control-pressure || { journalctl -u usage-control-pressure --no-pager | tail -20 >&2; echo "the pressure add-on is not running" >&2; exit 1; }
 if [[ -f /proc/pressure/cpu ]]; then
   for _ in $(seq 1 10); do
@@ -102,6 +123,10 @@ if systemctl cat usage-control-wifi > /dev/null 2>&1 || [[ -e /usr/local/bin/usa
 fi
 if systemctl cat usage-control-ports > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-ports ]]; then
   echo "--addons= left the ports add-on behind" >&2
+  exit 1
+fi
+if systemctl cat usage-control-containers > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-containers ]]; then
+  echo "--addons= left the containers add-on behind" >&2
   exit 1
 fi
 
@@ -173,4 +198,4 @@ if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-p
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, gpu, smart, inodes and memory add-ons and uninstall work."
+echo "Install, update, the power, pressure, kernel, Wi-Fi, ports, containers, gpu, smart, inodes and memory add-ons and uninstall work."
