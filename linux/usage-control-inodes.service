@@ -10,7 +10,12 @@ After=usage-control.service
 
 [Service]
 ExecStart=/usr/local/bin/usage-control-inodes
-Environment=ADDONS_DIR=/run/usage-control-addons
+# DOCKER_DIR, where Docker keeps its data elsewhere, is set with the other
+# settings in /etc/usage-control.env; what is mounted below it is left out.
+EnvironmentFile=-/etc/usage-control.env
+# It writes to /run/usage-control-addons, the add-ons' default, like the
+# other add-ons, even where the settings file names another ADDONS_DIR.
+UnsetEnvironment=ADDONS_DIR
 # The add-on folder usage-control reads; others may read it, only root writes.
 RuntimeDirectory=usage-control-addons
 RuntimeDirectoryMode=0755

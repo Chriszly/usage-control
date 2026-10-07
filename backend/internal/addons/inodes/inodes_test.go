@@ -33,22 +33,54 @@ default/containers/web /var/snap/lxd/common/lxd/storage-pools/default/containers
 tank/incus/c1 /var/lib/incus/storage-pools/tank/containers/c1 zfs rw 0 0
 /dev/sdd1 /var/lib/docker ext4 rw 0 0
 /dev/sda1 /srv/usb ext4 rw 0 0
+/dev/sde1 /var/lib/docker/volumes ext4 rw 0 0
+/dev/mapper/docker-8:1-123-abc /var/lib/docker/devicemapper/mnt/abc xfs rw 0 0
+/dev/sdf1 /srv/docker ext4 rw 0 0
+tank/docker/9e2a /srv/docker/zfs/graph/9e2a zfs rw 0 0
+/dev/sdg1 /mnt/hidden ext4 rw 0 0
+tmpfs /mnt/hidden tmpfs rw 0 0
 `
 
 func TestParseMountsKeepsRealFilesystems(t *testing.T) {
-	got := ParseMounts(table)
+	got := ParseMounts(table, "/srv/docker/")
 
+	// /boot/firmware is the top of the two filesystems mounted there, the
+	// one statfs sees, and /mnt/hidden is left out as its top one is tmpfs.
+	// Disks below Docker's folders are kept, its layers are not.
 	want := []Mount{
 		{Source: "/dev/mmcblk0p2", Path: "/", Type: "ext4"},
-		{Source: "/dev/mmcblk0p1", Path: "/boot/firmware", Type: "vfat"},
+		{Source: "/dev/sdc1", Path: "/boot/firmware", Type: "vfat"},
 		{Source: "/dev/sda1", Path: "/mnt/usb disk\\x", Type: "ext4"},
+		{Source: "/dev/mmcblk0p2", Path: "/var/lib/docker/bind", Type: "ext4"},
 		{Source: "/dev/sdb1", Path: "/mnt/windows", Type: "fuseblk"},
 		{Source: "tank/data", Path: "/tank/data", Type: "zfs"},
 		{Source: "/dev/sdd1", Path: "/var/lib/docker", Type: "ext4"},
 		{Source: "/dev/sda1", Path: "/srv/usb", Type: "ext4"},
+		{Source: "/dev/sde1", Path: "/var/lib/docker/volumes", Type: "ext4"},
+		{Source: "/dev/sdf1", Path: "/srv/docker", Type: "ext4"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseMounts() = %+v, want %+v", got, want)
+	}
+}
+
+func TestReadReportsTheTopOfFilesystemsMountedOverEachOther(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "mounts")
+	// /dev/sdb1 at /mnt/data is hidden by /dev/sdc1 on top of it, so its
+	// mount at /mnt/other is the one to read, and /dev/sdc1's second mount
+	// at /mnt/again is the one to leave out.
+	table := "/dev/sdb1 /mnt/data ext4 rw 0 0\n/dev/sdc1 /mnt/data ext4 rw 0 0\n" +
+		"/dev/sdb1 /mnt/other ext4 rw 0 0\n/dev/sdc1 /mnt/again ext4 rw 0 0\n"
+	if err := os.WriteFile(file, []byte(table), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statfs := func(string) (uint64, uint64, bool) { return 1000, 250, true }
+
+	got := newReader(file, statfs, time.Second).Read()
+
+	want := []Usage{{Path: "/mnt/data", UsedPercent: 75}, {Path: "/mnt/other", UsedPercent: 75}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Read() = %+v, want %+v", got, want)
 	}
 }
 
