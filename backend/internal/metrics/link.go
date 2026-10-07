@@ -93,15 +93,21 @@ func parseLocalAddresses(text string) []netip.Addr {
 }
 
 // addressesByInterface finds the interface of each local address: the one
-// that reaches the address's network.
+// whose route to the address's network is the most specific, as the kernel
+// picks it, so a wider route such as a VPN's does not take the address of
+// the network card.
 func addressesByInterface(addresses []netip.Addr, routes []route) map[string][]string {
 	result := map[string][]string{}
 	for _, address := range addresses {
+		var best route
+		found := false
 		for _, r := range routes {
-			if r.network.Contains(address) {
-				result[r.iface] = append(result[r.iface], address.String())
-				break
+			if r.network.Contains(address) && (!found || r.network.Bits() > best.network.Bits()) {
+				best, found = r, true
 			}
+		}
+		if found {
+			result[best.iface] = append(result[best.iface], address.String())
 		}
 	}
 	return result

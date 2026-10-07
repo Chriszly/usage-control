@@ -25,6 +25,10 @@ func TestFansAreReadFromHwmon(t *testing.T) {
 	write("hwmon3/name", "nct6775\n")
 	write("hwmon3/fan2_input", "850\n")
 	write("hwmon3/fan2_label", "Case fan\n")
+	// A sleeping GPU's fan, which reading would wake.
+	write("hwmon4/name", "amdgpu\n")
+	write("hwmon4/fan1_input", "0\n")
+	write("hwmon4/device/power/runtime_status", "suspended\n")
 	t.Setenv("HOST_SYS", sys)
 
 	got := readFans(fanSensors())

@@ -72,15 +72,15 @@ func TestIsVirtualInterface(t *testing.T) {
 	}
 }
 
-func TestReadLoopbackInterfacesFindsLoopback(t *testing.T) {
-	if len(readLoopbackInterfaces()) == 0 {
-		t.Error("readLoopbackInterfaces() is empty, want at least the loopback interface")
+func TestReadVirtualInterfacesFindsLoopback(t *testing.T) {
+	if len(readVirtualInterfaces()) == 0 {
+		t.Error("readVirtualInterfaces() is empty, want at least the loopback interface")
 	}
 }
 
-func TestLoopbackListReadsOnceAMinute(t *testing.T) {
+func TestInterfaceListReadsOnceAMinute(t *testing.T) {
 	reads := 0
-	list := &loopbackList{read: func() map[string]bool {
+	list := &interfaceList{read: func() map[string]bool {
 		reads++
 		if reads == 1 {
 			return nil // the OS could not list them

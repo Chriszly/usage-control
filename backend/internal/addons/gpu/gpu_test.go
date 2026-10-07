@@ -55,9 +55,14 @@ func TestParseKeepsTheKeyOfGPU0WhileTheOtherFails(t *testing.T) {
 		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n"
 	working := Parse(ok + "1, GPU-1111aaaa-0000, NVIDIA GeForce RTX 3090, 31, 1700, 9751, 0, 0, P2, 350.00\n")
 	failing := Parse(ok + failed)
+	// A GPU nvidia-smi cannot reach gets only a message, no row.
+	lost := Parse(ok + "Unable to determine the device handle for GPU0000:02:00.0: GPU is lost.\n")
 
 	if len(failing) != 1 || failing[0].Key != "0000aaaa" || failing[0].Key != working[0].Key {
 		t.Errorf("GPU 0 while the other fails = %+v, want the key it has while both work, %q", failing, working[0].Key)
+	}
+	if len(lost) != 1 || lost[0].Key != working[0].Key {
+		t.Errorf("GPU 0 while the other is lost = %+v, want the key it has while both work, %q", lost, working[0].Key)
 	}
 }
 
@@ -134,11 +139,13 @@ func TestReadKeepsWhatAFailingNvidiaSMIPrinted(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in for nvidia-smi is a shell script")
 	}
-	// A stand-in for nvidia-smi that prints one GPU and fails for another.
+	// A stand-in for nvidia-smi that prints one GPU and fails for another,
+	// with the message on its error output. GPU 0 keeps the key it has
+	// while both work.
 	script := filepath.Join(t.TempDir(), "nvidia-smi")
 	text := "#!/bin/sh\n" +
 		"echo '0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 4070, 35, 2475, 10501, 0, 3, P0, 200.00'\n" +
-		"echo 'Unable to determine the device handle for GPU0000:02:00.0: Unknown Error'\n" +
+		"echo 'Unable to determine the device handle for GPU0000:02:00.0: Unknown Error' >&2\n" +
 		"exit 15\n"
 	if err := os.WriteFile(script, []byte(text), 0o700); err != nil { //nolint:gosec // the test runs it
 		t.Fatal(err)
@@ -147,7 +154,7 @@ func TestReadKeepsWhatAFailingNvidiaSMIPrinted(t *testing.T) {
 
 	got := r.Read(t.Context(), time.Time{})
 
-	if len(got) != 1 || len(got[0].Items) != 7 || got[0].Items[0].ID != "0-fan" || !r.failing {
+	if len(got) != 1 || len(got[0].Items) != 7 || got[0].Items[0].ID != "0000aaaa-fan" || !r.failing {
 		t.Errorf("Read() = %+v, want GPU 0's values from before nvidia-smi failed", got)
 	}
 }
@@ -170,10 +177,51 @@ func TestReadAsksNvidiaSMIEveryInterval(t *testing.T) {
 	answer("35")
 	r.Read(t.Context(), start)
 	answer("50")
-	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval-time.Second))); got != 35 {
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval-addons.Interval))); got != 35 {
 		t.Errorf("fan within the interval = %v, want the last answer, 35", got)
 	}
 	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval))); got != 50 {
 		t.Errorf("fan after the interval = %v, want a new answer, 50", got)
+	}
+}
+
+func TestReadLetsSleepingGPUsSleep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	sys := t.TempDir()
+	device := filepath.Join(sys, "bus", "pci", "devices", "0000:01:00.0")
+	write := func(path, text string, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(device, "vendor"), "0x10de\n", 0o600)
+	write(filepath.Join(device, "class"), "0x030000\n", 0o600)
+	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	write(script, "#!/bin/sh\necho '0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 4070, 35, 2475, 10501, 0, 3, P0, 200.00'\n", 0o700)
+	r := &Reader{program: script, sleep: metrics.NewNvidiaSleep(sys)}
+	start := time.Now()
+	r.Read(t.Context(), start)
+
+	// Asleep, nvidia-smi is not started: it would fail now.
+	write(filepath.Join(device, "power", "runtime_status"), "suspended\n", 0o600)
+	write(script, "#!/bin/sh\nexit 1\n", 0o700)
+	got := r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	values := map[string]float64{}
+	for _, item := range got[0].Items {
+		if item.Value != nil {
+			values[item.ID] = *item.Value
+		}
+	}
+	want := map[string]float64{"0-fan": 0, "0-graphics-clock": 0, "0-memory-clock": 0, "0-encoder": 0, "0-decoder": 0, "0-power-limit": 200}
+	if !reflect.DeepEqual(values, want) || len(got[0].Items) != len(want) || r.failing {
+		t.Errorf("Read() while asleep = %+v, want %v without the performance state or running nvidia-smi", got[0].Items, want)
 	}
 }

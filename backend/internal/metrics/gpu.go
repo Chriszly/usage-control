@@ -39,6 +39,15 @@ func NvidiaGPUKey(index, uuid string, gpus int) string {
 	return short[:8]
 }
 
+// IsNvidiaLostGPU reports whether a line nvidia-smi printed stands for a GPU
+// it cannot reach at all, such as one that fell off the bus, which gets
+// this message instead of a row: "Unable to determine the device handle for
+// GPU0000:02:00.0: GPU is lost. …". Such a GPU is counted for NvidiaGPUKey
+// like a row, so the others keep their key while it fails.
+func IsNvidiaLostGPU(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "Unable to determine the device handle")
+}
+
 // sortGPUs sorts GPUs by name and numbers GPUs with the same name, such as two
 // identical graphics cards, so each name stands for one GPU in the history.
 func sortGPUs(gpus []GPU) []GPU {

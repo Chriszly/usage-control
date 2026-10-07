@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +128,22 @@ func TestHwmonPrefersTheAverage(t *testing.T) {
 	}
 }
 
+func TestHwmonReportsASleepingDeviceAtZero(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"hwmon3/name":                        "amdgpu",
+		"hwmon3/power1_average":              "42500000",
+		"hwmon3/device/power/runtime_status": "suspended\n",
+	})
+
+	got := readHwmon(dir)
+
+	want := []Reading{{ID: "hwmon-amdgpu-power1", Label: "amdgpu", Watts: 0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readHwmon() of a sleeping GPU = %+v, want %+v", got, want)
+	}
+}
+
 func TestParsePMICAddsUpTheRails(t *testing.T) {
 	out := `     3V7_WL_SW_A current(0)=0.10000000A
      VDD_CORE_A current(7)=2.00000000A
@@ -163,13 +181,78 @@ func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
 	var last lastReadings
 	start := time.Now()
 
-	for _, after := range []time.Duration{0, 5 * time.Second, addons.ProgramInterval - time.Second} {
+	for _, after := range []time.Duration{0, 5 * time.Second, addons.ProgramInterval - addons.Interval} {
 		if got := last.get(start.Add(after), read); got[0].Watts != 1 {
 			t.Errorf("get() after %v = %v, want the first answer", after, got)
 		}
 	}
 	if got := last.get(start.Add(addons.ProgramInterval), read); got[0].Watts != 2 || calls != 2 {
 		t.Errorf("get() after the interval = %v after %d calls, want a new answer", got, calls)
+	}
+}
+
+func TestLastReadingsAsksThePMICEveryTenSeconds(t *testing.T) {
+	calls := 0
+	read := func() []Reading {
+		calls++
+		return []Reading{{ID: "raspberry-pi", Watts: float64(calls)}}
+	}
+	last := NewReader(t.TempDir()).lastPMIC
+	start := time.Now()
+
+	last.get(start, read)
+	if got := last.get(start.Add(pmicInterval-addons.Interval), read); got[0].Watts != 1 {
+		t.Errorf("get() within the interval = %v, want the first answer", got)
+	}
+	// Two reads later, even when that read comes a moment early.
+	early := pmicInterval - 100*time.Millisecond
+	if got := last.get(start.Add(early), read); got[0].Watts != 2 || pmicInterval >= addons.ProgramInterval {
+		t.Errorf("get() after %v = %v, want a new answer before addons.ProgramInterval", early, got)
+	}
+}
+
+func TestReadLetsSleepingNvidiaGPUsSleep(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	sys := t.TempDir()
+	gpu := "bus/pci/devices/0000:01:00.0/"
+	writeFiles(t, sys, map[string]string{gpu + "vendor": "0x10de\n", gpu + "class": "0x030200\n", gpu + "power/runtime_status": "active\n"})
+	// A stand-in for nvidia-smi that counts how often it ran.
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	script := filepath.Join(dir, "nvidia-smi")
+	text := "#!/bin/sh\necho run >> " + runs + "\necho '0, GPU-1a2b3c4d-0000, GeForce, 18.42'\n"
+	if err := os.WriteFile(script, []byte(text), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+	r := NewReader(sys)
+	r.pmic, r.nvidia = "", script
+	start := time.Now()
+
+	awake := r.Read(t.Context(), start)
+	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "suspended\n"})
+	asleep := r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	data, _ := os.ReadFile(runs) //nolint:gosec // a file this test created
+	if len(awake) != 1 || awake[0].Watts != 18.42 {
+		t.Errorf("Read() = %+v, want the GeForce's 18.42 W", awake)
+	}
+	want := []Reading{{ID: "nvidia-0", Label: "GeForce", Watts: 0}}
+	if !reflect.DeepEqual(asleep, want) || len(strings.Fields(string(data))) != 1 {
+		t.Errorf("Read() while asleep = %+v after %q, want %+v without another run", asleep, data, want)
+	}
+}
+
+func TestParseNvidiaCountsALostGPU(t *testing.T) {
+	// A GPU nvidia-smi cannot reach gets only a message, no row; GPU 0
+	// keeps the ID it has while both work.
+	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, NVIDIA GeForce RTX 5060 Ti, 18.42\n" +
+		"Unable to determine the device handle for GPU0000:02:00.0: GPU is lost.\n")
+
+	want := []Reading{{ID: "nvidia-1a2b3c4d", Label: "NVIDIA GeForce RTX 5060 Ti", Watts: 18.42}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseNvidia() = %+v, want %+v", got, want)
 	}
 }
 

@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"math"
 	"path/filepath"
+	"strconv"
 
 	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
@@ -44,19 +46,27 @@ func (r *batteryReader) read() *Battery {
 
 // readWatts returns how much power flows into or out of a battery. Batteries
 // report it as power_now in µW, or as current_now in µA and voltage_now in µV;
-// nil when it reports neither.
+// nil when it reports neither. Some fuel gauges, as on battery HATs, report
+// the power or current as negative while the battery discharges.
 func readWatts(dir string) *float64 {
-	if microwatts, ok := sysfile.Uint(filepath.Join(dir, "power_now")); ok {
-		watts := float64(microwatts) / 1e6
+	if microwatts, ok := readMagnitude(filepath.Join(dir, "power_now")); ok {
+		watts := microwatts / 1e6
 		return &watts
 	}
-	microamps, currentOK := sysfile.Uint(filepath.Join(dir, "current_now"))
+	microamps, currentOK := readMagnitude(filepath.Join(dir, "current_now"))
 	microvolts, voltageOK := sysfile.Uint(filepath.Join(dir, "voltage_now"))
 	if !currentOK || !voltageOK {
 		return nil
 	}
-	watts := float64(microamps) * float64(microvolts) / 1e12
+	watts := microamps * float64(microvolts) / 1e12
 	return &watts
+}
+
+// readMagnitude reads a file that holds one whole number, which may be
+// negative, and returns its size.
+func readMagnitude(path string) (float64, bool) {
+	n, err := strconv.ParseInt(sysfile.Text(path), 10, 64)
+	return math.Abs(float64(n)), err == nil
 }
 
 // readHealth returns how much a battery holds when full compared to when it

@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -38,11 +39,13 @@ type v3dReading struct {
 }
 
 func newGPUReader() *gpuReader {
-	return &gpuReader{
+	r := &gpuReader{
 		sysDir: hostPath("HOST_SYS", "/sys"),
 		nvidia: newNvidiaSMI(),
 		v3d:    map[string]v3dReading{},
 	}
+	r.nvidia.sleep = NewNvidiaSleep(r.sysDir)
+	return r
 }
 
 var cardName = regexp.MustCompile(`^card[0-9]+$`)
@@ -67,11 +70,19 @@ func (r *gpuReader) read(ctx context.Context) []GPU {
 func (*gpuReader) temperatures(context.Context) []Temperature { return nil }
 
 // readCard reads one DRM card, and reports false for a card whose usage the
-// kernel does not report, such as a display controller.
+// kernel does not report, such as a display controller. An AMD GPU the
+// kernel has put to sleep is reported idle without asking it for its usage
+// and temperature, which would wake it.
 func (r *gpuReader) readCard(card string) (GPU, bool) {
 	device := filepath.Join(card, "device")
-	if busy, ok := sysfile.Uint(filepath.Join(device, "gpu_busy_percent")); ok {
-		return readAMDGPU(device, busy), true
+	busyFile := filepath.Join(device, "gpu_busy_percent")
+	if isSuspended(device) {
+		if _, err := os.Stat(busyFile); err == nil {
+			return readAMDGPU(device, 0, false), true
+		}
+	}
+	if busy, ok := sysfile.Uint(busyFile); ok {
+		return readAMDGPU(device, busy, true), true
 	}
 	stats, err := sysfile.Read(filepath.Join(device, "gpu_stats"))
 	if err != nil {
@@ -89,9 +100,10 @@ func (r *gpuReader) readCard(card string) (GPU, bool) {
 	return GPU{Name: "VideoCore GPU", UsagePercent: usage}, true
 }
 
-// readAMDGPU reads the memory and temperature of an AMD GPU that is busy
-// percent of the time.
-func readAMDGPU(device string, busy uint64) GPU {
+// readAMDGPU reads the memory and, when it is awake, the temperature of an
+// AMD GPU that is busy percent of the time. Its name and memory are what the
+// driver keeps, so reading them does not wake it.
+func readAMDGPU(device string, busy uint64, awake bool) GPU {
 	gpu := GPU{Name: "AMD GPU", UsagePercent: min(100, float64(busy))}
 	if name, err := sysfile.Read(filepath.Join(device, "product_name")); err == nil && strings.TrimSpace(string(name)) != "" {
 		gpu.Name = strings.TrimSpace(string(name))
@@ -100,6 +112,9 @@ func readAMDGPU(device string, busy uint64) GPU {
 	used, usedOK := sysfile.Uint(filepath.Join(device, "mem_info_vram_used"))
 	if totalOK && usedOK {
 		gpu.MemoryTotalBytes, gpu.MemoryUsedBytes = total, used
+	}
+	if !awake {
+		return gpu
 	}
 	sensors, _ := filepath.Glob(filepath.Join(device, "hwmon", "hwmon*", "temp1_input"))
 	if len(sensors) > 0 {

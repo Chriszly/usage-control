@@ -6,12 +6,15 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // readHwmon reads the power sensors the kernel lists under
 // /sys/class/hwmon, such as an AMD GPU's: power*_average, else
-// power*_input, in microwatts.
+// power*_input, in microwatts. A device that sleeps, such as a laptop's
+// second GPU, is reported at 0 W without reading its sensor, which would wake
+// it (see metrics.HwmonAsleep).
 func readHwmon(dir string) []Reading {
 	files, _ := filepath.Glob(filepath.Join(dir, "hwmon*", "power*_average"))
 	inputs, _ := filepath.Glob(filepath.Join(dir, "hwmon*", "power*_input"))
@@ -24,11 +27,14 @@ func readHwmon(dir string) []Reading {
 	slices.Sort(files)
 	var readings []Reading
 	for _, file := range files {
-		microwatts, ok := readUint(file)
-		if !ok {
-			continue
-		}
 		sensor := filepath.Dir(file)
+		microwatts := uint64(0)
+		if !metrics.HwmonAsleep(sensor) {
+			var ok bool
+			if microwatts, ok = readUint(file); !ok {
+				continue
+			}
+		}
 		base := filepath.Base(file)
 		channel := base[:strings.LastIndex(base, "_")]
 		device := sysfile.Text(filepath.Join(sensor, "name"))

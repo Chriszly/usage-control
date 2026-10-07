@@ -14,16 +14,21 @@ import (
 )
 
 // lastReadings keeps the readings of a program the add-on starts, vcgencmd
-// or nvidia-smi, for addons.ProgramInterval.
+// or nvidia-smi, for interval, or addons.ProgramInterval when it is 0.
 type lastReadings struct {
+	interval time.Duration
 	readings []Reading
 	at       time.Time
 }
 
-// get returns the kept readings while they are younger than
-// addons.ProgramInterval at now, and otherwise those read returns.
+// get returns the kept readings until they are due again (see addons.Due),
+// and then those read returns.
 func (l *lastReadings) get(now time.Time, read func() []Reading) []Reading {
-	if l.at.IsZero() || now.Sub(l.at) >= addons.ProgramInterval {
+	interval := l.interval
+	if interval == 0 {
+		interval = addons.ProgramInterval
+	}
+	if addons.Due(l.at, now, interval) {
 		l.readings, l.at = read(), now
 	}
 	return l.readings

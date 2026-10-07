@@ -10,6 +10,7 @@ package gpu
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os/exec"
 	"regexp"
@@ -52,10 +53,14 @@ var fields = []struct {
 type Reader struct {
 	// program is where nvidia-smi is; empty when it is not installed.
 	program string
+	// sleep tells whether the GPUs sleep, when nvidia-smi would wake them.
+	sleep *metrics.NvidiaSleep
 	// failing is whether the last call failed, so a failure is logged once.
 	failing bool
-	// extras is what the last call of nvidia-smi returned, and at when that
-	// was; Read returns extras again until it is addons.ProgramInterval old.
+	// gpus is what the last call of nvidia-smi returned, and extras what
+	// the last read returned, and at when that was; Read returns extras
+	// again until it is addons.ProgramInterval old.
+	gpus   []GPU
 	extras []metrics.Extra
 	at     time.Time
 }
@@ -69,19 +74,20 @@ func NewReader() *Reader {
 		slog.Info("nvidia-smi is not installed, so there is no NVIDIA GPU to read")
 		return &Reader{}
 	}
-	return &Reader{program: program}
+	// The add-on has no container, so /sys is the machine's.
+	return &Reader{program: program, sleep: metrics.NewNvidiaSleep("/sys")}
 }
 
 // Read returns the GPUs' values as the group of extras the collector shows,
 // or nothing when nvidia-smi is missing or prints nothing. It gives up after
 // nvidiaTimeout, so a hanging driver does not hold up the next report.
-// nvidia-smi is asked only every addons.ProgramInterval; in between, its
-// last answer is returned.
+// nvidia-smi is asked only every addons.ProgramInterval (see addons.Due); in
+// between, its last answer is returned.
 func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
 	}
-	if !r.at.IsZero() && now.Sub(r.at) < addons.ProgramInterval {
+	if !addons.Due(r.at, now, addons.ProgramInterval) {
 		return r.extras
 	}
 	r.extras, r.at = r.read(ctx), now
@@ -89,6 +95,9 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 }
 
 func (r *Reader) read(ctx context.Context) []metrics.Extra {
+	if r.sleep.Asleep() {
+		return Extras(sleeping(r.gpus))
+	}
 	out, err := run(ctx, r.program)
 	switch {
 	case err != nil && !r.failing:
@@ -99,7 +108,32 @@ func (r *Reader) read(ctx context.Context) []metrics.Extra {
 	r.failing = err != nil
 	// When one GPU is in an error state, nvidia-smi still prints the others
 	// but exits with an error, so what it printed is read either way.
-	return Extras(Parse(out))
+	r.gpus = Parse(out)
+	return Extras(r.gpus)
+}
+
+// sleeping returns the GPUs as they are while they sleep, when nvidia-smi is
+// not asked, as it would wake them: the values with a history, the fan,
+// clocks, encoder and decoder, at 0, and the power limit as before. The
+// performance state is left out, as only an awake GPU has one.
+func sleeping(gpus []GPU) []GPU {
+	var asleep []GPU
+	for _, gpu := range gpus {
+		values := map[string]string{}
+		for _, field := range fields {
+			value, ok := gpu.Values[field.id]
+			switch {
+			case !ok || field.unit == metrics.UnitText:
+			case field.history:
+				values[field.id] = "0"
+			default:
+				values[field.id] = value
+			}
+		}
+		gpu.Values = values
+		asleep = append(asleep, gpu)
+	}
+	return asleep
 }
 
 func run(ctx context.Context, program string) (string, error) {
@@ -108,7 +142,16 @@ func run(ctx context.Context, program string) (string, error) {
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
 	cmd := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits")
 	metrics.HideWindow(cmd)
+	// Once nvidia-smi is killed, wait at most a second for its output to
+	// close, in case a child it started keeps it open.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
+	// The message for a GPU nvidia-smi cannot reach may come on its error
+	// output, which Parse needs too.
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		out = append(out, exit.Stderr...)
+	}
 	return string(out), err
 }
 
@@ -130,12 +173,17 @@ type GPU struct {
 // "0, GPU-1a2b3c4d-…, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2,
 // 350.00". Other lines, such as the message nvidia-smi prints for a GPU in an
 // error state, are left out. Each GPU's Key comes from metrics.NvidiaGPUKey,
-// which counts a GPU in an error state too, as long as nvidia-smi prints a
-// row for it, so the others keep their key while it fails.
+// which counts a GPU in an error state too, by its row or by the message
+// for a GPU nvidia-smi cannot reach (metrics.IsNvidiaLostGPU), so the
+// others keep their key while it fails.
 func Parse(out string) []GPU {
 	var gpus []GPU
 	rows := 0
 	for line := range strings.Lines(out) {
+		if metrics.IsNvidiaLostGPU(line) {
+			rows++
+			continue
+		}
 		parts := strings.Split(line, ",")
 		if len(parts) < 3+len(fields) {
 			continue
