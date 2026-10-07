@@ -160,6 +160,33 @@ describe('HistoryCharts', () => {
     expect(labels(RANGE)).toEqual(['1 d', '7 d']);
   });
 
+  it('offers all data when more is kept than the longest range within the retention', () => {
+    respond(10);
+    expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days', 'All']);
+    click(UNIT, 'Days');
+    respond(10);
+    expect(labels(RANGE)).toEqual(['1 d', '7 d']);
+
+    click(UNIT, 'All');
+    expect(respond(10).from).toBe(NOW_SECONDS - 10 * 86400);
+  });
+
+  it('shows another device as loading, not with the error of the previous one', () => {
+    respond();
+    vi.advanceTimersByTime(5_000);
+    http
+      .expectOne((r) => r.url === '/api/history')
+      .flush('', { status: 503, statusText: 'Service Unavailable' });
+    fixture.detectChanges();
+    expect(element().querySelector('[role=alert]')).not.toBeNull();
+
+    TestBed.inject(DeviceService).selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    expect(element().querySelector('[role=alert]')).toBeNull();
+    expect(element().textContent).toContain('Loading');
+    respond();
+  });
+
   it('reads the history of the picked device', () => {
     respond();
 
