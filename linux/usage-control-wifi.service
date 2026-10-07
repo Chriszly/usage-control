@@ -1,0 +1,50 @@
+# The Wi-Fi add-on of usage-control: reads the link quality and signal of
+# each connected wireless interface and writes them to
+# /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control Wi-Fi add-on: reads the link quality and signal of each connected Wi-Fi interface; runs as root without capabilities
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-wifi
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# /proc/net/wireless is readable by anyone, but runs as root without any
+# capability like the other add-ons, as they share the root-owned add-on
+# folder. It reads the host's network through /proc/1/net, so it needs no
+# network of its own, and starts no other program.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+# Without capabilities the clock cannot be set anyway; this also blocks the
+# calls that set it, as in the other add-ons' units.
+SystemCallFilter=~@clock
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=usage-control.service

@@ -1,10 +1,10 @@
 // Command usage-control-ports is the ports add-on of usage-control: every few
 // seconds it reads which TCP and UDP ports the machine listens on and writes
 // them to the add-on folder (see package addons). On Linux it reads the
-// host's socket tables in /proc, which any user may read; it runs as root
-// without capabilities only because it shares the add-on folder with the
-// other add-ons. On Windows the installer runs it as the service
-// UsageControlPorts.
+// host's socket tables in /proc, which any user may read; with the Linux
+// archive it runs as root without capabilities only because it shares the
+// add-on folder with the other add-ons, and in Docker as the image's user.
+// On Windows the installer runs it as the service UsageControlPorts.
 //
 // Settings come from environment variables:
 //

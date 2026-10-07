@@ -2,7 +2,8 @@
 #   cp .env.example .env   # optional, to change settings
 #   docker compose pull && docker compose up -d   # the published image
 #   docker compose up -d --build                  # or build it from this checkout
-# Add-ons are picked with COMPOSE_PROFILES in .env, such as COMPOSE_PROFILES=power.
+# Add-ons are picked with COMPOSE_PROFILES in .env, such as COMPOSE_PROFILES=power or
+# COMPOSE_PROFILES=power,memory.
 # Then open http://<the machine's address>:9393 from the local network.
 services:
   usage-control:
@@ -81,6 +82,99 @@ services:
     volumes:
       - addons:/addons
       - /sys:/host/sys:ro
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The pressure add-on, started with COMPOSE_PROFILES=pressure: reads from
+  # the host's /proc/pressure how much of the time tasks waited for the CPU,
+  # memory and disks. Reading needs no privileges, so it runs as the image's
+  # user, like usage-control, without any capability and without network.
+  # All of /proc is mounted, not only /proc/pressure, which a kernel with PSI
+  # switched off (as on Raspberry Pi OS) does not have: Docker could not
+  # mount it, and the container would not start.
+  pressure:
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
+    profiles: [pressure]
+    restart: unless-stopped
+    entrypoint: ["/usage-control-pressure"]
+    environment:
+      HOST_PROC: /host/proc
+      ADDONS_DIR: /addons
+    volumes:
+      - addons:/addons
+      - /proc:/host/proc:ro
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The kernel add-on, started with COMPOSE_PROFILES=kernel: reads context
+  # switches, interrupts, new processes and threads, open files, sockets,
+  # established TCP connections and retransmissions from the host's /proc. The
+  # network values come from /host/proc/1/net, the host's init's network, not
+  # the container's. Every user may read those files, so it runs as the
+  # image's user, like usage-control, without any capability or network.
+  kernel:
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
+    profiles: [kernel]
+    restart: unless-stopped
+    entrypoint: ["/usage-control-kernel"]
+    environment:
+      HOST_PROC: /host/proc
+      ADDONS_DIR: /addons
+    volumes:
+      - addons:/addons
+      - /proc:/host/proc:ro
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The Wi-Fi add-on, started with COMPOSE_PROFILES=wifi: reads the link
+  # quality and signal of each connected Wi-Fi interface from the host's
+  # /proc/1/net/wireless, which anyone may read, so it runs as the image's
+  # user, like usage-control, without any capability and without network.
+  wifi:
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
+    profiles: [wifi]
+    restart: unless-stopped
+    entrypoint: ["/usage-control-wifi"]
+    environment:
+      HOST_PROC: /host/proc
+      ADDONS_DIR: /addons
+    volumes:
+      - addons:/addons
+      - /proc:/host/proc:ro
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The memory add-on, started with COMPOSE_PROFILES=memory: reads memory
+  # details from the host's /proc, such as dirty and slab memory, page faults
+  # and swapping per second. Reading needs no privilege, so it runs as the
+  # image's user, like usage-control, without any capability or network.
+  memory:
+    image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
+    profiles: [memory]
+    restart: unless-stopped
+    entrypoint: ["/usage-control-memory"]
+    environment:
+      HOST_PROC: /host/proc
+      ADDONS_DIR: /addons
+    volumes:
+      - addons:/addons
+      - /proc:/host/proc:ro
     network_mode: none
     read_only: true
     cap_drop:
