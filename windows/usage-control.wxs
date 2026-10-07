@@ -40,8 +40,10 @@
                     and GPUs each the history keeps per device (default 64)
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
-    POWER           1 to install the power add-on (default: not installed)
-    PRESSURE        1 to install the pressure add-on (default: not installed)
+    POWER           1 to install the power add-on, 0 to remove it in an update
+                    (default: not installed)
+    PRESSURE        1 to install the pressure add-on, 0 to remove it in an update
+                    (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
 -->
@@ -87,6 +89,16 @@
     <Property Id="SERVICE_HUB_DEVICES" Secure="yes" />
     <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
     <SetProperty Action="WebsiteHubDevices" Id="SERVICE_HUB_DEVICES" Value="[HUB_DEVICES]" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
+
+    <!--
+      Each add-on's box on the Add-ons page has a property of its own, ticked
+      when the add-on is on. A cleared box leaves its property empty, which
+      would let AppSearch bring back the remembered 1, so Next turns the box
+      into 1 or 0 for the add-on's option (see AddOnsDlg).
+    -->
+    <?foreach AddOn in POWER;PRESSURE ?>
+    <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
+    <?endforeach?>
 
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
     <UIRef Id="SetupWizard" />
@@ -294,8 +306,8 @@
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
         <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
-        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
-        <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
+        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER_BOX" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
+        <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -311,7 +323,11 @@
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
       <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <Publish Dialog="AddOnsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
+      <?foreach AddOn in POWER;PRESSURE ?>
+      <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
+      <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
+      <?endforeach?>
+      <Publish Dialog="AddOnsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="2" />
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AddOnsDlg" Condition="NOT Installed" />
 
       <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />

@@ -21,6 +21,7 @@ func TestAddOnsReadsTheFreshReports(t *testing.T) {
 	write("b-power.json", now, "power")
 	write("a-old.json", now.Add(-time.Minute), "old")
 	write("c-pressure.json", now.Add(-5*time.Second), "pressure")
+	write("f-future.json", now.Add(time.Hour), "future")
 	if err := os.WriteFile(filepath.Join(dir, "d-broken.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func TestAddOnsReadsTheFreshReports(t *testing.T) {
 	got := (&AddOns{Dir: dir, MaxEntries: 64}).Read(now)
 
 	if len(got) != 2 || got[0].ID != "power" || got[1].ID != "pressure" {
-		t.Errorf("Read() = %+v, want the power and pressure reports, in file order", got)
+		t.Errorf("Read() = %+v, want only the power and pressure reports, in file order", got)
 	}
 }
 

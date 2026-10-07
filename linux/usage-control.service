@@ -29,7 +29,10 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-ProtectClock=yes
+# Not ProtectClock=yes: it also limits the devices to the clock's, which
+# keeps nvidia-smi and vcgencmd from opening theirs. Without capabilities the
+# clock cannot be set anyway; this also blocks the calls that set it.
+SystemCallFilter=~@clock
 ProtectHostname=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
