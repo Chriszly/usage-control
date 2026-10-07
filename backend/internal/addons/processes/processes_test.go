@@ -1,6 +1,7 @@
 package processes
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,13 +79,26 @@ func TestProcFSReadsEveryProcess(t *testing.T) {
 		"sys/kernel/x": "",
 	})
 
-	got, ok := newProcFS(dir, 4096).sample()
+	got, err := newProcFS(dir, 4096).sample()
 
-	if !ok || got.Total != 100 || got.Time != 1234 || len(got.Processes) != 2 {
-		t.Fatalf("sample() = %+v, %v; want 2 processes, a total of 100 at 1234", got, ok)
+	if err != nil || got.Total != 100 || got.Time != 1234 || len(got.Processes) != 2 {
+		t.Fatalf("sample() = %+v, %v; want 2 processes, a total of 100 at 1234", got, err)
 	}
 	if got.Processes[0].Name != "systemd" || got.Processes[1].Memory != 2*4096 {
 		t.Errorf("sample() = %+v", got.Processes)
+	}
+}
+
+func TestSampleSaysWhyItFails(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := newProcFS(dir, 4096).sample(); err == nil {
+		t.Error("sample() of an empty folder did not fail")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "uptime"), []byte("soon"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newProcFS(dir, 4096).sample(); err == nil {
+		t.Error("sample() without a time since boot did not fail")
 	}
 }
 
@@ -99,7 +113,7 @@ func values(group metrics.Extra) map[string]float64 {
 // source returns samples one by one.
 func source(samples ...Sample) Source {
 	next := 0
-	return func(time.Time) (Sample, bool) { next++; return samples[next-1], true }
+	return func(time.Time) (Sample, error) { next++; return samples[next-1], nil }
 }
 
 func TestReaderRanksByCPUSinceThePreviousRead(t *testing.T) {
@@ -188,7 +202,7 @@ func TestReaderListsTheTopTen(t *testing.T) {
 	for pid := 1; pid <= 25; pid++ {
 		processes = append(processes, Process{PID: pid, Name: "p", Memory: uint64(pid)})
 	}
-	r := NewReader(func(time.Time) (Sample, bool) { return Sample{Processes: processes, Total: 1}, true })
+	r := NewReader(func(time.Time) (Sample, error) { return Sample{Processes: processes, Total: 1}, nil })
 
 	got := r.Read(time.Now())
 
@@ -201,8 +215,28 @@ func TestReaderListsTheTopTen(t *testing.T) {
 }
 
 func TestReaderWithoutSourceReturnsNothing(t *testing.T) {
-	r := NewReader(func(time.Time) (Sample, bool) { return Sample{}, false })
+	r := NewReader(func(time.Time) (Sample, error) { return Sample{}, errors.New("no /proc") })
 	if got := r.Read(time.Now()); got != nil {
 		t.Errorf("Read() = %+v, want nothing", got)
+	}
+}
+
+func TestReaderNotesWhenReadingFailsAndWorksAgain(t *testing.T) {
+	var err error
+	r := NewReader(func(time.Time) (Sample, error) { return Sample{Total: 1}, err })
+
+	r.Read(time.Now())
+	if r.failing {
+		t.Error("failing = true after a read that worked")
+	}
+	err = errors.New("no /proc")
+	r.Read(time.Now())
+	if !r.failing {
+		t.Error("failing = false after a read that failed, want it noted")
+	}
+	err = nil
+	r.Read(time.Now())
+	if r.failing {
+		t.Error("failing = true once reading works again")
 	}
 }

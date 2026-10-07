@@ -9,6 +9,7 @@ package processes
 import (
 	"cmp"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"time"
@@ -46,17 +47,19 @@ type Sample struct {
 	Time uint64
 }
 
-// Source takes a Sample, or is false when the machine offers none.
-type Source func(now time.Time) (Sample, bool)
+// Source takes a Sample, or returns why the machine offers none.
+type Source func(now time.Time) (Sample, error)
 
 type key struct {
 	pid   int
 	start uint64
 }
 
-// Reader reads the busiest processes from a Source.
+// Reader reads the busiest processes from a Source, and logs when it cannot:
+// once when that starts and once when it works again.
 type Reader struct {
-	source Source
+	source  Source
+	failing bool
 	// previous is each process's CPU time at the previous sample, and
 	// lastTotal and lastTime that sample's Total and Time.
 	previous  map[key]uint64
@@ -73,8 +76,15 @@ func NewReader(source Source) *Reader {
 // whole machine since the previous call, so the first call leaves that group
 // out, and by memory.
 func (r *Reader) Read(now time.Time) []metrics.Extra {
-	sample, ok := r.source(now)
-	if !ok {
+	sample, err := r.source(now)
+	switch {
+	case err != nil && !r.failing:
+		slog.Warn("read the processes", "error", err)
+	case err == nil && r.failing:
+		slog.Info("reading the processes works again")
+	}
+	r.failing = err != nil
+	if err != nil {
 		return nil
 	}
 	var extras []metrics.Extra

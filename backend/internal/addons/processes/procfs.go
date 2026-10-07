@@ -3,6 +3,7 @@ package processes
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -26,18 +27,27 @@ func newProcFS(dir string, pageSize int) *procFS {
 
 // sample reads every process. A process that ends while it is read is left
 // out.
-func (p *procFS) sample() (Sample, bool) {
-	now, ok := parseUptime(p.read(filepath.Join(p.dir, "uptime")))
-	if !ok {
-		return Sample{}, false
+func (p *procFS) sample() (Sample, error) {
+	path := filepath.Join(p.dir, "uptime")
+	text, err := p.read(path)
+	if err != nil {
+		return Sample{}, err
 	}
-	total, ok := parseTotal(p.read(filepath.Join(p.dir, "stat")))
+	now, ok := parseUptime(text)
 	if !ok {
-		return Sample{}, false
+		return Sample{}, fmt.Errorf("%s holds no time since boot", path)
+	}
+	path = filepath.Join(p.dir, "stat")
+	if text, err = p.read(path); err != nil {
+		return Sample{}, err
+	}
+	total, ok := parseTotal(text)
+	if !ok {
+		return Sample{}, fmt.Errorf("%s holds no CPU time", path)
 	}
 	entries, err := os.ReadDir(p.dir)
 	if err != nil {
-		return Sample{}, false
+		return Sample{}, err
 	}
 	processes := make([]Process, 0, len(entries))
 	for _, entry := range entries {
@@ -45,26 +55,28 @@ func (p *procFS) sample() (Sample, bool) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		if process, ok := parseStat(pid, p.read(filepath.Join(p.dir, entry.Name(), "stat")), p.pageSize); ok {
+		// A process that ended in between cannot be read.
+		text, _ := p.read(filepath.Join(p.dir, entry.Name(), "stat"))
+		if process, ok := parseStat(pid, text, p.pageSize); ok {
 			processes = append(processes, process)
 		}
 	}
-	return Sample{Processes: processes, Total: total, Time: now}, true
+	return Sample{Processes: processes, Total: total, Time: now}, nil
 }
 
-// read returns a short file's text in p.buf, which the next read reuses, or
-// nothing when it cannot be read. Its path is made of /proc's own names.
-func (p *procFS) read(path string) []byte {
+// read returns a short file's text in p.buf, which the next read reuses. Its
+// path is made of /proc's own names.
+func (p *procFS) read(path string) ([]byte, error) {
 	file, err := os.Open(path) //nolint:gosec // see above
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer func() { _ = file.Close() }()
 	n, err := io.ReadFull(file, p.buf)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-	return p.buf[:n]
+	return p.buf[:n], nil
 }
 
 // clockTicks is how many clock ticks, the unit of the times in

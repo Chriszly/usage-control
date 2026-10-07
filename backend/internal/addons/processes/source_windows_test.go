@@ -6,9 +6,9 @@ import "testing"
 // a real Windows machine: it has to find processes with names and memory,
 // and the CPUs' idle time.
 func TestWindowsListsProcesses(t *testing.T) {
-	processes, idle, _ := ntProcesses(nil)
-	if len(processes) == 0 {
-		t.Fatal("ntProcesses() found no processes")
+	processes, idle, _, err := ntProcesses(nil)
+	if err != nil || len(processes) == 0 {
+		t.Fatalf("ntProcesses() found no processes: %v", err)
 	}
 	if idle == 0 {
 		t.Error("idle = 0, want the CPUs' idle time")
