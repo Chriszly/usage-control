@@ -67,8 +67,12 @@
     UPDATE_CHECK    with WEBSITE=1, false to stop the daily check for a newer
                     release (default true)
     RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
-                    devices when the service starts; not remembered, so the
-                    next install, update or repair without it turns it off
+                    devices when the service starts; only from an
+                    administrator, and not remembered, so the next install,
+                    update or repair without it turns it off. To use it with
+                    the installed version, repair it with its own installer:
+                      msiexec /i usage-control.msi REINSTALL=ALL REINSTALLMODE=m RESET_PASSWORD=true
+                    and then once more the same way without RESET_PASSWORD
     POWER           1 to install the power add-on, 0 to remove it in an update
                     (default: not installed)
     GPU             1 to install the gpu add-on, 0 to remove it in an update
@@ -117,9 +121,14 @@
     <!--
       RESET_PASSWORD is the one option that is not remembered: while it is set,
       every start of the service deletes the password, so it applies only to
-      the install, update or repair it is given to.
+      the install, update or repair it is given to. A standard user may start
+      a repair of an installed program too, so the service gets it only from
+      an administrator (ServiceResetPassword); MSIUSEREALADMINDETECTION makes
+      AdminUser tell a real administrator, not only an elevated install.
     -->
     <Property Id="RESET_PASSWORD" Secure="yes" />
+    <Property Id="MSIUSEREALADMINDETECTION" Value="1" />
+    <SetProperty Action="ResetPasswordByAdmin" Id="ServiceResetPassword" Value="[RESET_PASSWORD]" After="DefaultWEBSITE" Sequence="execute" Condition="AdminUser AND RESET_PASSWORD" />
 
     <!--
       Derived from the options, once all of them are known. Without WEBSITE=1
@@ -197,7 +206,7 @@
         <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
         <MultiStringValue Value="DISK_PATHS=[DISK_PATHS]" />
         <MultiStringValue Value="UPDATE_CHECK=[UPDATE_CHECK]" />
-        <MultiStringValue Value="RESET_PASSWORD=[RESET_PASSWORD]" />
+        <MultiStringValue Value="RESET_PASSWORD=[ServiceResetPassword]" />
         <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
@@ -222,8 +231,13 @@
       <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Run" Name="Usage Control"
                      Type="string" Value="&quot;[#TrayExe]&quot;" />
     </Component>
-    <!-- Updating and uninstalling close the tray icons that run, so the file can be replaced. -->
-    <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no" />
+    <!--
+      Updating and uninstalling close the tray icons that run, so the file can
+      be replaced. A repair that only rewrites the registry (REINSTALLMODE=m,
+      as for RESET_PASSWORD) replaces no file, so it leaves them running.
+    -->
+    <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no"
+                           Condition='NOT (REINSTALL AND REINSTALLMODE = "m")' />
 
     <!--
       The power add-on, with POWER=1: a service of its own, in the same

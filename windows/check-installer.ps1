@@ -4,7 +4,8 @@
 # pauses, resumes and stops the service, updates it to a newer version
 # without options and checks the options and the add-ons were kept, except
 # RESET_PASSWORD, and the tray icon was closed for the update, repairs it
-# with RESET_PASSWORD=true and again without, as the docs say to,
+# with RESET_PASSWORD=true and again without, as the docs say to, which
+# restarts the service and leaves the tray icon running,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data, and last checks that an update with WEBSITE=0 turns the
 # website off.
@@ -250,12 +251,14 @@ Assert-SmartAddOn
 Assert-ProcessesAddOn
 
 Write-Host 'A repair with RESET_PASSWORD=true restarts the service with it, and one without it turns it off'
+Start-Tray
 $before = Get-ServiceProcessId
-Invoke-Installer "/fm `"$NewerMsi`" RESET_PASSWORD=true"
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m RESET_PASSWORD=true"
 Assert-ServiceSetting RESET_PASSWORD 'true'
 Assert-Website 8091
 if ((Get-ServiceProcessId) -eq $before) { throw 'The repair did not restart the service' }
-Invoke-Installer "/fm `"$NewerMsi`""
+if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { throw 'The repair closed the tray icon' }
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m"
 Assert-ServiceSetting RESET_PASSWORD ''
 Assert-ServiceSetting UPDATE_CHECK 'false'
 Assert-Website 8091
@@ -300,7 +303,9 @@ Invoke-Installer "/x `"$Msi`""
 Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off'
 Invoke-Installer "/i `"$Msi`" WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393"
 Assert-Website 9393
-Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0"
+# DATA_ONLY=false is what the setup wizard used to pass on after the
+# remembered WEBSITE=1, which kept the website on.
+Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false"
 Assert-ServiceSetting DATA_ONLY 'true'
 Assert-ServiceSetting HUB_DEVICES ''
 $null = Get-Answer 'http://127.0.0.1:9393/api/metrics'
