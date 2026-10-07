@@ -58,7 +58,9 @@ if [[ "${1:-}" == --uninstall ]]; then
   rm -rf /run/usage-control-addons
   systemctl daemon-reload
   if [[ "${2:-}" == --purge ]]; then
-    rm -rf /var/lib/usage-control /var/lib/private/usage-control "$settings"
+    # Settings made with systemctl edit are settings too.
+    rm -rf /var/lib/usage-control /var/lib/private/usage-control "$settings" /etc/systemd/system/usage-control*.service.d
+    systemctl daemon-reload
     echo "usage-control, its settings and its history are removed."
   else
     echo "usage-control is removed. Its settings ($settings) and history (/var/lib/usage-control) are kept; --uninstall --purge deletes them."

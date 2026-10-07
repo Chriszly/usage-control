@@ -27,6 +27,12 @@ RestartSec=5
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=
+# Of the hardware only the devices nvidia-smi talks to: NVIDIA's control and
+# GPU devices and the capability files it reads on GPUs split with MIG. Disks,
+# input and other devices cannot be opened.
+DevicePolicy=closed
+DeviceAllow=char-nvidia-frontend rw
+DeviceAllow=char-nvidia-caps r
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -35,9 +41,8 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-# Not ProtectClock=yes: it also limits the devices to the clock's, which
-# keeps nvidia-smi and vcgencmd from opening theirs. Without capabilities the
-# clock cannot be set anyway; this also blocks the calls that set it.
+# Without capabilities the clock cannot be set anyway; this also blocks the
+# calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
 RestrictAddressFamilies=AF_UNIX

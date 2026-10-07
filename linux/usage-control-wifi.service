@@ -29,6 +29,8 @@ CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# Only pseudo devices such as /dev/null: no disks, input or other hardware.
+PrivateDevices=yes
 PrivateNetwork=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

@@ -10,6 +10,9 @@ After=usage-control.service
 
 [Service]
 ExecStart=/usr/local/bin/usage-control-containers
+# DOCKER_DIR, where Docker keeps its data elsewhere, is set with the other
+# settings in /etc/usage-control.env.
+EnvironmentFile=-/etc/usage-control.env
 Environment=ADDONS_DIR=/run/usage-control-addons
 # The add-on folder usage-control reads; others may read it, only root writes.
 RuntimeDirectory=usage-control-addons
@@ -29,6 +32,8 @@ CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# Only pseudo devices such as /dev/null: no disks, input or other hardware.
+PrivateDevices=yes
 PrivateNetwork=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

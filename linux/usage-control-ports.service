@@ -21,17 +21,22 @@ RestartSec=5
 
 # Runs as root only to write the add-on folder it shares with the other
 # add-ons, which root owns, and without any capability. It reads the socket
-# tables of /proc/1/net, which any user may read, so it sees the host's ports
-# from a network namespace of its own. It reads no process names: finding
-# them would mean reading every process's /proc/<pid>/fd, which root without
-# capabilities may not do for other users' processes.
+# tables of /proc/1/net, which any user may read. It stays in the host's
+# network, without PrivateNetwork=yes, only so it reads the range of ports
+# the host hands out from /proc/sys/net/ipv4/ip_local_port_range, which each
+# network has of its own; it can still open no network socket (only AF_UNIX
+# below) and send no packet (IPAddressDeny). It reads no process names:
+# finding them would mean reading every process's /proc/<pid>/fd, which root
+# without capabilities may not do for other users' processes.
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-PrivateNetwork=yes
+# Only pseudo devices such as /dev/null: no disks, input or other hardware.
+PrivateDevices=yes
+IPAddressDeny=any
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

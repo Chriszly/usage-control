@@ -25,6 +25,14 @@ RestartSec=5
 User=root
 NoNewPrivileges=yes
 CapabilityBoundingSet=
+# Of the hardware only the devices nvidia-smi and vcgencmd talk to: NVIDIA's
+# control and GPU devices, the capability files nvidia-smi reads on GPUs split
+# with MIG, and the Raspberry Pi firmware's mailbox. One a machine lacks is
+# skipped; disks, input and other devices cannot be opened.
+DevicePolicy=closed
+DeviceAllow=char-nvidia-frontend rw
+DeviceAllow=char-nvidia-caps r
+DeviceAllow=/dev/vcio rw
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -33,9 +41,8 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-# Not ProtectClock=yes: it also limits the devices to the clock's, which
-# keeps nvidia-smi and vcgencmd from opening theirs. Without capabilities the
-# clock cannot be set anyway; this also blocks the calls that set it.
+# Without capabilities the clock cannot be set anyway; this also blocks the
+# calls that set it, as in the other add-ons' units.
 SystemCallFilter=~@clock
 ProtectHostname=yes
 RestrictAddressFamilies=AF_UNIX
