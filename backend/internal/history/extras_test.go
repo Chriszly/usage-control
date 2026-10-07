@@ -1,8 +1,11 @@
 package history
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,5 +134,28 @@ func TestDeleteBeforeDeletesTheDescriptionsOfExtrasWithoutValues(t *testing.T) {
 	}
 	if _, ok := got["extra:a/gone"]; ok || len(got) != 2 {
 		t.Errorf("ExtraInfo() = %v, want kept (has values) and new (written recently)", got)
+	}
+}
+
+func TestABrokenDescriptionIsLoggedOnce(t *testing.T) {
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	ctx := context.Background()
+	store := openTestStore(t)
+	for _, metric := range []string{"extra:a/broken", "extra:a/also-broken"} {
+		if _, err := store.db.Exec(`INSERT INTO extra_info (device, metric, info, written) VALUES ('nas', ?, '{', 0)`, metric); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for range 3 {
+		if got, err := store.ExtraInfo(ctx, "nas"); err != nil || len(got) != 0 {
+			t.Fatalf("ExtraInfo() = %v, %v; want nothing", got, err)
+		}
+	}
+
+	if got := strings.Count(logged.String(), "read the description of an extra"); got != 2 {
+		t.Errorf("logged %d times, want once per broken description:\n%s", got, logged.String())
 	}
 }

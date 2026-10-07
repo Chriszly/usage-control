@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	// Registers the pure-Go SQLite driver, so the binary needs no C library.
@@ -47,6 +48,9 @@ CREATE INDEX IF NOT EXISTS samples_hourly_by_time ON samples_hourly (time);
 type Store struct {
 	db    *sql.DB
 	cache rangeCache
+	// brokenInfo has a brokenInfoKey for each description of an extra that
+	// could not be read and was logged.
+	brokenInfo sync.Map
 }
 
 // Series is the values of one metric over time.

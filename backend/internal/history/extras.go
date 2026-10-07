@@ -77,12 +77,21 @@ func (s *Store) ExtraInfo(ctx context.Context, device string) (map[string]ExtraI
 		var description ExtraInfo
 		if err := json.Unmarshal([]byte(text), &description); err != nil {
 			// One broken description leaves out its chart, not every chart.
-			slog.Warn("read the description of an extra", "device", device, "metric", metric, "error", err)
+			// It is logged once, not at every read of the history.
+			if _, logged := s.brokenInfo.LoadOrStore(brokenInfoKey{device, metric}, true); !logged {
+				slog.Warn("read the description of an extra", "device", device, "metric", metric, "error", err)
+			}
 			continue
 		}
 		info[metric] = description
 	}
 	return info, rows.Err()
+}
+
+// brokenInfoKey names a description that could not be read; see
+// Store.brokenInfo.
+type brokenInfoKey struct {
+	device, metric string
 }
 
 // deleteUnusedExtraInfo deletes the descriptions of extras that have no
