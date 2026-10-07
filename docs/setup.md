@@ -87,6 +87,16 @@ The service starts right away and at every boot, on port 9393. Settings go in `/
 
 To update, unpack the newer archive and run its `install.sh` again; settings and history are kept. `sudo ./install.sh --uninstall` removes it, and `--uninstall --purge` also deletes its settings and history.
 
+### Add-ons
+
+Add-ons are optional programs that track more than usage-control itself does. Each one runs as a service of its own, so a device only runs the ones picked for it. In a terminal, `install.sh` asks for each add-on; `--addons=power` picks them without asking, `--addons=` installs none, and an update without the option keeps the add-ons installed before.
+
+| Add-on | What it adds |
+| --- | --- |
+| `power` | the power the machine draws, with its history: a Raspberry Pi 5 in total (through `vcgencmd`), Intel and AMD CPUs per package and memory (RAPL), sensors the kernel lists under hwmon (such as AMD GPUs) and NVIDIA GPUs (through `nvidia-smi`). On Windows: the energy meters Windows offers (RAPL and laptop meters), the battery while the PC runs on it, and NVIDIA GPUs. On Linux it runs as root, since newer kernels let only root read the CPU's energy counters, but without any capability or network access |
+
+Add-ons write what they read to `/run/usage-control-addons`, which usage-control shows as [extras](data.md#extras). A hub shows and keeps them like any other extras; a hub from before extras ignores them. On Windows, the installer offers them as boxes ([step 2](#2-add-a-windows-pc)) and they write to `C:\ProgramData\Usage Control\addons`. In Docker, the image carries them too, and `COMPOSE_PROFILES=power` in `.env` starts the power add-on as a container of its own next to usage-control. It runs as root without capabilities or network and writes to an in-memory volume. In a container it reads only RAPL and hwmon: a Raspberry Pi 5's total and NVIDIA GPUs need `vcgencmd` and `nvidia-smi` from the host, so for those, use the Linux archive.
+
 ## 2. Add a Windows PC
 
 Docker on Windows would measure its Linux VM, not the PC, so Windows gets an installer. From the [releases page](https://github.com/Chriszly/usage-control/releases), download `usage-control-<version>-x64.msi` for most PCs, or `-arm64.msi` for Windows on ARM, and run it. The installers are not code-signed, so SmartScreen warns before it runs.
@@ -101,6 +111,8 @@ To switch later, run the installer again and pick the other one. Either way, the
 - installs the program in `C:\Program Files\Usage Control` as the Windows service *Usage Control*, which starts with Windows and runs under the low-privilege Local Service account
 - opens port 9393 in the Windows firewall, for **private networks only**. If Windows set up the network as public, switch it to private in the Windows settings, or the hub cannot reach the PC
 - adds the tray icon described below, which starts for everyone who logs in
+
+The next page, **Add-ons**, has a box for each add-on that works on Windows, all cleared by default. The **power add-on** (`POWER=1` when installing silently), ticked, installs `usage-control-power.exe` as the service *Usage Control power add-on*, in the same Local Service account, which reads what Windows itself offers: the *Energy Meter* performance counters, which Windows 10 and 11 fill where the CPU or firmware has energy meters (Intel CPUs' RAPL counters per package, cores and memory, named as on Linux, and the meters of many laptops and Surface devices), and, on a laptop running on its battery, the power the battery gives, which is what the whole laptop draws (while it is plugged in, Windows only tells how fast the battery charges, so then there is no value). It also reads NVIDIA graphics cards through `nvidia-smi`. Where none of these exist, the add-on shows nothing. Running the installer again with the box cleared removes it. See [Add-ons](#add-ons).
 
 ### The tray icon
 
@@ -217,6 +229,7 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `RESET_PASSWORD` | `false` | `true` deletes the password for changing devices at start; unset it again right after |
 | `UPDATE_CHECK` | `true` | `false` stops the daily check for a newer release |
 | `ALLOWED_HOSTS` | none | other names this device answers to, comma-separated, besides IP addresses, `localhost`, its hostname and `.local` names |
+| `ADDONS_DIR` | `/run/usage-control-addons` for the Linux service; else none | the folder add-ons write their values to, which are shown as extras |
 | `HOST_PROC`, `HOST_SYS` | set by `compose.yaml` | where the host's `/proc` and `/sys` are mounted in a container |
 
 ## Updating

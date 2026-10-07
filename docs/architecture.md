@@ -223,13 +223,13 @@ All answers are JSON with `Cache-Control: no-store`. Times in the history are Un
 
 | Method and path | Answers | Errors |
 | --- | --- | --- |
-| `GET /api/metrics[?device=<id>]` | the device's current usage: version, time, time zone, uptime, CPU, memory, temperatures, disks, network, GPUs, throttling, battery, fans ([fields](data.md#the-snapshot)) | `404` unknown device, `503` another device that has not answered recently |
+| `GET /api/metrics[?device=<id>]` | the device's current usage: version, time, time zone, uptime, CPU, memory, temperatures, disks, network, GPUs, throttling, battery, fans, extras ([fields](data.md#the-snapshot)) | `404` unknown device, `503` another device that has not answered recently |
 | `GET /api/devices` | `{ devices: [{ id, name, address, kind, removable, unreachable, unreachableSince }], passwordSet }` | |
 | `GET /api/devices/suggestion` | `{ address, name, kind }`: the device the request came from, to offer adding it; see [Adding and removing devices](#adding-and-removing-devices) | `204` when there is none to offer |
 | `POST /api/devices` | body `{ name, address, kind, password }`, `kind` `server` (when left out) or `pc`; `201` with the new device | `400` name, address, kind or password length, `403` wrong password, `409` name or address and port taken, `415` not JSON, `422` nothing answers at the address |
 | `DELETE /api/devices/<id>` | body `{ password, keepHistory }`; `204` | `403` wrong password, `404` unknown device, `409` set in `HUB_DEVICES` |
 | `PUT /api/devices/<id>/kind` | body `{ kind, password }`; `204` | `400` kind, `403` wrong password, `404` unknown device |
-| `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }], lastReading? }`, at most 360 points per metric. For an unreachable device, `lastReading` is the time of its newest reading, and a range ending later is moved back to end there, keeping its length | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
+| `GET /api/history?from=<s>&to=<s>[&device=<id>]` | `{ from, to, stepSeconds, retentionDays, series: [{ metric, points: [{ time, value }] }], lastReading?, extras? }`, at most 360 points per metric. `extras` describes the series of [extras](data.md#extras) by metric. For an unreachable device, `lastReading` is the time of its newest reading, and a range ending later is moved back to end there, keeping its length | `400` when `from` and `to` are not Unix seconds with `from` before `to` |
 | `GET /api/availability?device=<id>` | `{ kind, since, offlineSeconds, outages, lastOutage: { start, end } }` | `404` for the device the hub runs on |
 | `GET /api/update` | `{ current, latest, url }`; `latest` and `url` only when a newer release exists | |
 | `GET /api/hub` | `{ url }`: the page of the hub that last asked this device for its usage, empty until one did | `403` from anywhere but this machine |

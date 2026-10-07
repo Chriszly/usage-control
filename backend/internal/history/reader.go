@@ -44,6 +44,12 @@ func (r Reader) Newest(ctx context.Context) (time.Time, bool, error) {
 	return r.Store.Newest(ctx, r.Device)
 }
 
+// ExtraInfo returns how the extras in the device's history are described, by
+// the metric they are stored under.
+func (r Reader) ExtraInfo(ctx context.Context) (map[string]ExtraInfo, error) {
+	return r.Store.ExtraInfo(ctx, r.Device)
+}
+
 // stepFor returns the step that splits span into at most maxPoints steps: a
 // whole number of intervals between readings, so every step averages the
 // same number of them. A step of an hour or more is a whole number of hours,

@@ -1,0 +1,49 @@
+# The power add-on of usage-control: reads how much power the machine draws
+# and writes it to /run/usage-control-addons, which usage-control shows.
+# install.sh puts it in /etc/systemd/system when the add-on is picked.
+[Unit]
+Description=Usage Control power add-on: reads the power the machine draws (Raspberry Pi 5, Intel and AMD CPUs, NVIDIA GPUs); runs as root without capabilities
+Documentation=https://github.com/Chriszly/usage-control
+PartOf=usage-control.service
+After=usage-control.service
+
+[Service]
+ExecStart=/usr/local/bin/usage-control-power
+Environment=ADDONS_DIR=/run/usage-control-addons
+# The add-on folder usage-control reads; others may read it, only root writes.
+RuntimeDirectory=usage-control-addons
+RuntimeDirectoryMode=0755
+# Shared with the other add-ons, so it stays when one of them stops.
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=5
+
+# Runs as root because newer kernels let only root read the CPU's energy
+# counters (RAPL), but without any capability: it only reads files root owns,
+# writes nothing but its folder, and needs no network. It may start
+# nvidia-smi and vcgencmd, so memory that is written and run stays allowed.
+User=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+# Not ProtectClock=yes: it also limits the devices to the clock's, which
+# keeps nvidia-smi and vcgencmd from opening theirs. Without capabilities the
+# clock cannot be set anyway; this also blocks the calls that set it.
+SystemCallFilter=~@clock
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=usage-control.service

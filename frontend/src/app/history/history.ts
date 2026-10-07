@@ -5,9 +5,10 @@ import { catchError, exhaustMap, of, switchMap, tap } from 'rxjs';
 
 import { HubConnection } from '../connection/connection';
 import { DeviceService } from '../devices/devices';
-import { I18n, TextParams } from '../i18n/i18n';
+import { I18n, LanguageCode, TextParams } from '../i18n/i18n';
 import { MessageKey } from '../i18n/messages/en';
 import { EvenColumns } from '../layout/even-columns';
+import { ExtraInfo, localized } from '../metrics/extras';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
 import { ChartLine, ChartUnit, LineChart } from './line-chart';
@@ -146,7 +147,14 @@ export class HistoryCharts {
 
   protected readonly charts = computed(() => {
     const history = this.history();
-    return history ? chartsOf(history.series, (key, params) => this.i18n.t(key, params)) : [];
+    if (!history) {
+      return [];
+    }
+    const language = this.i18n.language();
+    return [
+      ...chartsOf(history.series, (key, params) => this.i18n.t(key, params)),
+      ...extraChartsOf(history.series, history.extras ?? {}, language),
+    ];
   });
 
   constructor() {
@@ -281,6 +289,44 @@ export function chartsOf(
     },
   ];
   return charts.filter((chart) => chart.lines.some((line) => line.points.length > 0));
+}
+
+/**
+ * Draws the extras: one chart per group and unit, titled and labelled as the
+ * device describes them, in the page's language. Series without a description
+ * are left out.
+ */
+export function extraChartsOf(
+  series: Series[],
+  extras: Record<string, ExtraInfo>,
+  language: LanguageCode,
+): Chart[] {
+  const charts = new Map<string, Chart>();
+  for (const s of series) {
+    const info = extras[s.metric];
+    if (!info || info.unit === 'text' || s.points.length === 0) {
+      continue;
+    }
+    const group = s.metric.slice(0, s.metric.indexOf('/'));
+    const key = `${group} ${info.unit}`;
+    let chart = charts.get(key);
+    if (!chart) {
+      chart = {
+        title: localized(info.title, info.titles, language),
+        unit: info.unit,
+        max: info.unit === 'percent' ? 100 : undefined,
+        lines: [],
+      };
+      charts.set(key, chart);
+    }
+    chart.lines.push({ label: localized(info.label, info.labels, language), points: s.points });
+  }
+  // A chart of one line has no legend, so its title names the value.
+  return [...charts.values()].map((chart) =>
+    chart.lines.length === 1
+      ? { ...chart, title: `${chart.title} · ${chart.lines[0].label}` }
+      : chart,
+  );
 }
 
 /** Adds up the values of several lines at each time, such as the traffic of all network cards. */

@@ -1,6 +1,8 @@
 //go:build windows
 
-package main
+// Package winservice runs a program as a Windows service when the service
+// manager starts it.
+package winservice
 
 import (
 	"context"
@@ -11,25 +13,23 @@ import (
 	"golang.org/x/sys/windows/svc/eventlog"
 )
 
-// serviceName is the name the Windows installer registers the service under.
-const serviceName = "UsageControl"
-
 // serveRetryDelay is how long the service waits before it serves again after
 // serving stopped on its own, such as while the port is still in use.
 const serveRetryDelay = 10 * time.Second
 
-// runAsService runs serve as a Windows service when the service manager
-// started the program, and reports false when it was started any other way.
-// Errors are also written to the Windows event log, because a service has no
-// console to print them to.
-func runAsService(serve func(context.Context) error) (bool, error) {
+// Run runs serve as the Windows service name, the name the installer
+// registers it under, when the service manager started the program, and
+// reports false when it was started any other way. Errors are also written
+// to the Windows event log, because a service has no console to print them to.
+func Run(name string, serve func(context.Context) error) (bool, error) {
 	isService, err := svc.IsWindowsService()
 	if err != nil || !isService {
 		return false, err
 	}
+	logError := func(err error) { logTo(name, err) }
 	service := &windowsService{serve: serve, log: logError, retryDelay: serveRetryDelay}
-	if err := svc.Run(serviceName, service); err != nil {
-		service.err = fmt.Errorf("run as the Windows service %s: %w", serviceName, err)
+	if err := svc.Run(name, service); err != nil {
+		service.err = fmt.Errorf("run as the Windows service %s: %w", name, err)
 	}
 	if service.err != nil {
 		logError(service.err)
@@ -37,10 +37,10 @@ func runAsService(serve func(context.Context) error) (bool, error) {
 	return true, service.err
 }
 
-// logError writes err to the Windows event log, when the installer has
-// registered the service as a source.
-func logError(err error) {
-	if log, openErr := eventlog.Open(serviceName); openErr == nil {
+// logTo writes err to the Windows event log under source, when the
+// installer has registered the service as a source.
+func logTo(source string, err error) {
+	if log, openErr := eventlog.Open(source); openErr == nil {
 		_ = log.Error(1, err.Error())
 		_ = log.Close()
 	}

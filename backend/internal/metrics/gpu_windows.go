@@ -2,14 +2,11 @@ package metrics
 
 import (
 	"context"
-	"fmt"
-	"os/exec"
 	"sync"
-	"syscall"
-	"unsafe"
 
-	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/Chriszly/usage-control/backend/internal/pdh"
 )
 
 // gpuReader reads every GPU through the performance counters Windows keeps for
@@ -22,34 +19,15 @@ type gpuReader struct {
 
 	// mu guards the query, which measures usage since its previous reading.
 	mu      sync.Mutex
-	query   uintptr
-	engines uintptr
-	memory  uintptr
+	query   *pdh.Query
+	engines pdh.Counter
+	// memory is 0 when the machine has no memory counter.
+	memory pdh.Counter
 	// adapters is what the registry tells about each GPU, read when the
 	// query is opened and again only when the counters name an unknown GPU.
 	adapters map[luid]adapter
 	// err is why the counters could not be opened; then no GPU is read.
 	err error
-}
-
-var (
-	pdh                         = windows.NewLazySystemDLL("pdh.dll")
-	pdhOpenQuery                = pdh.NewProc("PdhOpenQueryW")
-	pdhAddEnglishCounter        = pdh.NewProc("PdhAddEnglishCounterW")
-	pdhCollectQueryData         = pdh.NewProc("PdhCollectQueryData")
-	pdhGetFormattedCounterArray = pdh.NewProc("PdhGetFormattedCounterArrayW")
-)
-
-const (
-	pdhFormatDouble = 0x00000200
-	pdhMoreData     = 0x800007D2
-)
-
-// pdhCounterValueItem is a PDH_FMT_COUNTERVALUE_ITEM_W holding a double.
-type pdhCounterValueItem struct {
-	name   *uint16
-	status uint32
-	value  float64
 }
 
 func newGPUReader() *gpuReader {
@@ -59,24 +37,20 @@ func newGPUReader() *gpuReader {
 }
 
 // open opens the query with both counters.
-//
-//nolint:gosec // pdh.dll takes pointers, which need unsafe.
 func (r *gpuReader) open() error {
-	if ret, _, _ := pdhOpenQuery.Call(0, 0, uintptr(unsafe.Pointer(&r.query))); ret != 0 {
-		return fmt.Errorf("PdhOpenQuery: 0x%x", ret)
+	query, err := pdh.Open()
+	if err != nil {
+		return err
 	}
-	engines := `\GPU Engine(*)\Utilization Percentage`
-	if ret, _, _ := pdhAddEnglishCounter.Call(r.query, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(engines))), 0, uintptr(unsafe.Pointer(&r.engines))); ret != 0 {
-		return fmt.Errorf("add counter %s: 0x%x", engines, ret)
+	r.query = query
+	if r.engines, err = query.Add(`\GPU Engine(*)\Utilization Percentage`); err != nil {
+		return err
 	}
 	// Without the memory counter, the GPUs are shown without memory.
-	memory := `\GPU Adapter Memory(*)\Dedicated Usage`
-	if ret, _, _ := pdhAddEnglishCounter.Call(r.query, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(memory))), 0, uintptr(unsafe.Pointer(&r.memory))); ret != 0 {
-		r.memory = 0
-	}
+	r.memory, _ = query.Add(`\GPU Adapter Memory(*)\Dedicated Usage`)
 	// Usage is measured between two readings, so the first one starts it.
 	// A failed start shows as a missing GPU.
-	_, _, _ = pdhCollectQueryData.Call(r.query)
+	_ = query.Collect()
 	r.adapters = adapters()
 	return nil
 }
@@ -87,16 +61,16 @@ func (r *gpuReader) read(context.Context) []GPU {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ret, _, _ := pdhCollectQueryData.Call(r.query); ret != 0 {
+	if err := r.query.Collect(); err != nil {
 		return []GPU{}
 	}
-	engines, err := counterValues(r.engines)
+	engines, err := r.engines.Values()
 	if err != nil {
 		return []GPU{}
 	}
 	var memory map[string]float64
 	if r.memory != 0 {
-		memory, _ = counterValues(r.memory)
+		memory, _ = r.memory.Values()
 	}
 	if !allKnown(engines, r.adapters) {
 		r.adapters = adapters()
@@ -108,41 +82,6 @@ func (r *gpuReader) read(context.Context) []GPU {
 // performance counters leave out.
 func (r *gpuReader) temperatures(ctx context.Context) []Temperature {
 	return r.nvidia.temperatures(ctx)
-}
-
-// hideWindow starts a program without a console window, which would flash up
-// every few seconds when usage-control runs without one.
-func hideWindow(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
-}
-
-// counterValues returns the value of each instance of a counter, by instance
-// name. Instances without a valid value, such as a process that just
-// started, are left out.
-//
-//nolint:gosec // pdh.dll takes pointers, which need unsafe.
-func counterValues(counter uintptr) (map[string]float64, error) {
-	var size, count uint32
-	ret, _, _ := pdhGetFormattedCounterArray.Call(counter, uintptr(pdhFormatDouble), uintptr(unsafe.Pointer(&size)), uintptr(unsafe.Pointer(&count)), 0)
-	if ret != pdhMoreData {
-		return nil, fmt.Errorf("PdhGetFormattedCounterArray: 0x%x", ret)
-	}
-	// The buffer holds the items followed by their names, so it is larger
-	// than count items; it is allocated as items so it is aligned for them.
-	itemSize := uint32(unsafe.Sizeof(pdhCounterValueItem{}))
-	buffer := make([]pdhCounterValueItem, (size+itemSize-1)/itemSize)
-	ret, _, _ = pdhGetFormattedCounterArray.Call(counter, uintptr(pdhFormatDouble), uintptr(unsafe.Pointer(&size)), uintptr(unsafe.Pointer(&count)), uintptr(unsafe.Pointer(&buffer[0])))
-	if ret != 0 {
-		return nil, fmt.Errorf("PdhGetFormattedCounterArray: 0x%x", ret)
-	}
-	values := make(map[string]float64, count)
-	for _, item := range buffer[:count] {
-		// PDH_CSTATUS_VALID_DATA and PDH_CSTATUS_NEW_DATA
-		if item.status == 0 || item.status == 1 {
-			values[windows.UTF16PtrToString(item.name)] = item.value
-		}
-	}
-	return values, nil
 }
 
 // adapters returns the name and memory size of each GPU, by its LUID. DirectX

@@ -273,6 +273,7 @@ func (h *Hub) Wait() {
 func (h *Hub) start(device Device, fixed bool) {
 	agent := NewAgent(device.Address)
 	agent.pagePort = h.pagePort
+	agent.maxEntries = h.historyEntries
 	if err := watch(h.ctx, h.store.DB(), device.ID, time.Now()); err != nil {
 		slog.Error("store when the hub started collecting from a device", "name", device.Name, "error", err)
 	}

@@ -6,6 +6,14 @@
   the website and keeps the history itself. Double-clicking the installer
   asks which of the two this PC should do (the "Mode" page below).
 
+  Add-ons are optional programs that track more, each a service of its own
+  that writes to C:\ProgramData\Usage Control\addons, which usage-control
+  shows. The Add-ons page offers each one as a box, and each has an install
+  option. POWER=1 installs the power add-on, usage-control-power.exe, as the
+  Windows service "Usage Control power add-on", which reads the power the
+  energy meters Windows offers report (CPU, memory and laptop meters), what
+  the battery gives while the PC runs on it, and what NVIDIA GPUs draw.
+
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
   someone logs in, and at the end of the setup wizard. Logged-in users may
@@ -13,7 +21,7 @@
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Binary=usage-control.exe
-      -d TrayBinary=usage-control-tray.exe -d Icon=usage-control.ico
+      -d TrayBinary=usage-control-tray.exe -d AddOns=. -d Icon=usage-control.ico
       -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
       -o usage-control.msi
 
@@ -28,6 +36,8 @@
                     and GPUs each the history keeps per device (default 64)
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
+    POWER           1 to install the power add-on, 0 to remove it in an update
+                    (default: not installed)
   An update keeps the options of the installed version; options given to the
   update replace them.
 -->
@@ -55,7 +65,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -74,6 +84,16 @@
     <SetProperty Action="WebsiteOn" Id="DATA_ONLY" Value="false" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
     <SetProperty Action="WebsiteHubDevices" Id="SERVICE_HUB_DEVICES" Value="[HUB_DEVICES]" After="LaunchConditions" Sequence="both" Condition='WEBSITE = "1"' />
 
+    <!--
+      Each add-on's box on the Add-ons page has a property of its own, ticked
+      when the add-on is on. A cleared box leaves its property empty, which
+      would let AppSearch bring back the remembered 1, so Next turns the box
+      into 1 or 0 for the add-on's option (see AddOnsDlg).
+    -->
+    <?foreach AddOn in POWER ?>
+    <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
+    <?endforeach?>
+
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
     <UIRef Id="SetupWizard" />
     <!-- No "Change" in Apps and Features: running the installer again changes the mode. -->
@@ -83,7 +103,10 @@
       <Directory Id="INSTALLFOLDER" Name="Usage Control" />
     </StandardDirectory>
     <StandardDirectory Id="CommonAppDataFolder">
-      <Directory Id="DATAFOLDER" Name="Usage Control" />
+      <Directory Id="DATAFOLDER" Name="Usage Control">
+        <!-- Where add-ons write what they read, for the service to show. -->
+        <Directory Id="ADDONSFOLDER" Name="addons" />
+      </Directory>
     </StandardDirectory>
 
     <Component Directory="INSTALLFOLDER">
@@ -120,10 +143,11 @@
         <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
         <MultiStringValue Value="HISTORY_MAX_ENTRIES=[HISTORY_MAX_ENTRIES]" />
         <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -147,6 +171,36 @@
     <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no" />
 
     <!--
+      The power add-on, with POWER=1: a service of its own, in the same
+      low-privilege account, that writes to the add-on folder. An update
+      checks the condition again, so it also adds or removes the add-on.
+    -->
+    <Component Directory="INSTALLFOLDER" Condition='POWER = "1"'>
+      <File Source="$(AddOns)\usage-control-power.exe" Name="usage-control-power.exe" KeyPath="yes" />
+      <ServiceInstall Name="UsageControlPower"
+                      DisplayName="Usage Control power add-on"
+                      Description="Reads the power this computer draws for Usage Control."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="NT AUTHORITY\LocalService">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="10"
+                            ResetPeriodInDays="1" />
+      </ServiceInstall>
+      <ServiceControl Name="UsageControlPower" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\UsageControlPower" Name="Environment" Type="multiString">
+        <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
+      </RegistryValue>
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
+                     Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\System32\EventCreate.exe" />
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\UsageControlPower"
+                     Name="TypesSupported" Type="integer" Value="7" />
+    </Component>
+
+    <!--
       The history database, used with WEBSITE=1. Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
@@ -155,6 +209,10 @@
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;LS)" />
       </CreateFolder>
+    </Component>
+    <!-- The add-on folder, with the data folder's rights. -->
+    <Component Id="AddOnsFolder" Directory="ADDONSFOLDER" Guid="5E0F3C1B-7D52-4E4B-9C8E-2A6F1D93B4C7">
+      <CreateFolder />
     </Component>
   </Package>
 
@@ -199,13 +257,42 @@
         </Control>
       </Dialog>
 
+      <!--
+        Which add-ons to install, one box each with what it tracks in its
+        text. Slot i is at Y = 55 + 17 * i, ten slots up to the bottom line.
+        Each add-on that runs on Windows has a fixed slot, so adding one never
+        moves the others; a slot stays empty until its add-on is added:
+        0 power, 1 gpu, 2 processes, 3 ports, 4 kernel, 5 memory, 6 pressure,
+        7 wifi, 8 smart, 9 free. The Linux-only add-ons (inodes, containers)
+        have none.
+      -->
+      <Dialog Id="AddOnsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
+        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER_BOX" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartTray" Order="998" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
       <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
-      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ModeDlg" Condition="NOT Installed" />
+      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
+      <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
+      <?foreach AddOn in POWER ?>
+      <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
+      <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
+      <?endforeach?>
+      <Publish Dialog="AddOnsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="2" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AddOnsDlg" Condition="NOT Installed" />
 
       <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
