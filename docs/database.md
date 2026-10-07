@@ -56,7 +56,7 @@ flowchart LR
 - Ranges up to 30 minutes come from memory, in steps of 5 seconds or more.
 - Longer ranges come from `samples`, in steps of whole minutes.
 - As soon as a step is an hour or more (ranges over 15 days), they come from `samples_hourly`, weighted by `count`, which gives the same averages from 60 times fewer rows.
-- After a restart, memory is empty. Until it reaches back far enough, short ranges come from the database in 1-minute steps instead, so the chart is never empty. The same goes for a short range with a gap of a few missed readings in memory, as after the hub could not reach a device: the database has the minutes the hub fetched from the device since.
+- Where memory has a gap of a few missed readings, as after the hub could not reach a device, or does not reach back far enough yet, as after a restart, only the steps of the gap come from the database: each gets the value of its minute there, such as one the hub fetched from the device since. The rest of the range still comes from memory. A short range with no reading in memory at all comes from the database in 1-minute steps, so the chart is never empty.
 - Database answers are kept for up to a minute per device and step, so every open tab and every viewer of the hub share one query.
 
 A device that did not answer has no values for that time, which shows as a gap in its chart. While a device does not answer, a range that ends after its newest reading is moved back to end there, keeping its length, so its charts show the last data there is instead of an empty range. The newest reading comes from memory, or after a restart from `samples` (one row of the primary key's index).

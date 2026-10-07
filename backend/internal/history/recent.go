@@ -71,6 +71,46 @@ func (r *Recent) Covers(from time.Time) bool {
 	return true
 }
 
+// missing returns the steps from from up to to, by their start, that fall in
+// a gap in the readings (see Covers) and so have none: before the oldest
+// reading, and between two readings more than gapAfter apart. Steps start at
+// multiples of step since the Unix epoch, as in Range. ok is false when no
+// reading falls in the range at all.
+func (r *Recent) missing(from, to time.Time, step time.Duration) (steps []int64, ok bool) {
+	stepSeconds := max(1, int64(step/time.Second))
+	start, end := from.Unix(), to.Unix()
+	maxGap := int64(gapAfter / time.Second)
+	// gap adds the steps after the one a reading at after is in, up to the
+	// one a reading at until is in, as far as they are in the range.
+	gap := func(after, until int64) {
+		for s := max(start/stepSeconds, after/stepSeconds+1) * stepSeconds; s < until/stepSeconds*stepSeconds; s += stepSeconds {
+			steps = append(steps, s)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// previous is the reading before, or a step before from when there is
+	// none, so the steps from from on are missing.
+	previous, readBefore := start-stepSeconds, false
+	for _, x := range r.readings {
+		if x.time >= end {
+			break
+		}
+		if x.time >= start {
+			switch {
+			case !ok && !readBefore && x.time > start+int64(RecentInterval/time.Second):
+				gap(previous, x.time)
+			case readBefore && x.time-previous > maxGap:
+				gap(previous, x.time)
+			}
+			ok = true
+		}
+		previous, readBefore = x.time, true
+	}
+	return steps, ok
+}
+
 // Newest returns the time of the newest reading, or false when there is none.
 // The readings of a device that stopped answering stay until it answers
 // again, as only a new reading makes the old ones go.
