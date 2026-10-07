@@ -36,6 +36,11 @@ type Reader struct {
 	pmic   string
 	nvidia string
 	system *system
+
+	// lastPMIC and lastNvidia keep what vcgencmd and nvidia-smi answered,
+	// which is asked only every programInterval.
+	lastPMIC   lastReadings
+	lastNvidia lastReadings
 }
 
 // NewReader returns a Reader for the machine. sysDir is where /sys is, which
@@ -52,14 +57,15 @@ func NewReader(sysDir string) *Reader {
 
 // Read returns the power values, in a fixed order. Power measured from an
 // energy counter is the average since the previous call, so the first call
-// leaves those out.
+// leaves those out. vcgencmd and nvidia-smi are asked only every
+// programInterval, and their last answer is used in between.
 func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	var readings []Reading
-	readings = append(readings, r.pmicTotal(ctx)...)
+	readings = append(readings, r.lastPMIC.get(now, func() []Reading { return r.pmicTotal(ctx) })...)
 	readings = append(readings, r.rapl.read(now)...)
 	readings = append(readings, readHwmon(r.hwmon)...)
 	readings = append(readings, r.system.read()...)
-	readings = append(readings, readNvidia(ctx, r.nvidia)...)
+	readings = append(readings, r.lastNvidia.get(now, func() []Reading { return readNvidia(ctx, r.nvidia) })...)
 	return readings
 }
 

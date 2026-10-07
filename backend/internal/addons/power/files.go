@@ -6,7 +6,29 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
+
+// programInterval is how long the readings of a program the add-on starts,
+// vcgencmd and nvidia-smi, are used again. Starting a process costs far more
+// than the file reads of the other values, and the history keeps one average
+// a minute, which a value every half minute still fills.
+const programInterval = 30 * time.Second
+
+// lastReadings keeps a program's readings for programInterval.
+type lastReadings struct {
+	readings []Reading
+	at       time.Time
+}
+
+// get returns the kept readings while they are younger than programInterval
+// at now, and otherwise those read returns.
+func (l *lastReadings) get(now time.Time, read func() []Reading) []Reading {
+	if l.at.IsZero() || now.Sub(l.at) >= programInterval {
+		l.readings, l.at = read(), now
+	}
+	return l.readings
+}
 
 // lookPath returns where a program is, or "" when it is not installed.
 func lookPath(name string) string {

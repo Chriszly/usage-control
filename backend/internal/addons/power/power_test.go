@@ -115,9 +115,39 @@ func TestParsePMICAddsUpTheRails(t *testing.T) {
 }
 
 func TestParseNvidiaLeavesOutGPUsWithoutPower(t *testing.T) {
-	got := parseNvidia("0, NVIDIA GeForce RTX 5060 Ti, 18.42\n1, NVIDIA T400, [N/A]\n")
+	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, NVIDIA GeForce RTX 5060 Ti, 18.42\n" +
+		"1, GPU-5e6f7a8b-0000-0000-0000-000000000000, NVIDIA T400, [N/A]\n")
 
-	want := []Reading{{ID: "nvidia-0", Label: "NVIDIA GeForce RTX 5060 Ti", Watts: 18.42}}
+	// With two GPUs, each is named by its UUID, which stays with the card.
+	want := []Reading{{ID: "nvidia-1a2b3c4d", Label: "NVIDIA GeForce RTX 5060 Ti", Watts: 18.42}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseNvidia() = %+v, want %+v", got, want)
+	}
+}
+
+func TestLastReadingsAsksAProgramEveryInterval(t *testing.T) {
+	calls := 0
+	read := func() []Reading {
+		calls++
+		return []Reading{{ID: "nvidia-0", Watts: float64(calls)}}
+	}
+	var last lastReadings
+	start := time.Now()
+
+	for _, after := range []time.Duration{0, 5 * time.Second, programInterval - time.Second} {
+		if got := last.get(start.Add(after), read); got[0].Watts != 1 {
+			t.Errorf("get() after %v = %v, want the first answer", after, got)
+		}
+	}
+	if got := last.get(start.Add(programInterval), read); got[0].Watts != 2 || calls != 2 {
+		t.Errorf("get() after the interval = %v after %d calls, want a new answer", got, calls)
+	}
+}
+
+func TestParseNvidiaKeepsTheIDOfTheOnlyGPU(t *testing.T) {
+	got := parseNvidia("0, GPU-1a2b3c4d-0000-0000-0000-000000000000, Odd, Name, 18.42\n")
+
+	want := []Reading{{ID: "nvidia-0", Label: "Odd, Name", Watts: 18.42}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseNvidia() = %+v, want %+v", got, want)
 	}
