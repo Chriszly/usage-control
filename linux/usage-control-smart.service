@@ -44,10 +44,6 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-# Not ProtectClock=yes: it also limits the devices to the clock's, which
-# keeps nvidia-smi and vcgencmd from opening theirs. Without capabilities the
-# clock cannot be set anyway; this also blocks the calls that set it.
-SystemCallFilter=~@clock
 ProtectHostname=yes
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=yes
@@ -57,8 +53,9 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 # Only the system calls a service needs, without those of @privileged (which
-# holds @swap, @reboot, @module, @raw-io and setuid and the like), @mount and
-# others no reader needs. The disk commands are plain ioctl calls, which stay
+# holds @clock, @swap, @reboot, @module, @raw-io and setuid and the like),
+# @mount and others no reader needs; not ProtectClock=yes, which would also
+# keep it from the disks' devices. The disk commands are plain ioctl calls, which stay
 # allowed. A call that is not allowed fails instead of ending the program.
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @mount @obsolete @debug @cpu-emulation

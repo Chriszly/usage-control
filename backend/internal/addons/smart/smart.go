@@ -170,14 +170,15 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 		r.scannedAt = now
 	}
 	r.devices = devices
-	// A disk that was asleep or could not be read keeps its last result; a
-	// disk that is gone is dropped.
+	// A disk that was asleep keeps its last result; one that could not be
+	// read, which may be failing, or that is gone is dropped, rather than
+	// still showing a check it passed before.
 	disks := map[string]Disk{}
 	for _, d := range devices {
 		if disk, ok := read[d.path]; ok {
 			disks[d.path] = disk
 			delete(r.warned, d.path)
-		} else if disk, ok := r.disks[d.path]; ok {
+		} else if disk, ok := r.disks[d.path]; ok && failed[d.path] == nil {
 			disks[d.path] = disk
 		}
 		if err := failed[d.path]; err != nil && !r.warned[d.path] {

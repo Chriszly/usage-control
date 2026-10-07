@@ -432,8 +432,10 @@ func TestIDOfKeepsRoomForTheLongestValue(t *testing.T) {
 type fakeSource struct {
 	mu     sync.Mutex
 	asleep bool
-	lists  int
-	reads  int
+	// failing makes sda fail to read, as a failing disk may.
+	failing bool
+	lists   int
+	reads   int
 }
 
 func (f *fakeSource) list() ([]device, error) {
@@ -458,6 +460,8 @@ func (f *fakeSource) read(d device) (Disk, error) {
 		return Disk{Celsius: ptr(41)}, nil
 	case f.asleep:
 		return Disk{}, errAsleep
+	case f.failing:
+		return Disk{}, errors.New("input/output error")
 	}
 	return Disk{Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)}, nil
 }
@@ -502,6 +506,17 @@ func TestReaderReadsEveryTenMinutesAndKeepsTheLastResult(t *testing.T) {
 	}
 	if !r.warned["/dev/sdb"] {
 		t.Error("the disk that cannot be read was not logged")
+	}
+
+	// Another ten minutes later sda cannot be read: it no longer shows the
+	// check it passed before.
+	src.mu.Lock()
+	src.asleep, src.failing = false, true
+	src.mu.Unlock()
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	got = r.Read(ctx, start.Add(2*ReadInterval+5*time.Second))
+	if !reflect.DeepEqual(got, want[1:]) {
+		t.Errorf("Read() = %+v, want only the NVMe disk once sda fails", got)
 	}
 }
 

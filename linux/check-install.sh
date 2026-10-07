@@ -66,6 +66,10 @@ for _ in $(seq 1 10); do
 done
 test -f /run/usage-control-addons/smart.json || { echo "the smart add-on wrote no report" >&2; exit 1; }
 "$folder/install.sh" --addons=power
+if systemctl cat usage-control-smart > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-smart ]]; then
+  echo "--addons=power left the smart add-on behind" >&2
+  exit 1
+fi
 
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
