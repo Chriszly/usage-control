@@ -91,9 +91,14 @@ func (s linuxSource) list() ([]device, error) {
 // ioCount adds up the reads and writes completed on the disk's block
 // devices, the first and fifth number of /sys/block/<name>/stat. Commands
 // passed through to the disk, as the add-on sends, are not counted there.
+// A block device whose counting is switched off (queue/iostats 0) keeps the
+// same numbers whatever it does, so the disk then counts as not counted.
 func (s linuxSource) ioCount(d device) (uint64, bool) {
 	var count uint64
 	for _, block := range d.blocks {
+		if s.text(filepath.Join(s.sys, "block", block, "queue", "iostats")) == "0" {
+			return 0, false
+		}
 		n, ok := parseBlockStat(s.text(filepath.Join(s.sys, "block", block, "stat")))
 		if !ok {
 			return 0, false

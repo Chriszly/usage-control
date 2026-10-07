@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/shirou/gopsutil/v4/net"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 const procNetTCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -180,8 +182,8 @@ func TestJoinAddressesKeepsWholeAddresses(t *testing.T) {
 	if got != want {
 		t.Errorf("joinAddresses() = %q, want %q", got, want)
 	}
-	if len(got) > maxTextLength {
-		t.Errorf("joinAddresses() has %d characters, want at most %d", len(got), maxTextLength)
+	if len(got) > metrics.MaxTextLength {
+		t.Errorf("joinAddresses() has %d characters, want at most %d", len(got), metrics.MaxTextLength)
 	}
 	if got := joinAddresses(addresses[:2]); got != "fd00::1:1000, fd00::1:1001" {
 		t.Errorf("joinAddresses() of two = %q, want both", got)

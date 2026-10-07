@@ -569,7 +569,8 @@ func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 }
 
 func TestReaderLeavesADiskWithoutUseAlone(t *testing.T) {
-	src := &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 100}}
+	// The NVMe disk is read every time even without use.
+	src := &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 100, "/dev/nvme0": 7}}
 	r := newReader(src)
 	start := time.Now()
 	ctx := context.Background()

@@ -42,7 +42,7 @@ func TestCleanExtrasLeavesOutWhatCannotBeShown(t *testing.T) {
 
 	got := CleanExtras(extras, 64)
 
-	want := []Extra{{ID: "ok", Title: strings.Repeat("t", maxTextLength), Titles: map[string]string{"de": "y"}, Items: []ExtraItem{
+	want := []Extra{{ID: "ok", Title: strings.Repeat("t", MaxTextLength), Titles: map[string]string{"de": "y"}, Items: []ExtraItem{
 		{ID: "a", Label: "A", Unit: UnitNumber, Value: number(1)},
 		{ID: "future", Label: "New unit", Unit: UnitNumber, Value: number(300), History: true},
 		{ID: "text", Label: "Text", Unit: UnitText, Text: "hi"},

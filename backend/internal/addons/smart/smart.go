@@ -5,8 +5,8 @@
 // media errors and, for NVMe, how much of its rated wear is used.
 //
 // SMART reads cost time and would wake disks that sleep, so it reads every
-// ReadInterval, and only disks that read or wrote anything since their last
-// read. Before anything else it asks a disk whether it sleeps and leaves it
+// ReadInterval, and SATA disks only when they read or wrote anything since
+// their last read. Before anything else it asks a disk whether it sleeps and leaves it
 // alone if it does: on Windows first Windows itself, whether it has switched
 // the disk off, then a SATA disk itself, with CHECK POWER MODE. In between
 // it reports the last result. It only sends commands that read; nothing in
@@ -70,7 +70,7 @@ type device struct {
 	// blocks are the block devices of the disk in /sys/block on Linux,
 	// whose counts of reads and writes tell whether it was used: the disk
 	// itself, or each namespace of an NVMe controller.
-	blocks []string
+	blocks []string //nolint:unused,nolintlint // only Linux reads it, so the linter of the other systems finds it unused
 }
 
 // errAsleep is returned for a disk that sleeps, which is not woken.
@@ -186,7 +186,14 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 		if ctx.Err() != nil {
 			break
 		}
-		count, counted := r.src.ioCount(d)
+		// Only SATA disks are left alone without use: reading one can spin
+		// it up or keep it from switching off. NVMe disks are read every
+		// time, so their temperature and hours keep going in the history.
+		var count uint64
+		var counted bool
+		if !d.nvme {
+			count, counted = r.src.ioCount(d)
+		}
 		if counted && !last[d.path].Unreadable {
 			if before, ok := lastIOCounts[d.path]; ok && before == count {
 				continue

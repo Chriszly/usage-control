@@ -37,16 +37,22 @@ const MaxContainers = 64
 // rootless Podman's are five folders down, in the user's own slice.
 const maxDepth = 6
 
-// walkEvery is how often the whole cgroup tree is walked for containers, in
-// reads. In between only the folders that held containers at the last walk
-// are looked at, which finds containers that start or stop there, such as
-// Docker's in system.slice, at once, and containers in new places, such as
-// the first of a Kubernetes pod, at the next walk.
+// walkEvery is how often the whole cgroup tree is walked for containers at
+// the latest, in reads. It is walked too whenever the number of cgroups
+// changes, as when a container starts in a new place, such as the first
+// container or the first of a Kubernetes pod; in between only the folders
+// that held containers at the last walk are looked at. Should cgroups come
+// and go in the same number between two reads, the walk every walkEvery
+// reads finds the new ones.
 const walkEvery = 12
 
-// PodmanContainers is the list of containers of rootful Podman and CRI-O,
-// with their names.
-const PodmanContainers = "/var/lib/containers/storage/overlay-containers/containers.json"
+// PodmanStorage is the storage folder of rootful Podman and CRI-O, which
+// keeps a list of containers with their names for each storage driver.
+const PodmanStorage = "/var/lib/containers/storage"
+
+// podmanDrivers are the storage drivers whose list of containers is read,
+// <driver>-containers/containers.json in PodmanStorage.
+var podmanDrivers = []string{"overlay", "vfs", "btrfs", "zfs"}
 
 // Container is what one running container uses.
 type Container struct {
@@ -77,19 +83,27 @@ type Reader struct {
 	at time.Time
 	// names are the names read from Docker's settings, by id.
 	names map[string]knownName
-	// podman is the list of Podman's containers (see PodmanContainers),
-	// podmanNames the names read from it, by id, and podmanFile the time and
-	// size of the file then, to read it again only when it changes.
+	// podman is Podman's storage folder (see PodmanStorage), and
+	// podmanLists what was read of its lists of containers, by path.
 	podman      string
-	podmanNames map[string]string
-	podmanFile  knownName
-	// reads counts the reads, for walkEvery, and parents are the folders
-	// that held containers at the last walk.
-	reads   int
-	parents []string
+	podmanLists map[string]podmanList
+	// reads counts the reads since the last walk, for walkEvery,
+	// cgroupCount is the number of cgroups then, and parents are the folders
+	// that held containers.
+	reads       int
+	cgroupCount uint64
+	parents     []string
 	// noCgroupV2, noDockerDir and shortDockerID are set once that was
 	// logged, so it is logged once and not at every read.
 	noCgroupV2, noDockerDir, shortDockerID bool
+}
+
+// podmanList is the names read from one of Podman's lists of containers,
+// by id, with the time and size of the file then, to read it again only
+// when it changes.
+type podmanList struct {
+	file  knownName
+	names map[string]string
 }
 
 // knownName is a name read from a Docker container's settings, with the
@@ -111,7 +125,9 @@ func NewReader(sysDir, dockerDir string) *Reader {
 		docker:  dockerDir,
 		cpus:    countCPUs(sysfile.Text(filepath.Join(cgroups, "cpuset.cpus.effective"))),
 		names:   map[string]knownName{},
-		podman:  PodmanContainers,
+		podman:  PodmanStorage,
+
+		podmanLists: map[string]podmanList{},
 	}
 }
 
@@ -192,8 +208,10 @@ func (r *Reader) name(id string, docker bool, names map[string]knownName) string
 		names[id] = known
 		return known.name
 	}
-	if name := r.podmanNames[id]; name != "" {
-		return name
+	for _, list := range r.podmanLists {
+		if name := list.names[id]; name != "" {
+			return name
+		}
 	}
 	if docker && !r.noDockerDir && !r.shortDockerID {
 		r.shortDockerID = true
@@ -203,36 +221,43 @@ func (r *Reader) name(id string, docker bool, names map[string]knownName) string
 	return id[:12]
 }
 
-// readPodman reads the names in Podman's list of containers when the file
-// changed since it was read last. While it cannot be read, its names are
-// forgotten.
+// readPodman reads the names in each of Podman's lists of containers that
+// changed since it was read last. A list that is gone is forgotten; one that
+// cannot be read or understood keeps the names read before and is tried
+// again at the next read.
 func (r *Reader) readPodman() {
-	info, err := os.Stat(r.podman)
-	if err != nil {
-		r.podmanNames, r.podmanFile = nil, knownName{}
-		return
+	for _, driver := range podmanDrivers {
+		path := filepath.Join(r.podman, driver+"-containers", "containers.json")
+		info, err := os.Stat(path)
+		if err != nil {
+			delete(r.podmanLists, path)
+			continue
+		}
+		before := r.podmanLists[path]
+		if info.ModTime().Equal(before.file.modified) && info.Size() == before.file.size {
+			continue
+		}
+		if names, ok := podmanNames(path); ok {
+			r.podmanLists[path] = podmanList{file: knownName{modified: info.ModTime(), size: info.Size()}, names: names}
+		}
 	}
-	if info.ModTime().Equal(r.podmanFile.modified) && info.Size() == r.podmanFile.size {
-		return
-	}
-	r.podmanNames = podmanNames(r.podman)
-	r.podmanFile = knownName{modified: info.ModTime(), size: info.Size()}
 }
 
-// podmanNames reads the containers' names from the list of containers of
+// podmanNames reads the containers' names from a list of containers of
 // containers/storage, which Podman and CRI-O keep and only root may read: a
-// JSON array of containers, each with its id and names.
-func podmanNames(path string) map[string]string {
-	data, err := os.ReadFile(path) //nolint:gosec // the fixed path of Podman's list
+// JSON array of containers, each with its id and names. It is false when
+// the list cannot be read or understood.
+func podmanNames(path string) (map[string]string, bool) {
+	data, err := os.ReadFile(path) //nolint:gosec // a fixed path in Podman's storage folder
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var list []struct {
 		ID    string   `json:"id"`
 		Names []string `json:"names"`
 	}
 	if json.Unmarshal(data, &list) != nil {
-		return nil
+		return nil, false
 	}
 	names := make(map[string]string, len(list))
 	for _, c := range list {
@@ -240,15 +265,18 @@ func podmanNames(path string) map[string]string {
 			names[c.ID] = c.Names[0]
 		}
 	}
-	return names
+	return names, true
 }
 
 // find returns the cgroup of each container, by container id: from the
-// whole cgroup tree every walkEvery reads, else from the folders that held
-// containers at the last walk.
+// whole cgroup tree when the number of cgroups changed since the last walk
+// or every walkEvery reads, else from the folders that held containers at
+// the last walk.
 func (r *Reader) find() map[string]string {
 	found := map[string]string{}
-	if r.reads%walkEvery == 0 {
+	// The root's cgroup.stat counts every cgroup below it, one small file.
+	count, counted := statValue(filepath.Join(r.cgroups, "cgroup.stat"), "nr_descendants")
+	if !counted || count != r.cgroupCount || r.reads%walkEvery == 0 {
 		findContainers(r.cgroups, 0, found)
 		r.parents = r.parents[:0]
 		for _, dir := range found {
@@ -256,6 +284,7 @@ func (r *Reader) find() map[string]string {
 				r.parents = append(r.parents, parent)
 			}
 		}
+		r.cgroupCount, r.reads = count, 0
 	} else {
 		for _, dir := range r.parents {
 			findIn(dir, found)

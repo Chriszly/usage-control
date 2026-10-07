@@ -172,16 +172,20 @@ func TestSGAnswerChecksWhatCameBack(t *testing.T) {
 
 func TestIOCountAddsUpTheBlockDevices(t *testing.T) {
 	sys := fakeSys(t, nil, map[string]string{
-		"block/nvme0n1/stat": "  120  3  9000  50  80  1  700  30  0  60  90  0  0  0  0  4  2",
-		"block/nvme0n2/stat": "    5  0    40   1   2  0   16   1  0   2   2",
-		"block/sda/stat":     "garbage",
+		"block/nvme0n1/stat":          "  120  3  9000  50  80  1  700  30  0  60  90  0  0  0  0  4  2",
+		"block/nvme0n2/stat":          "    5  0    40   1   2  0   16   1  0   2   2",
+		"block/sda/stat":              "garbage",
+		"block/sdb/stat":              "  120  3  9000  50  80  1  700  30  0  60  90",
+		"block/sdb/queue/iostats":     "0",
+		"block/nvme0n1/queue/iostats": "1",
 	})
 	src := linuxSource{sys: sys}
 
 	if got, ok := src.ioCount(device{blocks: []string{"nvme0n1", "nvme0n2"}}); !ok || got != 207 {
 		t.Errorf("ioCount() = %d, %v, want 207 reads and writes", got, ok)
 	}
-	for _, blocks := range [][]string{{"sda"}, {"sdz"}, nil} {
+	// sda's stat cannot be read, sdz is gone and sdb does not count.
+	for _, blocks := range [][]string{{"sda"}, {"sdz"}, {"sdb"}, nil} {
 		if got, ok := src.ioCount(device{blocks: blocks}); ok {
 			t.Errorf("ioCount() of %v = %d, want not counted", blocks, got)
 		}
