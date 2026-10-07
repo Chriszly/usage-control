@@ -20,8 +20,15 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
-// query is what nvidia-smi is asked, in this order, one line per GPU.
-const query = "--query-gpu=index,name,fan.speed,clocks.gr,clocks.mem,utilization.encoder,utilization.decoder,pstate,power.limit"
+const (
+	// query is what nvidia-smi is asked, in this order, one line per GPU.
+	query = "--query-gpu=index,name,fan.speed,clocks.gr,clocks.mem,utilization.encoder,utilization.decoder,pstate,power.limit"
+	// nvidiaTimeout is how long nvidia-smi may take, as long as the power
+	// add-on lets it. Without the driver's persistence mode, as on many
+	// Linux servers, each call starts the driver, which can take more than
+	// a second.
+	nvidiaTimeout = 3 * time.Second
+)
 
 // fields are the values of query after the index and the name.
 var fields = []struct {
@@ -61,8 +68,8 @@ func NewReader() *Reader {
 }
 
 // Read returns the GPUs' values as the group of extras the collector shows,
-// or nothing when nvidia-smi is missing or fails. It gives up after a
-// second, so a hanging driver does not hold up the next report.
+// or nothing when nvidia-smi is missing or prints nothing. It gives up after
+// nvidiaTimeout, so a hanging driver does not hold up the next report.
 func (r *Reader) Read(ctx context.Context, _ time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
@@ -75,17 +82,18 @@ func (r *Reader) Read(ctx context.Context, _ time.Time) []metrics.Extra {
 		slog.Info("nvidia-smi works again")
 	}
 	r.failing = err != nil
-	if err != nil {
-		return nil
-	}
+	// When one GPU is in an error state, nvidia-smi still prints the others
+	// but exits with an error, so what it printed is read either way.
 	return Extras(Parse(out))
 }
 
 func run(ctx context.Context, program string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	ctx, cancel := context.WithTimeout(ctx, nvidiaTimeout)
 	defer cancel()
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
-	out, err := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits").Output()
+	cmd := exec.CommandContext(ctx, program, query, "--format=csv,noheader,nounits")
+	metrics.HideWindow(cmd)
+	out, err := cmd.Output()
 	return string(out), err
 }
 
@@ -100,7 +108,9 @@ type GPU struct {
 }
 
 // Parse reads the CSV nvidia-smi writes for query, such as
-// "0, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00".
+// "0, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00". Other
+// lines, such as the message nvidia-smi prints for a GPU in an error state,
+// are left out.
 func Parse(out string) []GPU {
 	var gpus []GPU
 	for line := range strings.Lines(out) {
@@ -115,7 +125,7 @@ func Parse(out string) []GPU {
 			Name:   strings.TrimSpace(strings.Join(parts[1:len(parts)-len(fields)], ",")),
 			Values: map[string]string{},
 		}
-		if gpu.Index == "" {
+		if _, err := strconv.Atoi(gpu.Index); err != nil {
 			continue
 		}
 		for i, field := range fields {

@@ -1,7 +1,10 @@
 package gpu
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -26,6 +29,22 @@ func TestParseLeavesOutWhatTheGPUDoesNotReport(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Parse() = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseReadsTheGPUsBesideOneInAnErrorState(t *testing.T) {
+	// What nvidia-smi prints, while exiting with an error, when one of its
+	// GPUs fails.
+	out := "0, NVIDIA GeForce RTX 3090, 30, 1695, 9751, 0, 0, P2, 350.00\n" +
+		"Unable to determine the device handle for GPU0000:02:00.0: Unknown Error\n" +
+		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error], " +
+		"[Unknown Error], [Unknown Error], [Unknown Error], [Unknown Error]\n" +
+		"2, NVIDIA GeForce RTX 3090, 31, 1700, 9751, 0, 0, P2, 350.00\n"
+
+	got := Parse(out)
+
+	if len(got) != 2 || got[0].Index != "0" || got[1].Index != "2" || got[1].Values["fan"] != "31" {
+		t.Errorf("Parse() = %+v, want GPUs 0 and 2 without the failed one", got)
 	}
 }
 
@@ -95,5 +114,27 @@ func TestExtrasOfNothing(t *testing.T) {
 func TestReadWithoutNvidiaSMIReportsNothing(t *testing.T) {
 	if got := (&Reader{}).Read(t.Context(), time.Time{}); got != nil {
 		t.Errorf("Read() = %+v, want nothing", got)
+	}
+}
+
+func TestReadKeepsWhatAFailingNvidiaSMIPrinted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	// A stand-in for nvidia-smi that prints one GPU and fails for another.
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	text := "#!/bin/sh\n" +
+		"echo '0, NVIDIA GeForce RTX 4070, 35, 2475, 10501, 0, 3, P0, 200.00'\n" +
+		"echo 'Unable to determine the device handle for GPU0000:02:00.0: Unknown Error'\n" +
+		"exit 15\n"
+	if err := os.WriteFile(script, []byte(text), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+	r := &Reader{program: script}
+
+	got := r.Read(t.Context(), time.Time{})
+
+	if len(got) != 1 || len(got[0].Items) != 7 || got[0].Items[0].ID != "0-fan" || !r.failing {
+		t.Errorf("Read() = %+v, want GPU 0's values from before nvidia-smi failed", got)
 	}
 }
