@@ -20,8 +20,13 @@ import (
 const (
 	// requestTimeout is how long a device has to answer.
 	requestTimeout = 4 * time.Second
-	// maxResponseBytes is the largest answer that is read; a snapshot is a
-	// few kilobytes.
+	// maxResponseBytes is the largest answer that is read. A snapshot is a
+	// few kilobytes, and some 150 KB on a host with 64 disks, sensors and
+	// network cards and 500 values of extras with three translations each.
+	// Even every group and value of extras CleanExtras keeps, with labels of
+	// the most characters, fits, as long as they are not all translated too:
+	// a device that answers more counts as not answering, and the log says
+	// why.
 	maxResponseBytes = 1 << 20
 	// staleAfter is how old the newest reading may be before the device
 	// counts as unreachable: a few missed readings.
@@ -150,7 +155,11 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 	if response.StatusCode != http.StatusOK {
 		return &statusError{URL: url, Status: response.Status, Code: response.StatusCode}
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, limit)).Decode(answer); err != nil {
+	body := &io.LimitedReader{R: response.Body, N: limit}
+	if err := json.NewDecoder(body).Decode(answer); err != nil {
+		if body.N == 0 {
+			return fmt.Errorf("read the answer of %s: it is larger than the %d KiB that are read", url, limit>>10)
+		}
 		return fmt.Errorf("read the answer of %s: %w", url, err)
 	}
 	return nil

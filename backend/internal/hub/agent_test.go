@@ -46,6 +46,18 @@ func TestAgentReadsTheDevicesUsage(t *testing.T) {
 	}
 }
 
+func TestAgentSaysWhenAnAnswerIsTooLarge(t *testing.T) {
+	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"disks":[{"path":"` + strings.Repeat("x", maxResponseBytes) + `"}]}`))
+	}))
+	defer device.Close()
+	agent := NewAgent(strings.TrimPrefix(device.URL, "http://"))
+
+	if _, err := agent.Collect(context.Background()); err == nil || !strings.Contains(err.Error(), "larger than the 1024 KiB") {
+		t.Errorf("Collect() error = %v, want it to say the answer is too large", err)
+	}
+}
+
 func TestAgentReportsAFailingDevice(t *testing.T) {
 	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "only reachable from the local network", http.StatusForbidden)

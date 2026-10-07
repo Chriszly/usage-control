@@ -141,7 +141,7 @@ sequenceDiagram
 
 Rules the agent follows:
 
-- A device has 4 seconds to answer. Answers larger than 1 MiB are not read; a reading is a few kilobytes.
+- A device has 4 seconds to answer. Answers larger than 1 MiB are not read, and the log says so; a reading is a few kilobytes, and about 150 KB on a host with 64 disks, sensors and network cards and 500 values of extras.
 - The agent connects directly, never through a proxy, and does not follow redirects.
 - It only connects to addresses on the local network, checked on the address it actually dials, so a host name that resolves to an address outside the network is refused too.
 - A device whose newest reading is older than 20 seconds (a few missed readings) counts as unreachable. The page then shows it with a red dot, and its charts get a gap. While it stays unreachable, its charts show the chosen range up to its last reading instead of up to now, with a notice that they are not live; once it answers again, they are live again.
