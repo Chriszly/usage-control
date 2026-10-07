@@ -3,7 +3,8 @@ name: Docker image
 # Builds the image for arm64 (Raspberry Pi) and amd64 and publishes it to the GitHub
 # Container Registry as ghcr.io/<owner>/usage-control when a pull request is merged
 # into main or a version tag (v1.2.3 or 1.2.3, or a bugfix such as 1.2.3a) is pushed.
-# Pull requests only build it, in the CI workflow's "Docker image (arm64 and amd64)" job.
+# Pull requests only build it, in the CI workflow's "Docker image (arm64 and amd64)" job,
+# which also starts the amd64 image with two add-on containers.
 on:
   push:
     branches:
