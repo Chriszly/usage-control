@@ -1,8 +1,8 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power, gpu and pressure add-ons on, checks the tray icon
-# pauses, resumes and stops the service, updates it to a newer version
-# without options and checks the options and the add-ons were kept and the
-# tray icon was closed for the update,
+# installs it with the website and the power, gpu, kernel and pressure add-ons
+# on, checks the tray icon pauses, resumes and stops the service, updates it
+# to a newer version without options and checks the options and the add-ons
+# were kept and the tray icon was closed for the update,
 # uninstalls it, then installs it with the defaults and checks it only serves
 # the usage data.
 #
@@ -118,6 +118,14 @@ function Assert-GpuAddOn {
     Wait-Until { Test-Path "$env:ProgramData\Usage Control\addons\gpu.json" } 'the gpu add-on wrote its report'
 }
 
+function Assert-KernelAddOn {
+    $addOn = Get-Service UsageControlKernel -ErrorAction SilentlyContinue
+    if (-not $addOn) { throw 'The kernel add-on is not installed' }
+    Wait-Until { (Get-Service UsageControlKernel).Status -eq 'Running' } 'the kernel add-on runs'
+    $report = "$env:ProgramData\Usage Control\addons\kernel.json"
+    Wait-Until { (Test-Path $report) -and (Get-Content $report -Raw) -match '"context-switches"' } 'the kernel add-on wrote its report'
+}
+
 function Assert-PressureAddOn {
     $addOn = Get-Service UsageControlPressure -ErrorAction SilentlyContinue
     if (-not $addOn) { throw 'The pressure add-on is not installed' }
@@ -126,13 +134,14 @@ function Assert-PressureAddOn {
     Wait-Until { (Get-Content -Raw "$env:ProgramData\Usage Control\addons\pressure.json") -match '"cpu-queue"' } 'the pressure add-on read the processor queue'
 }
 
-Write-Host 'Installing with the website and the power, gpu and pressure add-ons on'
-Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 PRESSURE=1"
+Write-Host 'Installing with the website and the power, gpu, kernel and pressure add-ons on'
+Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 POWER=1 GPU=1 KERNEL=1 PRESSURE=1"
 $service = Get-Service UsageControl
 if ($service.StartType -ne 'Automatic') { throw "The service starts $($service.StartType), not automatically" }
 Assert-Website 8091
 Assert-PowerAddOn
 Assert-GpuAddOn
+Assert-KernelAddOn
 Assert-PressureAddOn
 
 Write-Host 'The tray icon pauses, resumes and stops the service'
@@ -149,6 +158,7 @@ if ($installed.Count -ne 1) { throw "The update left $($installed.Count) install
 Assert-Website 8091
 Assert-PowerAddOn
 Assert-GpuAddOn
+Assert-KernelAddOn
 Assert-PressureAddOn
 
 Write-Host 'Uninstalling'
@@ -156,6 +166,7 @@ Invoke-Installer "/x `"$NewerMsi`""
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The service is still installed' }
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on is still installed' }
 if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on is still installed' }
+if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on is still installed' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on is still installed' }
 if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The firewall rule is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
@@ -172,6 +183,7 @@ if ($status -ne 404) { throw "The website answered $status; without WEBSITE=1 it
 Assert-FirewallPort 9393
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The power add-on was installed without POWER=1' }
 if (Get-Service UsageControlGPU -ErrorAction SilentlyContinue) { throw 'The gpu add-on was installed without GPU=1' }
+if (Get-Service UsageControlKernel -ErrorAction SilentlyContinue) { throw 'The kernel add-on was installed without KERNEL=1' }
 if (Get-Service UsageControlPressure -ErrorAction SilentlyContinue) { throw 'The pressure add-on was installed without PRESSURE=1' }
 Invoke-Installer "/x `"$Msi`""
 

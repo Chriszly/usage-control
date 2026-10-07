@@ -296,6 +296,83 @@ function gpuAddOnValues(
   };
 }
 
+/** What the kernel add-on reports; its values come from values() as "extra:kernel/<id>", from kernelValues(). */
+function kernelAddOn(): Extra[] {
+  const perSecond = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'perSecond' as const,
+    history: true,
+  });
+  const number = (id: string, label: string, labels: Record<string, string>) => ({
+    id,
+    label,
+    labels,
+    unit: 'number' as const,
+    history: true,
+  });
+  return [
+    {
+      id: 'kernel',
+      title: 'Kernel',
+      titles: { de: 'Kernel', fr: 'Noyau', es: 'Núcleo' },
+      items: [
+        perSecond('context-switches', 'Context switches', {
+          de: 'Kontextwechsel',
+          fr: 'Changements de contexte',
+          es: 'Cambios de contexto',
+        }),
+        perSecond('interrupts', 'Interrupts', {
+          de: 'Interrupts',
+          fr: 'Interruptions',
+          es: 'Interrupciones',
+        }),
+        perSecond('new-processes', 'New processes and threads', {
+          de: 'Neue Prozesse und Threads',
+          fr: 'Nouveaux processus et threads',
+          es: 'Procesos e hilos nuevos',
+        }),
+        number('open-files', 'Open files', {
+          de: 'Offene Dateien',
+          fr: 'Fichiers ouverts',
+          es: 'Archivos abiertos',
+        }),
+        number('sockets', 'Sockets in use', {
+          de: 'Belegte Sockets',
+          fr: 'Sockets utilisés',
+          es: 'Sockets en uso',
+        }),
+        number('tcp-established', 'Established TCP connections', {
+          de: 'Aufgebaute TCP-Verbindungen',
+          fr: 'Connexions TCP établies',
+          es: 'Conexiones TCP establecidas',
+        }),
+        perSecond('tcp-retransmissions', 'TCP retransmissions', {
+          de: 'TCP-Neuübertragungen',
+          fr: 'Retransmissions TCP',
+          es: 'Retransmisiones TCP',
+        }),
+      ],
+    },
+  ];
+}
+
+/** The kernel add-on's values at t for a machine with the given CPU usage, scaled by size (1 for a Raspberry Pi). */
+function kernelValues(t: number, step: number, seed: number, cpu: number, size: number): Values {
+  const count = (base: number, swing: number, period: number, i: number) =>
+    Math.round(vary(t, step, seed + i, base * size, [[swing * size, period]], 0, 1e9));
+  return {
+    'extra:kernel/context-switches': (900 + cpu * 60) * size + count(0, 200, 30, 0),
+    'extra:kernel/interrupts': (700 + cpu * 35) * size + count(0, 150, 30, 1),
+    'extra:kernel/new-processes': vary(t, step, seed + 2, 1 + cpu * 0.08, [[1, 60]], 0, 1e6) * size,
+    'extra:kernel/open-files': count(1400, 150, 3600, 3),
+    'extra:kernel/sockets': count(160, 20, 1800, 4),
+    'extra:kernel/tcp-established': count(12, 6, 900, 5),
+    'extra:kernel/tcp-retransmissions': vary(t, step, seed + 6, 0.2, [[0.3, 120]], 0, 1e6) * size,
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -328,6 +405,7 @@ const piHub: DemoMachine = {
       { id: 'mnt-usb', label: '/mnt/usb' },
     ]),
     ...pressureAddOn(),
+    ...kernelAddOn(),
   ],
   bootedDaysAgo: 12.3,
   values: (t, step) => {
@@ -379,6 +457,7 @@ const piHub: DemoMachine = {
       'extra:pressure/memory-full': 0,
       // The SD card makes the Pi wait for I/O now and then.
       ...ioPressure(vary(t, step, 301, 1.5, [[2, 120]]), 0.5),
+      ...kernelValues(t, step, 900, cpu, 1),
     };
   },
 };
@@ -750,6 +829,7 @@ const linuxServer: DemoMachine = {
       { id: 'root', label: '/' },
       { id: 'var-lib-docker', label: '/var/lib/docker' },
     ]),
+    ...kernelAddOn(),
   ],
   utc: true,
   bootedDaysAgo: 87.4,
@@ -786,6 +866,7 @@ const linuxServer: DemoMachine = {
       ...gpuAddOnValues(gpu, 1695, 9751, 350, 0),
       'extra:inodes/root': vary(t, step, 126, 6, [[0.3, 86400 * 3]]),
       'extra:inodes/var-lib-docker': vary(t, step, 127, 38 + 2 * build, [[5, 86400 * 2]]),
+      ...kernelValues(t, step, 950, cpu, 8),
     };
   },
 };
