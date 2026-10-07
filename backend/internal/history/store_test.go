@@ -295,7 +295,8 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 
 func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 	snapshot := metrics.Snapshot{
-		Temperatures: []metrics.Temperature{{Sensor: "a", Celsius: 1}, {Sensor: "b", Celsius: 2}, {Sensor: "c", Celsius: 3}},
+		// Kept by name, not in the order the device lists them.
+		Temperatures: []metrics.Temperature{{Sensor: "c", Celsius: 3}, {Sensor: "b", Celsius: 2}, {Sensor: "a", Celsius: 1}},
 		Disks:        []metrics.Disk{{Path: "/", UsedPercent: 20}, {Path: "/mnt/a", UsedPercent: 30}, {Path: "/mnt/b", UsedPercent: 40}},
 		Network:      []metrics.NetworkInterface{{Name: "eth0"}, {Name: "eth1"}, {Name: "eth2"}},
 		GPUs:         []metrics.GPU{{Name: "g0", UsagePercent: 1}, {Name: "g1", UsagePercent: 2}, {Name: "g2", UsagePercent: 3}},
@@ -348,7 +349,8 @@ func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
 		for i := range 7 {
 			group.Items = append(group.Items, metrics.ExtraItem{ID: fmt.Sprintf("v%d", i), Label: "Value", Unit: metrics.UnitNumber, Value: number(1), History: true})
 		}
-		extras = append(extras, group)
+		// Listed last to first: kept by metric name, not in the device's order.
+		extras = append([]metrics.Extra{group}, extras...)
 	}
 
 	got, dropped, _ := values(metrics.Snapshot{Extras: extras}, maxEntries)
@@ -365,7 +367,7 @@ func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
 	_, last := got["extra:g2/v1"]
 	_, past := got["extra:g2/v2"]
 	if !last || past {
-		t.Errorf("values() = %v, want the first values kept, up to extra:g2/v1", got)
+		t.Errorf("values() = %v, want the first values by name kept, up to extra:g2/v1", got)
 	}
 	if info := extraInfo(extras, maxEntries); len(info) != stored {
 		t.Errorf("extraInfo() describes %d values, want the %d stored", len(info), stored)

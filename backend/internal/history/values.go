@@ -1,6 +1,7 @@
 package history
 
 import (
+	"cmp"
 	"slices"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
@@ -38,6 +39,14 @@ const DefaultMaxEntries = 64
 // number of groups times the number of values in each would allow the square.
 const extrasPerEntry = 8
 
+// MaxExtras returns how many values of extras the history keeps per device
+// when it keeps maxEntries disks, sensors, network cards and GPUs each: of
+// more, the first by metric name, as a recorder keeps of its readings and a
+// hub of the minutes it fetches.
+func MaxExtras(maxEntries int) int {
+	return extrasPerEntry * maxEntries
+}
+
 // MaxMetricLength is the longest metric name stored. A disk, sensor, network
 // card or GPU whose name makes a longer one is left out of the history, so a
 // broken device cannot fill the hub's memory and database with long names.
@@ -49,9 +58,10 @@ const MaxMetricLength = 256
 // extras that ask for it in their own unit. The load average, clock, each
 // core's usage and throttling are only shown live. Of the disks, sensors,
 // network cards and GPUs whose names fit in MaxMetricLength, the first
-// maxEntries each are kept, and of the extras the first extrasPerEntry times
-// maxEntries; dropped tells whether any were left out for those limits, and
-// tooLong whether any were for their names.
+// maxEntries each by name are kept, as a hub keeps of the minutes it
+// fetches, and of the extras the first MaxExtras by metric name;
+// dropped tells whether any were left out for those limits, and tooLong
+// whether any were for their names.
 func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped, tooLong bool) {
 	v = map[string]float64{
 		MetricCPU:    s.CPU.UsagePercent,
@@ -64,11 +74,11 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped, 
 		v[MetricBattery] = s.Battery.Percent
 	}
 	temperatures := named(s.Temperatures, MetricTemperature, func(t metrics.Temperature) string { return t.Sensor }, &tooLong)
-	for _, t := range first(temperatures, maxEntries, &dropped) {
+	for _, t := range first(temperatures, func(t metrics.Temperature) string { return t.Sensor }, maxEntries, &dropped) {
 		v[MetricTemperature+":"+t.Sensor] = t.Celsius
 	}
 	disks := named(s.Disks, MetricDiskWrite, func(d metrics.Disk) string { return d.Path }, &tooLong)
-	for _, d := range first(disks, maxEntries, &dropped) {
+	for _, d := range first(disks, func(d metrics.Disk) string { return d.Path }, maxEntries, &dropped) {
 		v[MetricDisk+":"+d.Path] = d.UsedPercent
 		if d.ReadBytesPerSecond != nil && d.WriteBytesPerSecond != nil {
 			v[MetricDiskRead+":"+d.Path] = *d.ReadBytesPerSecond
@@ -76,12 +86,12 @@ func values(s metrics.Snapshot, maxEntries int) (v map[string]float64, dropped, 
 		}
 	}
 	network := named(s.Network, MetricNetworkReceive, func(n metrics.NetworkInterface) string { return n.Name }, &tooLong)
-	for _, n := range first(network, maxEntries, &dropped) {
+	for _, n := range first(network, func(n metrics.NetworkInterface) string { return n.Name }, maxEntries, &dropped) {
 		v[MetricNetworkReceive+":"+n.Name] = n.ReceiveBytesPerSecond
 		v[MetricNetworkSend+":"+n.Name] = n.SendBytesPerSecond
 	}
 	gpus := named(s.GPUs, MetricGPUMemory, func(g metrics.GPU) string { return g.Name }, &tooLong)
-	for _, g := range first(gpus, maxEntries, &dropped) {
+	for _, g := range first(gpus, func(g metrics.GPU) string { return g.Name }, maxEntries, &dropped) {
 		v[MetricGPU+":"+g.Name] = g.UsagePercent
 		if memory, ok := g.MemoryUsedPercent(); ok {
 			v[MetricGPUMemory+":"+g.Name] = memory
@@ -103,21 +113,21 @@ type storedExtra struct {
 }
 
 // storedExtras returns the values of the extras that ask for their history,
-// the first extrasPerEntry times maxEntries of them, and whether that left
-// some out.
+// the first MaxExtras of them by metric name, and whether that left some
+// out.
 func storedExtras(extras []metrics.Extra, maxEntries int) (stored []storedExtra, dropped bool) {
 	for _, group := range extras {
 		for _, item := range group.Items {
-			if !item.History || item.Value == nil {
-				continue
+			if item.History && item.Value != nil {
+				stored = append(stored, storedExtra{metric: extraMetric(group, item), group: group, item: item})
 			}
-			if len(stored) == extrasPerEntry*maxEntries {
-				return stored, true
-			}
-			stored = append(stored, storedExtra{metric: extraMetric(group, item), group: group, item: item})
 		}
 	}
-	return stored, false
+	if len(stored) <= MaxExtras(maxEntries) {
+		return stored, false
+	}
+	slices.SortFunc(stored, func(a, b storedExtra) int { return cmp.Compare(a.metric, b.metric) })
+	return stored[:MaxExtras(maxEntries)], true
 }
 
 // extraInfo describes the extras values keeps, by the metric they are stored
@@ -141,14 +151,15 @@ func extraMetric(group metrics.Extra, item metrics.ExtraItem) string {
 	return MetricExtra + ":" + group.ID + "/" + item.ID
 }
 
-// first returns the first n entries of list, and sets dropped when that
-// leaves some out.
-func first[T any](list []T, n int, dropped *bool) []T {
+// first returns the first n entries of list by name, and sets dropped when
+// that leaves some out.
+func first[T any](list []T, name func(T) string, n int, dropped *bool) []T {
 	if len(list) <= n {
 		return list
 	}
 	*dropped = true
-	return list[:n]
+	sorted := slices.SortedFunc(slices.Values(list), func(a, b T) int { return cmp.Compare(name(a), name(b)) })
+	return sorted[:n]
 }
 
 // named returns the entries of list whose name makes metric names of at most

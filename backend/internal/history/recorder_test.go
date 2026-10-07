@@ -101,13 +101,14 @@ func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
 	cancel()
 	now := time.Now().Truncate(time.Minute).Add(20 * time.Second)
 	for name, c := range map[string]struct {
-		from  time.Time
+		last  time.Time
 		fetch func(context.Context) bool
 		want  bool
 	}{
-		"in a new minute":                   {from: now.Add(-30 * time.Second), want: true},
-		"in the minute stored last":         {from: now.Add(-10 * time.Second)},
-		"for a device the hub fetches from": {from: now.Add(-30 * time.Second), fetch: func(context.Context) bool { return true }},
+		"in a new minute":                   {last: now.Truncate(time.Minute).Add(-time.Minute), want: true},
+		"before storing any":                {want: true},
+		"in the minute stored last":         {last: now.Truncate(time.Minute)},
+		"for a device the hub fetches from": {fetch: func(context.Context) bool { return true }},
 	} {
 		store := openTestStore(t)
 		recorder := &Recorder{
@@ -119,7 +120,7 @@ func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
 		}
 		recorder.read(context.Background())
 
-		recorder.storeLast(stopped, c.from, now)
+		recorder.storeLast(stopped, now.Add(-30*time.Second), c.last, now)
 
 		got, err := store.Range(context.Background(), LocalDevice, now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
 		if err != nil {
@@ -130,6 +131,91 @@ func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
 		} else if stored && got[0].Points[0].Time != now.Truncate(time.Minute).Unix() {
 			t.Errorf("%s: stored at %d, want at %d, the minute it stopped in", name, got[0].Points[0].Time, now.Truncate(time.Minute).Unix())
 		}
+	}
+}
+
+// startedCollector answers every reading with the same snapshot and tells
+// when Run took its first.
+type startedCollector struct{ started chan struct{} }
+
+func (c *startedCollector) Collect(context.Context) (metrics.Snapshot, error) {
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	return metrics.Snapshot{Time: time.Now(), CPU: metrics.CPU{UsagePercent: 30}}, nil
+}
+
+func TestRecorderRunStoresTheMinuteItStopsIn(t *testing.T) {
+	store := openTestStore(t)
+	recent := &Recent{}
+	collector := &startedCollector{started: make(chan struct{}, 1)}
+	recorder := &Recorder{Store: store, Recent: recent, Collector: collector, Device: LocalDevice}
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		recorder.Run(ctx)
+	}()
+	<-collector.started
+	// A reading after the start, as the recorder takes every few seconds; the
+	// average covers whole seconds, so it ends a second later.
+	read := time.Now()
+	recent.Add(read, map[string]float64{MetricCPU: 30})
+	time.Sleep(time.Until(read.Truncate(time.Second).Add(time.Second)))
+
+	stop()
+	<-done
+
+	got, err := store.Range(context.Background(), LocalDevice, read.Add(-time.Hour), read.Add(time.Hour), time.Minute)
+	if err != nil || len(got) != 1 || got[0].Points[0].Value != 30 {
+		t.Errorf("Range() after Run stopped = %+v, %v; want the minute it stopped in", got, err)
+	}
+}
+
+func TestUntilStoreWaitsForTheSameSecondOfAMinute(t *testing.T) {
+	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
+	for _, c := range []struct {
+		now  time.Time
+		lag  time.Duration
+		want time.Time
+	}{
+		{now: minute.Add(10 * time.Second), want: minute.Add(storeAt)},
+		// Too close to the minute's: the next one's.
+		{now: minute.Add(storeAt - time.Second), want: minute.Add(time.Minute + storeAt)},
+		// Just after storing, or a timer that fired a little early.
+		{now: minute.Add(storeAt + time.Millisecond), want: minute.Add(time.Minute + storeAt)},
+		{now: minute.Add(storeAt - time.Millisecond), want: minute.Add(time.Minute + storeAt)},
+		// A hub's recorder of another device, at second 5 of the next minute.
+		{now: minute.Add(10 * time.Second), lag: fetchLag, want: minute.Add(time.Minute + 5*time.Second)},
+		{now: minute.Add(-20 * time.Second), lag: fetchLag, want: minute.Add(5 * time.Second)},
+		{now: minute.Add(5*time.Second + time.Millisecond), lag: fetchLag, want: minute.Add(time.Minute + 5*time.Second)},
+	} {
+		if got := c.now.Add(untilStore(c.now, c.lag)); !got.Equal(c.want) {
+			t.Errorf("untilStore(%v, %v) stores at %v, want %v", c.now, c.lag, got, c.want)
+		}
+	}
+}
+
+func TestRecorderOfAnotherDeviceStoresUnderTheMinuteBefore(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	// Second 5 of a minute, when a hub's recorder of another device stores.
+	now := time.Now().Truncate(time.Minute).Add(5 * time.Second)
+	recorder := &Recorder{
+		Store:     store,
+		Recent:    &Recent{},
+		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-30 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+		Device:    "living-room-pi",
+		Fetch:     func(context.Context) bool { return false },
+	}
+	recorder.read(ctx)
+
+	recorder.store(ctx, now.Add(-time.Minute), now)
+
+	got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
+	if want := now.Truncate(time.Minute).Add(-time.Minute).Unix(); err != nil || len(got) == 0 || got[0].Points[0].Time != want {
+		t.Errorf("Range() = %+v, %v; want the average under %d, the minute its readings are in", got, err, want)
 	}
 }
 
