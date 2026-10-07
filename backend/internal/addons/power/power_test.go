@@ -66,12 +66,16 @@ func TestHwmonPrefersTheAverage(t *testing.T) {
 		"hwmon4/power1_input":   "3200000",
 		"hwmon4/power1_label":   "board",
 	})
+	// The folder's number can change at a reboot; the device it links to does not.
+	if err := os.Symlink("../../devices/pci0000:00/0000:03:00.0", filepath.Join(dir, "hwmon3", "device")); err != nil {
+		t.Fatal(err)
+	}
 
 	got := readHwmon(dir)
 
 	want := []Reading{
-		{ID: "hwmon-hwmon3-power1", Label: "amdgpu", Watts: 42.5},
-		{ID: "hwmon-hwmon4-power1", Label: "ina219 board", Watts: 3.2},
+		{ID: "hwmon-amdgpu-0000-03-00-0-power1", Label: "amdgpu", Watts: 42.5},
+		{ID: "hwmon-ina219-power1", Label: "ina219 board", Watts: 3.2},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("readHwmon() = %+v, want %+v", got, want)
@@ -122,5 +126,11 @@ func TestExtrasKeepTheHistoryOfEveryReading(t *testing.T) {
 func TestIDOf(t *testing.T) {
 	if got := idOf("rapl", "0:2", "dram"); got != "rapl-0-2-dram" {
 		t.Errorf("idOf() = %q", got)
+	}
+	// Two long names that only differ at the end must not become one id.
+	a := idOf("meter", "Intel Energy Metering Interface Display Panel 1")
+	b := idOf("meter", "Intel Energy Metering Interface Display Panel 2")
+	if a == b || len(a) > 40 || len(b) > 40 {
+		t.Errorf("idOf() = %q and %q, want two different ids of at most 40 characters", a, b)
 	}
 }
