@@ -40,6 +40,9 @@ services:
       # true serves only the usage data for a hub, without the website and
       # history; see .env.example.
       DATA_ONLY: ${DATA_ONLY:-}
+      # With DATA_ONLY, hours of usage kept for a hub that cannot reach this
+      # device (default 24); see .env.example.
+      BUFFER_HOURS: ${BUFFER_HOURS:-}
       # false stops the daily check for a newer release; see .env.example.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
       # Names the page may be opened by besides the IP address and .local
@@ -48,7 +51,8 @@ services:
       # Where the add-ons below write what they read.
       ADDONS_DIR: /addons
     volumes:
-      # The history database. Kept when the container is updated or recreated.
+      # The history database, or with DATA_ONLY the usage kept for the hub.
+      # Kept when the container is updated or recreated.
       - data:/data
       - addons:/addons:ro
       - /proc:/host/proc:ro

@@ -40,8 +40,10 @@ var ErrUnreachable = errors.New("the device has not answered recently")
 // The recorder calls Collect regularly; the page is served the newest reading
 // from Latest, so the device is not asked once more for every open page.
 type Agent struct {
-	url    string
-	client *http.Client
+	url string
+	// minutesURL is where the device's minutes are fetched; see MinutesPath.
+	minutesURL string
+	client     *http.Client
 	// pagePort is sent as PagePortHeader; empty sends none.
 	pagePort string
 	// maxEntries is how many groups of extras, and values in each, are kept
@@ -51,6 +53,9 @@ type Agent struct {
 	mu       sync.Mutex
 	latest   metrics.Snapshot
 	latestAt time.Time
+	// offset is how far the hub's clock is ahead of the device's, as of the
+	// newest reading.
+	offset time.Duration
 }
 
 // NewAgent returns an Agent for the device at address (host:port).
@@ -58,6 +63,7 @@ func NewAgent(address string) *Agent {
 	dialer := &net.Dialer{Timeout: requestTimeout, Control: localNetworkOnly}
 	return &Agent{
 		url:        "http://" + address + "/api/metrics",
+		minutesURL: "http://" + address + MinutesPath,
 		maxEntries: history.DefaultMaxEntries,
 		client: &http.Client{
 			Timeout: requestTimeout,
@@ -91,6 +97,10 @@ func (a *Agent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	now := time.Now().UTC()
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.offset = 0
+	if !snapshot.Time.IsZero() {
+		a.offset = now.Sub(snapshot.Time).Round(time.Second)
+	}
 	snapshot.Time = now
 	a.latest, a.latestAt = snapshot, now
 	return snapshot, nil
@@ -112,30 +122,49 @@ func (a *Agent) fresh() bool {
 
 // ask asks the device for its current usage.
 func (a *Agent) ask(ctx context.Context) (metrics.Snapshot, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.url, nil)
-	if err != nil {
+	var snapshot metrics.Snapshot
+	if err := a.get(ctx, a.url, maxResponseBytes, &snapshot); err != nil {
 		return metrics.Snapshot{}, err
+	}
+	// The extras are shown and stored as the device describes them, so they
+	// are cut down to what is safe for that first.
+	snapshot.Extras = metrics.CleanExtras(snapshot.Extras, a.maxEntries)
+	return snapshot, nil
+}
+
+// get asks the device at url and reads its JSON answer, of at most limit
+// bytes, into answer. An answer other than 200 OK is a *statusError.
+func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
 	}
 	if a.pagePort != "" {
 		request.Header.Set(PagePortHeader, a.pagePort)
 	}
 	response, err := a.client.Do(request)
 	if err != nil {
-		return metrics.Snapshot{}, fmt.Errorf("ask %s: %w", a.url, err)
+		return fmt.Errorf("ask %s: %w", url, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return metrics.Snapshot{}, fmt.Errorf("ask %s: answered %s", a.url, response.Status)
+		return &statusError{URL: url, Status: response.Status, Code: response.StatusCode}
 	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, limit)).Decode(answer); err != nil {
+		return fmt.Errorf("read the answer of %s: %w", url, err)
+	}
+	return nil
+}
 
-	var snapshot metrics.Snapshot
-	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes)).Decode(&snapshot); err != nil {
-		return metrics.Snapshot{}, fmt.Errorf("read the answer of %s: %w", a.url, err)
-	}
-	// The extras are shown and stored as the device describes them, so they
-	// are cut down to what is safe for that first.
-	snapshot.Extras = metrics.CleanExtras(snapshot.Extras, a.maxEntries)
-	return snapshot, nil
+// statusError is a device's answer other than 200 OK.
+type statusError struct {
+	URL    string
+	Status string
+	Code   int
+}
+
+func (e *statusError) Error() string {
+	return fmt.Sprintf("ask %s: answered %s", e.URL, e.Status)
 }
 
 // Latest returns a collector that answers with the newest snapshot Collect
@@ -168,4 +197,12 @@ func localNetworkOnly(_, address string, _ syscall.RawConn) error {
 		return fmt.Errorf("%s is not on the local network", address)
 	}
 	return nil
+}
+
+// clockOffset returns how far the hub's clock is ahead of the device's, or
+// false when the device has not answered recently.
+func (a *Agent) clockOffset() (time.Duration, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.offset, a.fresh()
 }

@@ -296,7 +296,8 @@ func (h *Hub) start(device Device, fixed bool) {
 		recorded: make(chan struct{}),
 		kind:     kind,
 	}
-	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries}
+	fetcher := &fetcher{agent: agent, store: h.store, device: device.ID, maxValues: maxValues(h.historyEntries)}
+	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries, Fetch: fetcher.fetch}
 	h.recording.Go(func() {
 		defer close(remote.recorded)
 		recorder.Run(ctx)

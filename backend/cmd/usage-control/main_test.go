@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 func TestDiskPaths(t *testing.T) {
@@ -166,5 +170,60 @@ func TestOwnName(t *testing.T) {
 		if got := ownName(); got != tt.want {
 			t.Errorf("ownName() with DEVICE_NAME=%q, HOST_PROC=%q = %q, want %q", tt.deviceName, tt.hostProc, got, tt.want)
 		}
+	}
+}
+
+func TestBufferHours(t *testing.T) {
+	tests := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 24 * time.Hour},
+		{"1", time.Hour},
+		{" 168 ", 7 * 24 * time.Hour},
+	}
+	for _, tt := range tests {
+		t.Setenv("BUFFER_HOURS", tt.value)
+		got, err := bufferHours()
+		if err != nil || got != tt.want {
+			t.Errorf("bufferHours() with BUFFER_HOURS=%q = %v, %v, want %v", tt.value, got, err, tt.want)
+		}
+	}
+}
+
+func TestBufferHoursRefusesInvalidValues(t *testing.T) {
+	for _, value := range []string{"0", "-1", "24h", "1.5", "169"} {
+		t.Setenv("BUFFER_HOURS", value)
+		if _, err := bufferHours(); err == nil {
+			t.Errorf("bufferHours() with BUFFER_HOURS=%q error = nil, want an error", value)
+		}
+	}
+}
+
+func TestWithBufferKeepsTheMinutesInTheDatabase(t *testing.T) {
+	collector, err := metrics.NewCollector(context.Background(), []string{t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	path := filepath.Join(t.TempDir(), "usage-control.db")
+
+	minutes, wait := withBuffer(ctx, metrics.NewSampler(collector), path, time.Hour, 1)
+	cancel()
+	wait()
+
+	if _, err := os.Stat(path); minutes == nil || err != nil {
+		t.Errorf("withBuffer() = %v, and the database %v; want the buffer, kept in the database", minutes, err)
+	}
+}
+
+func TestWithBufferRunsWithoutADatabaseItCannotOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "usage-control.db")
+
+	minutes, wait := withBuffer(context.Background(), nil, path, time.Hour, 1)
+	wait()
+
+	if minutes != nil {
+		t.Errorf("withBuffer() with a database it cannot open = %v, want no minutes instead of failing", minutes)
 	}
 }

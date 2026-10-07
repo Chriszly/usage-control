@@ -8,7 +8,8 @@
 //	                not the one in LISTEN_ADDR (set by compose.yaml)
 //	DISK_PATHS      comma-separated paths whose disk usage is shown (default "/",
 //	                or the system drive such as "C:\" on Windows)
-//	DATABASE_PATH   SQLite file the history is kept in (default "usage-control.db")
+//	DATABASE_PATH   SQLite file the history is kept in, or with DATA_ONLY the
+//	                minutes kept for a hub (default "usage-control.db")
 //	RETENTION_DAYS  days of history to keep; older values are deleted (default 30)
 //	HISTORY_MAX_ENTRIES  how many disks, temperature sensors, network cards and
 //	                GPUs each the history keeps per device (default 64)
@@ -17,6 +18,10 @@
 //	                comma-separated name=host:port entries (default none)
 //	DATA_ONLY       true to serve only the usage data for a hub, without the
 //	                website and history (default false)
+//	BUFFER_HOURS    with DATA_ONLY, how many hours of minutes this device keeps
+//	                for a hub that cannot reach it, from 1 to 168; the hub
+//	                fetches them once it can, and they are deleted then
+//	                (default 24)
 //	RESET_PASSWORD  true to delete the password for adding and removing
 //	                devices on the page, if it is forgotten (default false)
 //	UPDATE_CHECK    false to stop asking GitHub once a day whether a newer
@@ -105,6 +110,11 @@ func run(ctx context.Context) error {
 		return errors.New("HUB_DEVICES is set, but DATA_ONLY turns off the website that would show them; unset one of the two")
 	}
 
+	bufferSpan, err := bufferHours()
+	if err != nil {
+		return err
+	}
+
 	collector, err := metrics.NewCollector(context.Background(), diskPaths())
 	if err != nil {
 		return fmt.Errorf("check DISK_PATHS: %w; mount each path read-only in compose.yaml", err)
@@ -123,33 +133,38 @@ func run(ctx context.Context) error {
 	// One sampler reads the usage for every page, hub and the recorder.
 	sampler := metrics.NewSampler(collector)
 
+	databasePath := os.Getenv("DATABASE_PATH")
+	if databasePath == "" {
+		databasePath = "usage-control.db"
+	}
+
 	// With DATA_ONLY, a hub collects the usage and keeps the history, so this
-	// device keeps none and only answers the hub.
-	handler := server.NewDataOnly(sampler, listSetting("ALLOWED_HOSTS"))
+	// device keeps only the minutes the hub has not fetched yet.
+	var handler http.Handler
+	var waitForRecorders func()
 	if dataOnly {
-		slog.Info("serving only the usage data, for a hub; the website is turned off")
+		minutes, wait := withBuffer(ctx, sampler, databasePath, bufferSpan, historyEntries)
+		waitForRecorders = wait
+		handler = server.NewDataOnly(sampler, minutes, listSetting("ALLOWED_HOSTS"))
+		slog.Info("serving only the usage data, for a hub; the website is turned off", "bufferHours", int(bufferSpan/time.Hour))
 	} else {
-		databasePath := os.Getenv("DATABASE_PATH")
-		if databasePath == "" {
-			databasePath = "usage-control.db"
-		}
 		store, err := history.Open(context.Background(), databasePath)
 		if err != nil {
 			return fmt.Errorf("open the history database %s: %w; set DATABASE_PATH to a writable file", databasePath, err)
 		}
 		defer func() { _ = store.Close() }()
-
-		site, waitForRecorders, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port)
+		site, wait, err := withHistory(ctx, sampler, store, remotes, retention, historyEntries, port)
 		if err != nil {
 			return err
 		}
-		// The recorders stop before the database is closed.
-		defer func() {
-			stop()
-			waitForRecorders()
-		}()
+		waitForRecorders = wait
 		handler = server.New(site)
 	}
+	// The recorders stop before the database is closed.
+	defer func() {
+		stop()
+		waitForRecorders()
+	}()
 
 	httpServer := &http.Server{
 		Addr:              addr,
@@ -211,7 +226,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 	}
 
 	recent := &history.Recent{}
-	recorder := &history.Recorder{Store: store, Recent: recent, Collector: sampler, Device: history.LocalDevice, MaxEntries: historyEntries}
+	recorder := &history.Recorder{Store: store, Recent: recent, Collector: sampler.Reusing(reuseFor), Device: history.LocalDevice, MaxEntries: historyEntries}
 	pruner := &history.Pruner{Store: store, Retention: retention}
 	var recording sync.WaitGroup
 	recording.Go(func() { recorder.Run(ctx) })
@@ -234,6 +249,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 		Update:    func() update.Status { return update.Status{Current: version.Version} },
 
 		AllowedHosts: listSetting("ALLOWED_HOSTS"),
+		Minutes:      history.Reader{Store: store, Recent: recent, Device: history.LocalDevice},
 	}
 	checkUpdates, err := boolSettingOr("UPDATE_CHECK", true)
 	if err != nil {
@@ -248,6 +264,42 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 		others.Wait()
 	}
 	return site, wait, nil
+}
+
+// reuseFor is how old a reading the recorder takes from a hub or page that
+// asked meanwhile, instead of reading the machine again: less than the time
+// between its own readings, so it never takes the same one twice.
+const reuseFor = history.RecentInterval - time.Second
+
+// withBuffer keeps this device's minutes for a hub that cannot reach it, for
+// up to span, in a buffer in the database at path, until ctx is done; the
+// returned function waits until the recorder has stopped and closes the
+// database. Of its disks, sensors, network cards and GPUs, the first
+// historyEntries are kept. When the database cannot be opened, the device
+// still serves its usage, without minutes: the hub then stores the average of
+// its own readings, as for a device from before they were kept.
+func withBuffer(ctx context.Context, sampler *metrics.Sampler, path string, span time.Duration, historyEntries int) (server.MinuteSource, func()) {
+	buffer, err := history.OpenBuffer(ctx, path, span)
+	if err != nil {
+		slog.Warn("could not open the database for the usage kept for a hub, so a hub that cannot reach this device has a gap in its history; set DATABASE_PATH to a writable file",
+			"path", path, "error", err)
+		return nil, func() {}
+	}
+	recorder := &history.Recorder{
+		Store: buffer,
+		// Only the readings until their average is kept are needed.
+		Recent:     &history.Recent{Span: 2 * history.SampleInterval},
+		Collector:  sampler.Reusing(reuseFor),
+		Device:     history.LocalDevice,
+		MaxEntries: historyEntries,
+	}
+	var recording sync.WaitGroup
+	recording.Go(func() { recorder.Run(ctx) })
+	wait := func() {
+		recording.Wait()
+		_ = buffer.Close()
+	}
+	return buffer, wait
 }
 
 // hubDevices lists this device and the devices the hub collects from.
@@ -371,6 +423,20 @@ func pagePort(listenAddr string) (string, error) {
 		return "", fmt.Errorf("PUBLIC_PORT is %q; set it to a port from 1 to 65535", value)
 	}
 	return value, nil
+}
+
+// bufferHours returns how long a data-only device keeps its minutes for a
+// hub, from BUFFER_HOURS, or history.DefaultBufferSpan when it is not set.
+func bufferHours() (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv("BUFFER_HOURS"))
+	if value == "" {
+		return history.DefaultBufferSpan, nil
+	}
+	hours, err := strconv.Atoi(value)
+	if err != nil || hours < 1 || hours > 168 {
+		return 0, fmt.Errorf("BUFFER_HOURS is %q; set it to a whole number of hours from 1 to 168", value)
+	}
+	return time.Duration(hours) * time.Hour, nil
 }
 
 // retentionDays returns how long the history is kept, from RETENTION_DAYS, or

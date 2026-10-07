@@ -58,6 +58,8 @@
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
     HISTORY_MAX_ENTRIES  with WEBSITE=1, how many disks, sensors, network cards
                     and GPUs each the history keeps per device (default 64)
+    BUFFER_HOURS    without WEBSITE=1, hours of usage kept for a hub that
+                    cannot reach this PC, from 1 to 168 (default 24)
     ALLOWED_HOSTS   other names this PC answers to, besides its IP addresses,
                     localhost, its hostname and .local names; comma-separated
     POWER           1 to install the power add-on, 0 to remove it in an update
@@ -98,7 +100,7 @@
       value, which would overwrite one given on the command line, so that one
       is saved before and put back after, in both the UI and the install.
     -->
-    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
+    <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <Property Id="$(Setting)" Secure="yes">
       <RegistrySearch Id="Remembered$(Setting)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="raw" />
     </Property>
@@ -175,12 +177,13 @@
         <MultiStringValue Value="HUB_DEVICES=[SERVICE_HUB_DEVICES]" />
         <MultiStringValue Value="RETENTION_DAYS=[RETENTION_DAYS]" />
         <MultiStringValue Value="HISTORY_MAX_ENTRIES=[HISTORY_MAX_ENTRIES]" />
+        <MultiStringValue Value="BUFFER_HOURS=[BUFFER_HOURS]" />
         <MultiStringValue Value="ALLOWED_HOSTS=[ALLOWED_HOSTS]" />
         <MultiStringValue Value="ADDONS_DIR=[ADDONSFOLDER]" />
       </RegistryValue>
 
       <!-- The options, read back by the next update. -->
-      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
+      <?foreach Setting in PORT;WEBSITE;DEVICE_NAME;HUB_DEVICES;RETENTION_DAYS;HISTORY_MAX_ENTRIES;BUFFER_HOURS;ALLOWED_HOSTS;POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
       <RegistryValue Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(Setting)" Type="string" Value="[$(Setting)]" />
       <?endforeach?>
 
@@ -465,7 +468,8 @@
     </Component>
 
     <!--
-      The history database, used with WEBSITE=1. Only the service,
+      The database: the history with WEBSITE=1, otherwise the minutes kept for
+      a hub that cannot reach this PC (BUFFER_HOURS). Only the service,
       administrators and the system can read or change it. Uninstalling keeps
       it, so reinstalling keeps the history.
     -->

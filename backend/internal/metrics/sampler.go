@@ -72,3 +72,31 @@ func (s *Sampler) newest() (Snapshot, error) {
 	defer s.mu.Unlock()
 	return s.latest, s.err
 }
+
+// Reusing returns a collector for a reader that reads regularly, such as the
+// recorder: it serves the newest reading while that is younger than maxAge,
+// so when a hub or a page asked meanwhile the machine is not read again.
+func (s *Sampler) Reusing(maxAge time.Duration) ReusingSampler {
+	return ReusingSampler{sampler: s, maxAge: maxAge}
+}
+
+// ReusingSampler is a Sampler that serves readings up to maxAge old; see
+// Sampler.Reusing.
+type ReusingSampler struct {
+	sampler *Sampler
+	maxAge  time.Duration
+}
+
+// Collect returns the newest snapshot while it is younger than maxAge, and
+// otherwise reads one.
+func (r ReusingSampler) Collect(ctx context.Context) (Snapshot, error) {
+	s := r.sampler
+	s.mu.Lock()
+	reuse := !s.latestAt.IsZero() && s.err == nil && time.Since(s.latestAt) < r.maxAge
+	latest := s.latest
+	s.mu.Unlock()
+	if reuse {
+		return latest, nil
+	}
+	return s.Collect(ctx)
+}

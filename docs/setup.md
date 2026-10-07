@@ -115,7 +115,7 @@ Docker on Windows would measure its Linux VM, not the PC, so Windows gets an ins
 
 The setup wizard asks what the PC should do:
 
-- **Only collect this PC's usage for a hub** (preselected): the website is off (`DATA_ONLY=true`), and the PC only answers the hub's `/api/metrics` requests and keeps no history of its own
+- **Only collect this PC's usage for a hub** (preselected): the website is off (`DATA_ONLY=true`), and the PC only answers the hub's requests and keeps no history of its own, only the last 24 hours for a hub that cannot reach it, until the hub has them
 - **Collect and also show the website on this PC**: the PC also shows the page and keeps its own history in `C:\ProgramData\Usage Control`
 
 To switch later, run the installer again and pick the other one. Either way, the installer:
@@ -161,6 +161,7 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `HUB_DEVICES` | with `WEBSITE=1`, other devices this PC collects from |
 | `RETENTION_DAYS` | with `WEBSITE=1`, days of history to keep (default 30) |
 | `HISTORY_MAX_ENTRIES` | with `WEBSITE=1`, how many disks, sensors, network cards and GPUs each the history keeps per device (default 64) |
+| `BUFFER_HOURS` | without `WEBSITE=1`, hours of usage kept for a hub that cannot reach this PC, from 1 to 168 (default 24) |
 | `ALLOWED_HOSTS` | other names this PC answers to, such as a name from the router's DNS the hub uses for it |
 
 An update closes the tray icon while it replaces it; it comes back at the next login, or right away when the update ran through the wizard. An update keeps the options it was installed with, so double-clicking a newer installer is enough; options given to the update replace the old ones. The options are remembered under `HKLM\SOFTWARE\Usage Control`.
@@ -232,12 +233,13 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `LISTEN_ADDR` | `:9393` | outside Docker: the address and port to listen on, such as `:8090` |
 | `PUBLIC_PORT` | the port of `LISTEN_ADDR`; `PORT` in Docker | the port the page is reachable on from the network. A hub sends it to the devices it collects from, so a Windows PC can link to the hub's page |
 | `DISK_PATHS` | `/`, or the system drive on Windows | comma-separated paths whose disks are shown; in Docker, mount each one read-only first |
-| `DATABASE_PATH` | `usage-control.db` in the working folder; set by Docker and the Linux service | the SQLite file for the history |
+| `DATABASE_PATH` | `usage-control.db` in the working folder; set by Docker, the Linux service and the Windows installer | the SQLite file for the history, or with `DATA_ONLY` for the usage kept for the hub |
 | `RETENTION_DAYS` | `30` | days of history to keep, 1 to 3650 |
 | `HISTORY_MAX_ENTRIES` | `64` | disks, sensors, network cards and GPUs each that the history keeps per device, 1 to 10000 |
 | `DEVICE_NAME` | *Host Hub* | how the page names this device |
 | `HUB_DEVICES` | none | other devices to collect from, as `name=address:port`, comma-separated |
-| `DATA_ONLY` | `false` | `true` serves only `/api/metrics` for a hub, with no website and no history |
+| `DATA_ONLY` | `false` | `true` serves only the usage for a hub, with no website and no history of its own |
+| `BUFFER_HOURS` | `24` | with `DATA_ONLY`, hours of usage kept for a hub that cannot reach the device, 1 to 168; see [While the hub is away](architecture.md#while-the-hub-is-away) |
 | `RESET_PASSWORD` | `false` | `true` deletes the password for changing devices at start; unset it again right after |
 | `UPDATE_CHECK` | `true` | `false` stops the daily check for a newer release |
 | `ALLOWED_HOSTS` | none | other names this device answers to, comma-separated, besides IP addresses, `localhost`, its hostname and `.local` names |

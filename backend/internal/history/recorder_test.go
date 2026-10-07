@@ -39,7 +39,8 @@ func TestRecorderStoresTheAverageOfItsReadings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Range() error = %v", err)
 	}
-	want := Series{Metric: MetricCPU, Points: []Point{{Time: now.Unix(), Value: 42}}}
+	// Stored at the start of the minute, as a hub stores the minutes it fetches.
+	want := Series{Metric: MetricCPU, Points: []Point{{Time: now.Truncate(time.Minute).Unix(), Value: 42}}}
 	if len(got) == 0 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("Range() = %+v, want it to start with %+v", got, want)
 	}
@@ -68,5 +69,88 @@ func TestRecorderStoresUnderItsDevice(t *testing.T) {
 	got, _, err := reader.Range(ctx, now.Add(-2*time.Hour), now.Add(time.Second))
 	if err != nil || len(got) == 0 || got[0].Points[0].Value != 30 {
 		t.Errorf("the device's history = %+v, %v; want the CPU usage it read", got, err)
+	}
+}
+
+func TestRecorderLeavesStoringToFetchWhenItCan(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	for _, fetched := range []bool{true, false} {
+		store := openTestStore(t)
+		calls := 0
+		recorder := &Recorder{
+			Store:     store,
+			Recent:    &Recent{},
+			Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+			Device:    "living-room-pi",
+			Fetch:     func(context.Context) bool { calls++; return fetched },
+		}
+
+		recorder.read(ctx)
+		recorder.store(ctx, now.Add(-time.Minute), now)
+
+		got, err := store.Range(ctx, "living-room-pi", now.Add(-time.Hour), now.Add(time.Second), time.Second)
+		if err != nil || calls != 1 || (len(got) == 0) != fetched {
+			t.Errorf("with Fetch returning %v: %d calls, stored %+v, %v; want the average stored only when Fetch cannot", fetched, calls, got, err)
+		}
+	}
+}
+
+func TestRecorderStoresTheMinuteItStopsIn(t *testing.T) {
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	now := time.Now().Truncate(time.Minute).Add(20 * time.Second)
+	for name, c := range map[string]struct {
+		from  time.Time
+		fetch func(context.Context) bool
+		want  bool
+	}{
+		"in a new minute":                   {from: now.Add(-30 * time.Second), want: true},
+		"in the minute stored last":         {from: now.Add(-10 * time.Second)},
+		"for a device the hub fetches from": {from: now.Add(-30 * time.Second), fetch: func(context.Context) bool { return true }},
+	} {
+		store := openTestStore(t)
+		recorder := &Recorder{
+			Store:     store,
+			Recent:    &Recent{},
+			Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}}},
+			Device:    LocalDevice,
+			Fetch:     c.fetch,
+		}
+		recorder.read(context.Background())
+
+		recorder.storeLast(stopped, c.from, now)
+
+		got, err := store.Range(context.Background(), LocalDevice, now.Add(-time.Hour), now.Add(time.Minute), time.Minute)
+		if err != nil {
+			t.Fatalf("%s: Range() error = %v", name, err)
+		}
+		if stored := len(got) > 0; stored != c.want {
+			t.Errorf("%s: stored %+v, want a minute stored: %v", name, got, c.want)
+		} else if stored && got[0].Points[0].Time != now.Truncate(time.Minute).Unix() {
+			t.Errorf("%s: stored at %d, want at %d, the minute it stopped in", name, got[0].Points[0].Time, now.Truncate(time.Minute).Unix())
+		}
+	}
+}
+
+func TestRecorderTakesAReadingOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	reading := metrics.Snapshot{Time: now.Add(-5 * time.Second), CPU: metrics.CPU{UsagePercent: 30}}
+	later := metrics.Snapshot{Time: now, CPU: metrics.CPU{UsagePercent: 60}}
+	recent := &Recent{}
+	recorder := &Recorder{
+		Store:     openTestStore(t),
+		Recent:    recent,
+		Collector: &sequenceCollector{[]metrics.Snapshot{reading, reading, later}},
+		Device:    LocalDevice,
+	}
+
+	for range 3 {
+		recorder.read(ctx)
+	}
+
+	if got := recent.Average(now.Add(-time.Minute), now.Add(time.Second)); got[MetricCPU] != 45 {
+		t.Errorf("average CPU = %v, want 45 from two readings, the shared one counted once", got[MetricCPU])
 	}
 }
