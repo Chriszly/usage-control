@@ -99,14 +99,15 @@ func parseLocalAddresses(text string) []netip.Addr {
 func addressesByInterface(addresses []netip.Addr, routes []route) map[string][]string {
 	result := map[string][]string{}
 	for _, address := range addresses {
-		best := -1
-		for i, r := range routes {
-			if r.network.Contains(address) && (best < 0 || r.network.Bits() > routes[best].network.Bits()) {
-				best = i
+		var best route
+		found := false
+		for _, r := range routes {
+			if r.network.Contains(address) && (!found || r.network.Bits() > best.network.Bits()) {
+				best, found = r, true
 			}
 		}
-		if best >= 0 {
-			result[routes[best].iface] = append(result[routes[best].iface], address.String())
+		if found {
+			result[best.iface] = append(result[best.iface], address.String())
 		}
 	}
 	return result
