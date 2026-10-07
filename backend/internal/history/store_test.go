@@ -2,8 +2,10 @@ package history
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +180,80 @@ func TestDeleteDeviceDeletesItsValuesAndHourlyAverages(t *testing.T) {
 	}
 }
 
+// addMany stores count values of device, one minute apart from start on, a
+// few metrics per minute, in one go.
+func addMany(t *testing.T, store *Store, device string, start time.Time, count int) {
+	t.Helper()
+	metricNames := []string{MetricCPU, MetricMemory, MetricSwap, MetricBattery}
+	var minutes []Minute
+	for i := 0; i < count; i += len(metricNames) {
+		values := map[string]float64{}
+		for _, metric := range metricNames[:min(len(metricNames), count-i)] {
+			values[metric] = 1
+		}
+		minutes = append(minutes, Minute{Time: start.Unix() + int64(i/len(metricNames))*60, Values: values})
+	}
+	if err := store.AddMinutes(context.Background(), device, minutes); err != nil {
+		t.Fatalf("AddMinutes() error = %v", err)
+	}
+}
+
+func countRows(t *testing.T, store *Store, table, device string) int {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE device = ?`, device).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return count
+}
+
+func TestDeleteBeforeDeletesMoreThanAChunk(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	start := time.Unix(1_800_000_000, 0)
+	old := 2*deleteChunkRows + 10
+	addMany(t, store, LocalDevice, start, old)
+	cutoff := start.Add(time.Duration(old/4+1) * time.Minute)
+	addMany(t, store, LocalDevice, cutoff, 8)
+
+	deleted, err := store.DeleteBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("DeleteBefore() error = %v", err)
+	}
+
+	if deleted != int64(old) {
+		t.Errorf("DeleteBefore() deleted %d values, want %d", deleted, old)
+	}
+	if got := countRows(t, store, "samples", LocalDevice); got != 8 {
+		t.Errorf("after DeleteBefore, %d values are left, want the 8 newer ones", got)
+	}
+	var older int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM samples_hourly WHERE time < ?`, cutoff.Truncate(time.Hour).Unix()).Scan(&older); err != nil || older != 0 {
+		t.Errorf("hourly averages before the cutoff = %d, %v; want none", older, err)
+	}
+}
+
+func TestDeleteDeviceDeletesMoreThanAChunk(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	start := time.Unix(1_800_000_000, 0)
+	addMany(t, store, "other", start, deleteChunkRows+10)
+	addMany(t, store, LocalDevice, start, 8)
+
+	if err := store.DeleteDevice(ctx, "other"); err != nil {
+		t.Fatalf("DeleteDevice() error = %v", err)
+	}
+
+	for _, table := range []string{"samples", "samples_hourly"} {
+		if got := countRows(t, store, table, "other"); got != 0 {
+			t.Errorf("%s of the deleted device = %d rows, want none", table, got)
+		}
+	}
+	if got := countRows(t, store, "samples", LocalDevice); got != 8 {
+		t.Errorf("values of the other device = %d, want its 8 kept", got)
+	}
+}
+
 func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 	read, write := 4096.0, 512.0
 	snapshot := metrics.Snapshot{
@@ -212,7 +288,7 @@ func TestValuesNamesEachDiskSensorInterfaceAndGPU(t *testing.T) {
 		"gpu.memory:AMD GPU":      25,
 		"gpu:VideoCore GPU":       9,
 	}
-	if got, dropped := values(snapshot, DefaultMaxEntries); !reflect.DeepEqual(got, want) || dropped {
+	if got, dropped, _ := values(snapshot, DefaultMaxEntries); !reflect.DeepEqual(got, want) || dropped {
 		t.Errorf("values() = %v, %v; want %v and nothing dropped", got, dropped, want)
 	}
 }
@@ -225,7 +301,7 @@ func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 		GPUs:         []metrics.GPU{{Name: "g0", UsagePercent: 1}, {Name: "g1", UsagePercent: 2}, {Name: "g2", UsagePercent: 3}},
 	}
 
-	got, dropped := values(snapshot, 2)
+	got, dropped, _ := values(snapshot, 2)
 
 	want := map[string]float64{
 		"cpu": 0, "memory": 0,
@@ -237,7 +313,61 @@ func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 	if !reflect.DeepEqual(got, want) || !dropped {
 		t.Errorf("values(2 entries) = %v, %v; want %v with entries dropped", got, dropped, want)
 	}
-	if _, dropped := values(snapshot, 3); dropped {
+	if _, dropped, _ := values(snapshot, 3); dropped {
 		t.Error("values(3 entries) dropped entries, want none with three of each")
+	}
+}
+
+func TestValuesLeavesOutEntriesWithTooLongNames(t *testing.T) {
+	long := strings.Repeat("x", MaxMetricLength)
+	// The longest name whose longest metric, network.receive:<name>, fits.
+	fitting := strings.Repeat("n", MaxMetricLength-len(MetricNetworkReceive+":"))
+	snapshot := metrics.Snapshot{
+		Temperatures: []metrics.Temperature{{Sensor: long, Celsius: 1}, {Sensor: "cpu", Celsius: 2}},
+		Disks:        []metrics.Disk{{Path: long, UsedPercent: 20}, {Path: "/", UsedPercent: 30}},
+		Network:      []metrics.NetworkInterface{{Name: fitting + "n"}, {Name: fitting}},
+		GPUs:         []metrics.GPU{{Name: long, UsagePercent: 1}},
+	}
+
+	got, _, tooLong := values(snapshot, 1)
+
+	want := map[string]float64{
+		"cpu": 0, "memory": 0, "temperature:cpu": 2, "disk:/": 30,
+		"network.receive:" + fitting: 0, "network.send:" + fitting: 0,
+	}
+	if !reflect.DeepEqual(got, want) || !tooLong {
+		t.Errorf("values() = %v, %v; want %v with names left out", got, tooLong, want)
+	}
+}
+
+func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
+	const maxEntries = 2
+	var extras []metrics.Extra
+	for g := range 3 {
+		group := metrics.Extra{ID: fmt.Sprintf("g%d", g), Title: "Group"}
+		for i := range 7 {
+			group.Items = append(group.Items, metrics.ExtraItem{ID: fmt.Sprintf("v%d", i), Label: "Value", Unit: metrics.UnitNumber, Value: number(1), History: true})
+		}
+		extras = append(extras, group)
+	}
+
+	got, dropped, _ := values(metrics.Snapshot{Extras: extras}, maxEntries)
+
+	stored := 0
+	for metric := range got {
+		if strings.HasPrefix(metric, MetricExtra+":") {
+			stored++
+		}
+	}
+	if stored != extrasPerEntry*maxEntries || !dropped {
+		t.Errorf("values() kept %d values of extras, dropped = %v; want %d with some dropped", stored, dropped, extrasPerEntry*maxEntries)
+	}
+	_, last := got["extra:g2/v1"]
+	_, past := got["extra:g2/v2"]
+	if !last || past {
+		t.Errorf("values() = %v, want the first values kept, up to extra:g2/v1", got)
+	}
+	if info := extraInfo(extras, maxEntries); len(info) != stored {
+		t.Errorf("extraInfo() describes %d values, want the %d stored", len(info), stored)
 	}
 }

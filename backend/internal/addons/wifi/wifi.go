@@ -146,14 +146,22 @@ const maxLabel = 80
 // label joins an interface's name and what a value of it is, as in "wlan0
 // link quality". A name too long for both to fit in maxLabel characters, as
 // a Windows adapter's description can be, is cut and ends in "…", so what
-// tells the values of the interface apart is never cut off.
+// tells the values of the interface apart is never cut off. The number
+// Windows gives the second and further adapters of a model, as in "… Network
+// Adapter #2", is kept after the "…", so their labels stay apart.
 func label(name, what string) string {
 	room := maxLabel - 1 - utf8.RuneCountInString(what)
 	if runes := []rune(name); len(runes) > room {
-		name = strings.TrimRight(string(runes[:room-1]), " ") + "…"
+		number := []rune(windowsNumber.FindString(name))
+		keep := room - 1 - len(number)
+		name = strings.TrimRight(string(runes[:keep]), " ") + "…" + string(number)
 	}
 	return name + " " + what
 }
+
+// windowsNumber is the number Windows adds to the description of a second
+// adapter of the same model, such as " #2".
+var windowsNumber = regexp.MustCompile(` #[0-9]+$`)
 
 // HostProc returns where /proc is: HOST_PROC in a container that mounts the
 // host's /proc there, else /proc.

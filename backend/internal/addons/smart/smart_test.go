@@ -603,6 +603,19 @@ func TestReaderLeavesADiskWithoutUseAlone(t *testing.T) {
 	if _, reads := src.counts(); reads != before+8 {
 		t.Errorf("read %d disks, want 3 with the unreadable sda", reads-before-5)
 	}
+
+	// Once it is read again, it is left alone without use until its last
+	// read is idleReadAfter old.
+	src.set(func(f *fakeSource) { f.failing = false })
+	r.refresh(ctx, start.Add(4*ReadInterval))
+	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter-time.Second))
+	if _, reads := src.counts(); reads != before+13 {
+		t.Errorf("read %d disks, want 3 and then 2 without the unused sda", reads-before-8)
+	}
+	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter))
+	if _, reads := src.counts(); reads != before+16 {
+		t.Errorf("read %d disks, want 3 with sda read a day ago", reads-before-13)
+	}
 }
 
 func TestReaderLogsADiskThatAlwaysSleeps(t *testing.T) {

@@ -163,6 +163,7 @@ const KNOWN_PROBLEMS = [
   'unreachable',
   'fixed',
   'notFound',
+  'removing',
   // Only the demo on GitHub Pages refuses every change with this.
   'demo',
 ] as const;

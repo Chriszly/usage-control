@@ -7,6 +7,8 @@ package winservice
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -35,6 +37,21 @@ func Run(name string, serve func(context.Context) error) (bool, error) {
 		logError(service.err)
 	}
 	return true, service.err
+}
+
+// LogWarnings sends slog's warnings and errors to the Windows event log too,
+// under source, when the service manager started the program: a service's
+// standard error goes nowhere.
+func LogWarnings(source string) {
+	if isService, err := svc.IsWindowsService(); err != nil || !isService {
+		return
+	}
+	log, err := eventlog.Open(source)
+	if err != nil {
+		return
+	}
+	// Open for as long as the program runs.
+	slog.SetDefault(slog.New(newEventLogHandler(slog.NewTextHandler(os.Stderr, nil), log)))
 }
 
 // logTo writes err to the Windows event log under source, when the

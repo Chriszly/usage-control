@@ -90,6 +90,20 @@ func qualityFromRSSI(dBm float64) float64 {
 	return min(100, max(0, (dBm+100)*2))
 }
 
+// standingProblem returns the problem a read leaves logged: the one it
+// found, or, when it found none but nothing is connected, the one logged
+// before if that came from reading a connection (ofConnection), as with
+// location access denied, which a read without connections cannot run into.
+// So a disconnect is not taken for that problem gone, nor the next
+// connection for it come back. A problem with the API itself, such as the
+// WLAN AutoConfig service not running, is gone once a read finds none.
+func standingProblem(logged string, ofConnection bool, found string, connected int) string {
+	if found == "" && connected == 0 && ofConnection {
+		return logged
+	}
+	return found
+}
+
 // utf16String reads a NUL-terminated little-endian UTF-16 string.
 func utf16String(b []byte) string {
 	chars := make([]uint16, 0, len(b)/2)

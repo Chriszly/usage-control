@@ -52,13 +52,19 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote n
 # reads from Docker's settings, where the runner has Docker.
 "$folder/install.sh" --addons=power,containers
 systemctl is-active --quiet usage-control-containers || { journalctl -u usage-control-containers --no-pager | tail -20 >&2; echo "the containers add-on is not running" >&2; exit 1; }
+# It takes DOCKER_DIR from the settings file, like usage-control.
+systemctl show -p EnvironmentFiles usage-control-containers | grep -q /etc/usage-control.env || { echo "the containers add-on does not read /etc/usage-control.env" >&2; exit 1; }
 if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/fs/cgroup/cgroup.controllers ]]; then
-  docker run -d --rm --name usage-control-check busybox sleep 60 > /dev/null
+  # A container of usage-control itself, from the archive, so nothing is
+  # pulled from a registry.
+  tar -C "$folder" -c usage-control | docker import --change 'ENTRYPOINT ["/usage-control"]' - usage-control-check > /dev/null
+  docker run -d --rm --name usage-control-check --network none -e UPDATE_CHECK=false usage-control-check > /dev/null
   for _ in $(seq 1 15); do
     grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null && break
     sleep 1
   done
   docker rm -f usage-control-check > /dev/null
+  docker rmi usage-control-check > /dev/null
   grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json || { echo "the containers add-on did not report the running container" >&2; exit 1; }
 else
   for _ in $(seq 1 10); do
@@ -197,13 +203,17 @@ for _ in $(seq 1 10); do
 done
 test -f /run/usage-control-addons/power.json || { echo "the power add-on can no longer write next to the other add-ons" >&2; exit 1; }
 
+# --purge also deletes settings made with systemctl edit.
+mkdir -p /etc/systemd/system/usage-control-power.service.d
+printf '[Service]\nEnvironment=CHECK=1\n' > /etc/systemd/system/usage-control-power.service.d/override.conf
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||
   systemctl cat usage-control-inodes > /dev/null 2>&1 || systemctl cat usage-control-kernel > /dev/null 2>&1 ||
   systemctl cat usage-control-memory > /dev/null 2>&1 || systemctl cat usage-control-processes > /dev/null 2>&1 ||
   [[ -e /usr/local/bin/usage-control || -e /usr/local/bin/usage-control-power || -e /usr/local/bin/usage-control-inodes ||
   -e /usr/local/bin/usage-control-kernel || -e /usr/local/bin/usage-control-memory ||
-  -e /usr/local/bin/usage-control-processes || -e /etc/usage-control.env ]]; then
+  -e /usr/local/bin/usage-control-processes || -e /etc/usage-control.env ||
+  -e /etc/systemd/system/usage-control-power.service.d ]]; then
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi

@@ -5,11 +5,11 @@
 // media errors and, for NVMe, how much of its rated wear is used.
 //
 // SMART reads cost time and would wake disks that sleep, so it reads every
-// ReadInterval, and SATA disks only when they read or wrote anything since
-// their last read. Before anything else it asks a disk whether it sleeps and leaves it
-// alone if it does: on Windows first Windows itself, whether it has switched
-// the disk off, then a SATA disk itself, with CHECK POWER MODE. In between
-// it reports the last result. It only sends commands that read; nothing in
+// ReadInterval, a SATA disk only when it read or wrote anything since its
+// last read or that read is a day old, and reports the last result in
+// between. Before anything else it asks a SATA disk whether it sleeps and,
+// on Windows, first asks Windows whether it has switched any disk off; it
+// leaves a disk alone if so. It only sends commands that read; nothing in
 // here changes the machine.
 package smart
 
@@ -33,6 +33,10 @@ const (
 	// is logged, as some disks or their controllers always answer that they
 	// sleep and would then never be shown without a word.
 	asleepLogAfter = 24 * time.Hour
+	// idleReadAfter is how old the last read of a disk without use may get
+	// before it is read anyway, so a check that starts failing on a disk
+	// that spins without being used still shows.
+	idleReadAfter = 24 * time.Hour
 )
 
 // Disk is what was read of one disk. A value that the disk does not report
@@ -88,6 +92,13 @@ type source interface {
 	ioCount(d device) (uint64, bool)
 }
 
+// ioCount is a disk's count of reads and writes at its last read, and the
+// time of that read.
+type ioCount struct {
+	count uint64
+	at    time.Time
+}
+
 // Reader reads the disks' health in the background and returns the last
 // result.
 type Reader struct {
@@ -100,11 +111,12 @@ type Reader struct {
 	devices   []device
 	disks     map[string]Disk
 	// ioCounts holds each disk's count of reads and writes (see
-	// source.ioCount) when it was read last, so a disk that was not used
-	// since is not read again: reading it could keep it from switching off
-	// when its own timer is longer than ReadInterval, or when it starts its
-	// timer again at each SMART command.
-	ioCounts map[string]uint64
+	// source.ioCount) when it was read last, and when that was, so a disk
+	// that was not used since is not read again before idleReadAfter:
+	// reading it could keep it from switching off when its own timer is
+	// longer than ReadInterval, or when it starts its timer again at each
+	// SMART command.
+	ioCounts map[string]ioCount
 	// warned holds the disks whose failed read was logged, so a disk that
 	// cannot be read is logged once, not every ReadInterval.
 	warned map[string]bool
@@ -127,7 +139,7 @@ func NewReader() *Reader {
 
 func newReader(src source) *Reader {
 	return &Reader{
-		src: src, disks: map[string]Disk{}, ioCounts: map[string]uint64{}, warned: map[string]bool{},
+		src: src, disks: map[string]Disk{}, ioCounts: map[string]ioCount{}, warned: map[string]bool{},
 		asleepSince: map[string]time.Time{}, asleepLogged: map[string]bool{},
 	}
 }
@@ -179,7 +191,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 		}
 	}
 	read := map[string]Disk{}
-	ioCounts := map[string]uint64{}
+	ioCounts := map[string]ioCount{}
 	failed := map[string]error{}
 	asleep := map[string]bool{}
 	for _, d := range devices {
@@ -195,7 +207,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			count, counted = r.src.ioCount(d)
 		}
 		if counted && !last[d.path].Unreadable {
-			if before, ok := lastIOCounts[d.path]; ok && before == count {
+			if before, ok := lastIOCounts[d.path]; ok && before.count == count && now.Sub(before.at) < idleReadAfter {
 				continue
 			}
 		}
@@ -211,7 +223,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			}
 			read[d.path] = disk
 			if counted {
-				ioCounts[d.path] = count
+				ioCounts[d.path] = ioCount{count: count, at: now}
 			}
 		case errors.Is(err, errAsleep):
 			asleep[d.path] = true

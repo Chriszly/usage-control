@@ -124,3 +124,46 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The amd64 image again, from the build above's cache, loaded into the
+      # runner's Docker for the check below.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/chriszly/usage-control:ci
+          cache-from: type=gha
+
+      # Starts usage-control with two add-on containers as compose.yaml sets
+      # them up, one as root without capabilities (power) and one as the
+      # image's user (processes), and waits until usage-control shows what
+      # the processes add-on wrote to the shared add-on volume.
+      - name: Start it with add-ons
+        env:
+          IMAGE_TAG: ci
+          COMPOSE_PROFILES: power,processes
+        run: |
+          set -euo pipefail
+          docker compose up -d --no-build --pull never
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9393/api/metrics 2> /dev/null | grep -q '"id":"processes-memory"'; then
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -fsS http://127.0.0.1:9393/api/metrics | grep -q '"id":"processes-memory"'; then
+            docker compose logs >&2
+            echo "usage-control does not show the processes add-on" >&2
+            exit 1
+          fi
+          # A container that ends is restarted, so it has to have run throughout.
+          mapfile -t containers < <(docker compose ps -aq)
+          restarts="$(docker inspect -f '{{.RestartCount}}' "${containers[@]}" | sort -u | tr '\n' ' ')"
+          if [[ "$(docker compose ps --status running --services | sort | tr '\n' ' ')" != "power processes usage-control " || "$restarts" != "0 " ]]; then
+            docker compose ps -a >&2
+            docker compose logs >&2
+            echo "not every container is running" >&2
+            exit 1
+          fi
+          docker compose down -v

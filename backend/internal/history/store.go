@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	// Registers the pure-Go SQLite driver, so the binary needs no C library.
@@ -46,6 +48,9 @@ CREATE INDEX IF NOT EXISTS samples_hourly_by_time ON samples_hourly (time);
 type Store struct {
 	db    *sql.DB
 	cache rangeCache
+	// brokenInfo has a brokenInfoKey for each description of an extra that
+	// could not be read and was logged.
+	brokenInfo sync.Map
 }
 
 // Series is the values of one metric over time.
@@ -227,33 +232,108 @@ func (s *Store) cachedRange(ctx context.Context, device string, from, to time.Ti
 
 // DeleteBefore deletes every value measured before t and returns how many
 // were deleted. The hour t falls in keeps its average, as it still has values.
-// The descriptions of extras without values left go too.
+// The descriptions of extras without values left go too. The values are
+// deleted in chunks (see deleteChunks), so the first prune after a long
+// downtime, or after RETENTION_DAYS was lowered, does not keep the recorders
+// from storing meanwhile.
 func (s *Store) DeleteBefore(ctx context.Context, t time.Time) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE time < ?`, t.Unix())
+	deleted, err := s.deleteChunks(ctx, "samples", `time < ?`, t.Unix())
 	if err != nil {
-		return 0, err
+		return deleted, err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples_hourly WHERE time < ?`, t.Truncate(time.Hour).Unix()); err != nil {
-		return 0, err
+	hourly, err := s.deleteChunks(ctx, "samples_hourly", `time < ?`, t.Truncate(time.Hour).Unix())
+	if err != nil {
+		return deleted, err
 	}
 	if err := s.deleteUnusedExtraInfo(ctx, t); err != nil {
-		return 0, err
+		return deleted, err
 	}
-	return result.RowsAffected()
+	s.shrinkLog(ctx, deleted+hourly)
+	return deleted, nil
 }
 
 // DeleteDevice deletes every value of one device, and how its extras are
-// described.
+// described, in chunks as DeleteBefore does.
 func (s *Store) DeleteDevice(ctx context.Context, device string) error {
 	s.cache.forget(device)
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples WHERE device = ?`, device); err != nil {
+	deleted, err := s.deleteChunks(ctx, "samples", `device = ?`, device)
+	if err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM samples_hourly WHERE device = ?`, device); err != nil {
+	hourly, err := s.deleteChunks(ctx, "samples_hourly", `device = ?`, device)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM extra_info WHERE device = ?`, device)
-	return err
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM extra_info WHERE device = ?`, device); err != nil {
+		return err
+	}
+	s.brokenInfo.Range(func(key, _ any) bool {
+		if key.(brokenInfoKey).device == device {
+			s.brokenInfo.Delete(key)
+		}
+		return true
+	})
+	// Again, as a range read while the values were deleted may have kept
+	// some of them.
+	s.cache.forget(device)
+	s.shrinkLog(ctx, deleted+hourly)
+	return nil
+}
+
+const (
+	// deleteChunkRows is how many rows deleteChunks deletes per transaction:
+	// a fraction of a second on a Raspberry Pi.
+	deleteChunkRows = 5000
+	// deleteChunkPause is how long deleteChunks waits between two chunks, so
+	// a recorder waiting to store (see the busy timeout in openDB) gets its
+	// turn.
+	deleteChunkPause = 50 * time.Millisecond
+)
+
+// deleteChunks deletes the rows of table, samples or samples_hourly, that
+// match where, deleteChunkRows at a time, each chunk in a transaction of its
+// own, and returns how many it deleted. One DELETE of millions of rows would
+// hold the database's write lock for minutes, so storing would fail
+// meanwhile, and grow the write-ahead log by as much as it deletes.
+func (s *Store) deleteChunks(ctx context.Context, table, where string, args ...any) (int64, error) {
+	// Each chunk looks its rows up by where and deletes them by primary key.
+	//nolint:gosec // table and where are fixed by the callers; values go in as arguments.
+	query := fmt.Sprintf(`
+		DELETE FROM %[1]s WHERE (device, time, metric) IN (
+			SELECT device, time, metric FROM %[1]s WHERE %[2]s LIMIT %[3]d
+		)`, table, where, deleteChunkRows)
+	var total int64
+	for {
+		result, err := s.db.ExecContext(ctx, query, args...)
+		if err != nil {
+			return total, err
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += deleted
+		if deleted < deleteChunkRows {
+			return total, nil
+		}
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		case <-time.After(deleteChunkPause):
+		}
+	}
+}
+
+// shrinkLog gives the space of the write-ahead log back after more than a
+// chunk was deleted. The log is reused once its changes are in the database
+// file, but keeps the largest size it had.
+func (s *Store) shrinkLog(ctx context.Context, deleted int64) {
+	if deleted <= deleteChunkRows {
+		return
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		slog.Warn("shrink the database's write-ahead log", "error", err)
+	}
 }
 
 // DB returns the database, so other packages can keep their own tables in
