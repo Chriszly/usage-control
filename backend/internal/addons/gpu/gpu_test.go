@@ -177,7 +177,7 @@ func TestReadAsksNvidiaSMIEveryInterval(t *testing.T) {
 	answer("35")
 	r.Read(t.Context(), start)
 	answer("50")
-	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval-time.Second))); got != 35 {
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval-addons.Interval))); got != 35 {
 		t.Errorf("fan within the interval = %v, want the last answer, 35", got)
 	}
 	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval))); got != 50 {

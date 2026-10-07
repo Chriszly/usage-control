@@ -70,7 +70,7 @@ func TestTemperaturesOfNumbersSensorsWithTheSameName(t *testing.T) {
 		{SensorKey: "acpitz", Temperature: 0}, // reports nothing
 		{SensorKey: "nvme", Temperature: 40},
 		{SensorKey: "coretemp", Temperature: 52},
-	})
+	}, nil)
 
 	want := []Temperature{{Sensor: "coretemp 1", Celsius: 50}, {Sensor: "nvme", Celsius: 40}, {Sensor: "coretemp 2", Celsius: 52}}
 	if !reflect.DeepEqual(got, want) {

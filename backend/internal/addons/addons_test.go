@@ -16,6 +16,23 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
+func TestDueAllowsForReadsThatComeEarly(t *testing.T) {
+	last := time.Now()
+	for after, want := range map[time.Duration]bool{
+		0:                                      false,
+		ProgramInterval - Interval:             false,
+		ProgramInterval - 100*time.Millisecond: true, // the sixth read, a moment early
+		ProgramInterval:                        true,
+	} {
+		if got := Due(last, last.Add(after), ProgramInterval); got != want {
+			t.Errorf("Due() after %v = %v, want %v", after, got, want)
+		}
+	}
+	if !Due(time.Time{}, last, ProgramInterval) {
+		t.Error("Due() of what was never done = false, want true")
+	}
+}
+
 func TestServeWritesTheReportAndRemovesItAtTheEnd(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ADDONS_DIR", dir)

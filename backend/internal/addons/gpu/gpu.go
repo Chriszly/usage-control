@@ -81,13 +81,13 @@ func NewReader() *Reader {
 // Read returns the GPUs' values as the group of extras the collector shows,
 // or nothing when nvidia-smi is missing or prints nothing. It gives up after
 // nvidiaTimeout, so a hanging driver does not hold up the next report.
-// nvidia-smi is asked only every addons.ProgramInterval; in between, its
-// last answer is returned.
+// nvidia-smi is asked only every addons.ProgramInterval (see addons.Due); in
+// between, its last answer is returned.
 func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
 	}
-	if !r.at.IsZero() && now.Sub(r.at) < addons.ProgramInterval {
+	if !addons.Due(r.at, now, addons.ProgramInterval) {
 		return r.extras
 	}
 	r.extras, r.at = r.read(ctx), now

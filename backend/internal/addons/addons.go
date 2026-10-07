@@ -34,6 +34,15 @@ const Interval = 5 * time.Second
 // fills.
 const ProgramInterval = 30 * time.Second
 
+// Due reports whether what was last done at last is due again at now, to be
+// done every interval. Reads come every Interval, a little earlier or later
+// each time, so it is due half an Interval before the interval is over:
+// otherwise a read that came a moment early would put it off for another
+// whole Interval.
+func Due(last, now time.Time, interval time.Duration) bool {
+	return last.IsZero() || now.Sub(last) >= interval-Interval/2
+}
+
 // Read returns an add-on's extras at now. now keeps Go's monotonic clock
 // reading, so the time between two reads, which rates are worked out over,
 // does not jump when the wall clock is set.

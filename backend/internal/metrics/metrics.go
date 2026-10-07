@@ -283,27 +283,37 @@ func (r *temperatureReader) read(ctx context.Context, now time.Time) []Temperatu
 // expose none (most Windows and macOS machines, and most containers without
 // the host's /sys), so a failure means an empty list, not an error.
 func readTemperatures(ctx context.Context) []Temperature {
-	// gopsutil returns partial results together with an error when some
-	// sensors cannot be read, so the readings are used even if err is set.
-	readings, _ := readSensors(ctx)
-	return temperaturesOf(readings)
+	// readSensors returns the sensors it could read even when others
+	// failed, so its readings are used whatever it says.
+	readings, asleep := readSensors(ctx)
+	return temperaturesOf(readings, asleep)
 }
 
 // temperaturesOf turns the sensor readings into temperatures, leaving out the
 // sensors that report none. Sensors with the same name, such as one coretemp
 // per core, are numbered, so each name stands for one sensor in the history.
-func temperaturesOf(readings []sensors.TemperatureStat) []Temperature {
+// asleep tells, by the index of a reading, which sensors belong to a device
+// that sleeps and were not read: they are numbered with the others, so the
+// others keep their names, and then left out.
+func temperaturesOf(readings []sensors.TemperatureStat, asleep []bool) []Temperature {
 	temperatures := make([]Temperature, 0, len(readings))
+	sleeping := make([]bool, 0, len(readings))
 	names := make([]string, 0, len(readings))
-	for _, r := range readings {
-		if r.Temperature <= 0 {
+	for i, r := range readings {
+		sleeps := i < len(asleep) && asleep[i]
+		if !sleeps && r.Temperature <= 0 {
 			continue
 		}
 		temperatures = append(temperatures, Temperature{Sensor: r.SensorKey, Celsius: r.Temperature})
+		sleeping = append(sleeping, sleeps)
 		names = append(names, r.SensorKey)
 	}
+	awake := temperatures[:0]
 	for i, name := range NumberDuplicates(names) {
-		temperatures[i].Sensor = name
+		if !sleeping[i] {
+			temperatures[i].Sensor = name
+			awake = append(awake, temperatures[i])
+		}
 	}
-	return temperatures
+	return awake
 }
