@@ -139,7 +139,7 @@ func (t *tray) refresh() {
 	t.status.SetTitle("Usage Control: " + text)
 	t.address.SetTitle(t.text.addressText(addr, found, t.settings.port))
 	if t.hub != "" {
-		t.openHub.SetTitle(t.text.openHub)
+		t.openHub.SetTitle(t.text.hubText(t.hub))
 		t.openHub.Enable()
 	} else {
 		t.openHub.SetTitle(t.text.noHub)

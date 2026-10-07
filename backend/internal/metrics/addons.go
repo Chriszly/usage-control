@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -133,18 +134,21 @@ func (a *AddOns) logOnce(file string, err error) {
 	}
 }
 
-// WriteAddOnReport writes an add-on's report to file so a reader never sees
-// half of it: to a temporary file next to it first, which then replaces it.
-func WriteAddOnReport(file string, report AddOnReport) error {
+// WriteAddOnReport writes an add-on's report as name in folder so a reader
+// never sees half of it: to a temporary file next to it first, which then
+// replaces it. Each step goes through folder, which stays the folder it was
+// opened as even when its path is changed meanwhile.
+func WriteAddOnReport(folder *os.Root, name string, report AddOnReport) error {
 	data, err := json.Marshal(report)
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(file), ".report-*")
+	temporaryName := ".report-" + rand.Text()
+	temporary, err := folder.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(temporary.Name()) }()
+	defer func() { _ = folder.Remove(temporaryName) }()
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
 		return err
@@ -161,7 +165,7 @@ func WriteAddOnReport(file string, report AddOnReport) error {
 	// as the collector has for a moment while it reads it, so a failed
 	// replace is tried again a few times.
 	for try := 1; ; try++ {
-		err := os.Rename(temporary.Name(), file)
+		err := folder.Rename(temporaryName, name)
 		if err == nil || try == renameTries {
 			return err
 		}

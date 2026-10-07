@@ -49,10 +49,19 @@ func TestWatchedAgentNotesOutages(t *testing.T) {
 		t.Fatalf("availability before an outage = %+v, %v; want none since %v", got, err, since)
 	}
 
+	// A single failed reading is no outage.
+	collect(false)
+	collect(true)
+	got, err = readAvailability(ctx, store.DB(), "pi")
+	if err != nil || got.Outages != 0 {
+		t.Fatalf("availability after one failed reading = %+v, %v; want no outage", got, err)
+	}
+
 	collect(false)
 	collect(false)
 	collect(true)
 	collect(true)
+	collect(false)
 	collect(false)
 	got, err = readAvailability(ctx, store.DB(), "pi")
 	if err != nil || got.Outages != 2 || got.LastOutage == nil || got.LastOutage.End.Before(got.LastOutage.Start) {
@@ -175,20 +184,26 @@ func TestWatchedAgentWritesAnOngoingOutageEveryFiveMinutes(t *testing.T) {
 
 	start := now
 	collect(false)
-	if s, e := written(); !s.Equal(start) || !e.Equal(start) {
-		t.Errorf("outage after the first failed reading = %v to %v, want %v to %v", s, e, start, start)
+	if _, _, ongoing := agent.ongoing(); ongoing {
+		t.Error("ongoing() = true after one failed reading, want false")
+	}
+	now = now.Add(5 * time.Second)
+	collect(false)
+	if s, e := written(); !s.Equal(start) || !e.Equal(now) {
+		t.Errorf("outage after the second failed reading = %v to %v, want %v to %v", s, e, start, now)
 	}
 
 	// Within the next five minutes, the failed readings are not written, but
 	// the page gets the current end from memory.
+	noted := now
 	now = now.Add(5 * time.Second)
 	collect(false)
-	if s, e := written(); !s.Equal(start) || !e.Equal(start) {
+	if s, e := written(); !s.Equal(start) || !e.Equal(noted) {
 		t.Errorf("outage 5 s later = %v to %v, want it unchanged in the database", s, e)
 	}
 	got, err := remote.Availability(ctx)
-	if err != nil || got.Outages != 1 || got.OfflineSeconds != 5 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
-		t.Errorf("availability 5 s later = %+v, %v; want 1 outage of 5 s ending now", got, err)
+	if err != nil || got.Outages != 1 || got.OfflineSeconds != 10 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
+		t.Errorf("availability 5 s later = %+v, %v; want 1 outage of 10 s ending now", got, err)
 	}
 
 	now = now.Add(5 * time.Minute)
@@ -206,7 +221,7 @@ func TestWatchedAgentWritesAnOngoingOutageEveryFiveMinutes(t *testing.T) {
 		t.Error("ongoing() = true after the device answered, want false")
 	}
 	got, err = remote.Availability(ctx)
-	if err != nil || got.Outages != 1 || got.OfflineSeconds != 5*60+10 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
-		t.Errorf("availability after the outage = %+v, %v; want 1 outage of 5 min 10 s", got, err)
+	if err != nil || got.Outages != 1 || got.OfflineSeconds != 5*60+15 || got.LastOutage == nil || !got.LastOutage.End.Equal(now) {
+		t.Errorf("availability after the outage = %+v, %v; want 1 outage of 5 min 15 s", got, err)
 	}
 }

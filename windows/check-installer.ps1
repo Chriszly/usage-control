@@ -1,19 +1,22 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# installs it with the website and the power, gpu, kernel, pressure, Wi-Fi,
-# memory, ports, smart and processes add-ons on, checks the tray icon
-# pauses, resumes and stops the service, updates it to a newer version
-# without options and checks the options and the add-ons were kept, except
-# RESET_PASSWORD, and the tray icon was closed for the update, repairs it
-# with RESET_PASSWORD=true and again without, as the docs say to, which
-# restarts the service and leaves the tray icon running,
-# uninstalls it, then installs it with the defaults and checks it only serves
-# the usage data, and last checks that an update with WEBSITE=0 turns the
-# website off.
+# checks it refuses an UPDATE_CHECK other than true or false, installs it
+# with the website and the power, gpu, kernel, pressure, Wi-Fi, memory,
+# ports, smart and processes add-ons on, checks the tray icon pauses,
+# resumes and stops the service, updates it to a newer bugfix without
+# options and checks the options and the add-ons were kept, except
+# RESET_PASSWORD, and the tray icon was closed for the update, checks the
+# older bugfix then refuses to install over it, repairs it with
+# RESET_PASSWORD=true and again without, as the docs say to, which restarts
+# the service and leaves the tray icon running, switches the website off and
+# on again with repairs, uninstalls it, then installs it with the defaults
+# and checks it only serves the usage data, and last checks that an update
+# with WEBSITE=0 turns the website off and that one with a space clears
+# DISK_PATHS, UPDATE_CHECK and PORT.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
 param(
     [Parameter(Mandatory)] [string] $Msi,
-    # The same installer with a higher version, to check an update.
+    # The same installer with the next bugfix version, to check an update.
     [Parameter(Mandatory)] [string] $NewerMsi
 )
 
@@ -27,6 +30,29 @@ function Invoke-Installer([string] $Arguments) {
         Get-Content msiexec.log -Tail 80
         throw "msiexec $Arguments failed with exit code $($process.ExitCode)"
     }
+}
+
+# The versions of Usage Control that Windows lists as installed.
+function Get-InstalledVersions {
+    @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+        Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' } |
+        ForEach-Object { $_.DisplayVersion }) -join ', '
+}
+
+# Runs the installer and checks it refuses with Message, as a launch
+# condition that is not met does, and changes nothing.
+function Assert-InstallerRefuses([string] $Arguments, [string] $Message) {
+    $before = Get-InstalledVersions
+    $process = Start-Process msiexec.exe -ArgumentList "$Arguments /qn /l*v msiexec.log" -Wait -PassThru
+    # 1603 is a failed install. Without the zeros the log reads the same
+    # whether it was written as ANSI or as UTF-16.
+    $log = (Get-Content msiexec.log -Raw) -replace "`0", ''
+    if ($process.ExitCode -ne 1603 -or -not $log.Contains($Message)) {
+        Get-Content msiexec.log -Tail 80
+        throw "msiexec $Arguments exited with $($process.ExitCode); it should refuse with '$Message' and 1603"
+    }
+    $after = Get-InstalledVersions
+    if ($after -ne $before) { throw "msiexec $Arguments changed the installed version from '$before' to '$after'" }
 }
 
 # Waits for the service to answer, as it takes a moment to start.
@@ -205,6 +231,10 @@ function Assert-ProcessesAddOn {
     if ($memory.Count -ne 1 -or $memory[0].items.Count -ne 10) { throw "The processes add-on did not list ten processes by memory: $($groups | ConvertTo-Json -Depth 4)" }
 }
 
+Write-Host 'An UPDATE_CHECK other than true or false is refused'
+Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.'
+if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The refused install installed the service' }
+
 Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
 Invoke-Installer "/i `"$Msi`" PORT=8091 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 RETENTION_DAYS=7 DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false RESET_PASSWORD=true POWER=1 GPU=1 KERNEL=1 PRESSURE=1 WIFI=1 MEMORY=1 PORTS=1 SMART=1 PROCESSES=1"
 $service = Get-Service UsageControl
@@ -250,6 +280,10 @@ Assert-PortsAddOn
 Assert-SmartAddOn
 Assert-ProcessesAddOn
 
+Write-Host 'The older bugfix refuses to install over the newer one'
+Assert-InstallerRefuses "/i `"$Msi`"" 'A newer bugfix of this version of Usage Control is already installed.'
+Assert-Website 8091
+
 Write-Host 'A repair with RESET_PASSWORD=true restarts the service with it, and one without it turns it off'
 Start-Tray
 $before = Get-ServiceProcessId
@@ -261,6 +295,16 @@ if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { throw
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m"
 Assert-ServiceSetting RESET_PASSWORD ''
 Assert-ServiceSetting UPDATE_CHECK 'false'
+Assert-Website 8091
+
+Write-Host 'A repair with WEBSITE=0 turns the website off, and one with WEBSITE=1 on again'
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=0"
+Assert-ServiceSetting DATA_ONLY 'true'
+$null = Get-Answer 'http://127.0.0.1:8091/api/metrics'
+$status = Get-StatusCode 'http://127.0.0.1:8091/'
+if ($status -ne 404) { throw "The website answered $status after the repair with WEBSITE=0; it should be off" }
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
+Assert-ServiceSetting DATA_ONLY 'false'
 Assert-Website 8091
 
 Write-Host 'Uninstalling'
@@ -300,14 +344,20 @@ if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The sm
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on was installed without PROCESSES=1' }
 Invoke-Installer "/x `"$Msi`""
 
-Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off'
-Invoke-Installer "/i `"$Msi`" WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393"
-Assert-Website 9393
+Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off, and a space clears DISK_PATHS, UPDATE_CHECK and PORT'
+Invoke-Installer "/i `"$Msi`" PORT=8092 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false"
+Assert-Website 8092
 # DATA_ONLY=false is what the setup wizard used to pass on after the
-# remembered WEBSITE=1, which kept the website on.
-Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false"
+# remembered WEBSITE=1, which kept the website on. An empty option such as
+# DISK_PATHS="" would count as not given, so a space clears it; PORT then
+# goes back to 9393.
+Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false DISK_PATHS=`" `" UPDATE_CHECK=`" `" PORT=`" `""
 Assert-ServiceSetting DATA_ONLY 'true'
 Assert-ServiceSetting HUB_DEVICES ''
+Assert-ServiceSetting DISK_PATHS ' '
+Assert-ServiceSetting UPDATE_CHECK ' '
+Assert-ServiceSetting LISTEN_ADDR ':9393'
+Assert-FirewallPort 9393
 $null = Get-Answer 'http://127.0.0.1:9393/api/metrics'
 $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status after the update with WEBSITE=0; it should be off" }

@@ -37,13 +37,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # A tag v1.2.3 builds version 1.2.3; anything else dev-<commit>, which
-      # the update check leaves alone.
+      # the update check leaves alone. A tag that is no release version, such
+      # as a pre-release v1.2.3-rc1, fails, as in the other release workflows.
       - name: Version
         id: version
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]*$ ]]; then
+              echo "Tag $GITHUB_REF_NAME is not a release version; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional). Pre-release tags such as v1.2.3-rc1 are not supported." >&2
+              exit 1
+            fi
           else
             version="dev-${GITHUB_SHA::7}"
           fi

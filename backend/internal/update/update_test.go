@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -83,6 +84,15 @@ func TestCheckRefusesATagThatIsNotAVersion(t *testing.T) {
 	}
 	if got := c.Status(); got.Latest != "" {
 		t.Errorf("Status().Latest = %q, want none", got.Latest)
+	}
+}
+
+func TestAFailedCheckIsTriedAgainSooner(t *testing.T) {
+	if got := nextCheck(nil); got != Interval {
+		t.Errorf("after a check: next in %v, want %v", got, Interval)
+	}
+	if got := nextCheck(errors.New("no network")); got != RetryInterval {
+		t.Errorf("after a failed check: next in %v, want %v", got, RetryInterval)
 	}
 }
 

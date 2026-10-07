@@ -8,13 +8,25 @@ import (
 	"time"
 )
 
+// openRoot opens dir as an *os.Root, which is closed when the test ends.
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 func TestAddOnsReadsTheFreshReports(t *testing.T) {
 	dir := t.TempDir()
+	folder := openRoot(t, dir)
 	now := time.Now().UTC().Truncate(time.Second)
 	write := func(name string, at time.Time, id string) {
 		t.Helper()
 		report := AddOnReport{Time: at, Extras: []Extra{{ID: id, Title: id, Items: []ExtraItem{{ID: "a", Unit: UnitWatts, Value: number(1)}}}}}
-		if err := WriteAddOnReport(filepath.Join(dir, name), report); err != nil {
+		if err := WriteAddOnReport(folder, name, report); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -88,7 +100,7 @@ func TestAddOnsWithoutFolderReadNothing(t *testing.T) {
 
 func TestWriteAddOnReportLeavesNoTemporaryFile(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteAddOnReport(filepath.Join(dir, "power.json"), AddOnReport{Time: time.Now()}); err != nil {
+	if err := WriteAddOnReport(openRoot(t, dir), "power.json", AddOnReport{Time: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dir)

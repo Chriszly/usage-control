@@ -198,6 +198,12 @@ func TestServesWebsite(t *testing.T) {
 		if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 			t.Errorf("%s: X-Content-Type-Options = %q, want nosniff", tt.path, got)
 		}
+		if got := rec.Header().Get("Content-Security-Policy"); got != "frame-ancestors 'none'" {
+			t.Errorf("%s: Content-Security-Policy = %q, want frame-ancestors 'none'", tt.path, got)
+		}
+		if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+			t.Errorf("%s: X-Frame-Options = %q, want DENY", tt.path, got)
+		}
 	}
 }
 

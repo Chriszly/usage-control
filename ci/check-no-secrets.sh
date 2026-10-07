@@ -4,7 +4,9 @@
 # Checks every file git tracks in DIR (default: this checkout):
 #   - no .env settings file besides .env.example
 #   - no line starting with "-----BEGIN ... PRIVATE KEY-----"
-#   - no tracked .env line giving a *PASSWORD, *KEY, *TOKEN or *SECRET a value
+#   - no line in a tracked .env file or example, such as
+#     linux/usage-control.env.example, giving a *PASSWORD, *KEY, *TOKEN or
+#     *SECRET a value
 #
 # Run: bash ci/check-no-secrets.sh [DIR]
 set -euo pipefail
@@ -28,7 +30,7 @@ done < <(git grep -lE -e '^-----BEGIN ([A-Z]+ )*PRIVATE KEY-----' || true)
 while IFS= read -r hit; do
   problem "$hit: a password or key has a value in a committed settings file"
 done < <(git grep -nE -e '^[[:space:]]*(export[[:space:]]+)?[A-Z0-9_]*(PASSWORD|KEY|TOKEN|SECRET)=[[:space:]]*[^[:space:]#]' \
-           -- '.env*' '*/.env*' '*.env' | cut -d: -f1,2 || true)
+           -- '.env*' '*/.env*' '*.env' '*.env.*' | cut -d: -f1,2 || true)
 
 if [[ $problems -gt 0 ]]; then
   echo "Found $problems possible secret(s). Keep settings in a git-ignored .env instead." >&2

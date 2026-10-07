@@ -11,6 +11,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"errors"
+	"net/netip"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -29,7 +30,8 @@ const (
 	saltBytes  = 16
 	keyBytes   = 32
 	// failureDelay is how long a wrong password is answered late, so a
-	// password cannot be guessed quickly over the network.
+	// password cannot be guessed quickly over the network: each client
+	// checks one password at a time, so it gets at most one guess a second.
 	failureDelay = time.Second
 )
 
@@ -55,9 +57,26 @@ CREATE TABLE IF NOT EXISTS password (
 // Password is the stored password.
 type Password struct {
 	db *sql.DB
+	// iterations is how often the hash is repeated; fewer only in tests.
+	iterations int
 
-	// mu lets one check run at a time, so wrong guesses wait for each other.
+	// mu lets one hash be worked out at a time, so many guesses at once
+	// keep one processor core busy at most.
 	mu sync.Mutex
+
+	// clientsMu guards clients.
+	clientsMu sync.Mutex
+	// clients has a turn for each client with a check running or waiting,
+	// so each checks one password at a time, the wait after a wrong one
+	// included. A client is dropped once none of its checks runs or waits.
+	clients map[netip.Addr]*turn
+}
+
+// turn is held by the one check of a client that runs.
+type turn struct {
+	held chan struct{}
+	// checks is how many checks of the client run or wait.
+	checks int
 }
 
 // Open returns the password kept in db, creating its table when needed.
@@ -65,7 +84,7 @@ func Open(ctx context.Context, db *sql.DB) (*Password, error) {
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		return nil, err
 	}
-	return &Password{db: db}, nil
+	return &Password{db: db, iterations: iterations}, nil
 }
 
 // IsSet reports whether a password has been chosen.
@@ -75,14 +94,20 @@ func (p *Password) IsSet(ctx context.Context) (bool, error) {
 	return count > 0, err
 }
 
-// Check checks password against the stored one. It returns ErrNotSet when
-// none has been chosen yet.
-func (p *Password) Check(ctx context.Context, password string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// Check checks password, sent by the client at from, against the stored one.
+// It returns ErrNotSet when none has been chosen yet. A client checks one
+// password at a time, and a wrong one is answered failureDelay late, so a
+// client guessing in parallel gets no more guesses, while others are not
+// held up by its waits.
+func (p *Password) Check(ctx context.Context, from netip.Addr, password string) error {
+	done, err := p.wait(ctx, client(from))
+	if err != nil {
+		return err
+	}
+	defer done()
 
 	var salt, hash []byte
-	err := p.db.QueryRowContext(ctx, `SELECT salt, hash FROM password WHERE id = 1`).Scan(&salt, &hash)
+	err = p.db.QueryRowContext(ctx, `SELECT salt, hash FROM password WHERE id = 1`).Scan(&salt, &hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotSet
 	}
@@ -90,15 +115,62 @@ func (p *Password) Check(ctx context.Context, password string) error {
 		return err
 	}
 
-	given, err := derive(password, salt)
+	p.mu.Lock()
+	given, err := p.derive(password, salt)
+	p.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	if subtle.ConstantTimeCompare(given, hash) != 1 {
+		// Waited in the client's turn but without holding mu, so the wait
+		// holds up only the same client's next guess.
 		time.Sleep(failureDelay)
 		return ErrWrong
 	}
 	return nil
+}
+
+// wait waits for the client's turn, and returns the function that ends it.
+func (p *Password) wait(ctx context.Context, client netip.Addr) (func(), error) {
+	p.clientsMu.Lock()
+	if p.clients == nil {
+		p.clients = map[netip.Addr]*turn{}
+	}
+	t := p.clients[client]
+	if t == nil {
+		t = &turn{held: make(chan struct{}, 1)}
+		p.clients[client] = t
+	}
+	t.checks++
+	p.clientsMu.Unlock()
+
+	leave := func() {
+		p.clientsMu.Lock()
+		defer p.clientsMu.Unlock()
+		if t.checks--; t.checks == 0 {
+			delete(p.clients, client)
+		}
+	}
+	select {
+	case t.held <- struct{}{}:
+		return func() {
+			<-t.held
+			leave()
+		}, nil
+	case <-ctx.Done():
+		leave()
+		return nil, ctx.Err()
+	}
+}
+
+// client is who sent a check from the address from: the address itself, or
+// for IPv6 its /64 network, as a device can pick any address in it.
+func client(from netip.Addr) netip.Addr {
+	from = from.Unmap().WithZone("")
+	if from.Is6() {
+		return netip.PrefixFrom(from, 64).Masked().Addr()
+	}
+	return from
 }
 
 // Set chooses the password. It returns ErrAlreadySet when one has been chosen
@@ -112,7 +184,7 @@ func (p *Password) Set(ctx context.Context, password string) error {
 	if _, err := rand.Read(salt); err != nil {
 		return err
 	}
-	hash, err := derive(password, salt)
+	hash, err := p.derive(password, salt)
 	if err != nil {
 		return err
 	}
@@ -143,6 +215,6 @@ func (p *Password) Reset(ctx context.Context) error {
 	return err
 }
 
-func derive(password string, salt []byte) ([]byte, error) {
-	return pbkdf2.Key(sha256.New, password, salt, iterations, keyBytes)
+func (p *Password) derive(password string, salt []byte) ([]byte, error) {
+	return pbkdf2.Key(sha256.New, password, salt, p.iterations, keyBytes)
 }

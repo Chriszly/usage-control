@@ -23,6 +23,9 @@ const (
 	releaseURL = "https://github.com/Chriszly/usage-control/releases/tag/"
 	// Interval is how often GitHub is asked.
 	Interval = 24 * time.Hour
+	// RetryInterval is how soon a failed check is tried again, so a network
+	// that was down for a moment does not delay the notice by a day.
+	RetryInterval = time.Hour
 	// maxResponseBytes is far more than a release's description needs.
 	maxResponseBytes = 1 << 20
 )
@@ -69,20 +72,29 @@ func NewChecker(current string) *Checker {
 }
 
 // Run checks now and then every Interval until ctx is done. A failed check
-// is logged and tried again at the next one.
+// is logged and tried again after RetryInterval.
 func (c *Checker) Run(ctx context.Context) {
-	ticker := time.NewTicker(Interval)
-	defer ticker.Stop()
 	for {
-		if err := c.check(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("could not check for a newer version; set UPDATE_CHECK=false to stop checking", "error", err)
+		err := c.check(ctx)
+		if err != nil && ctx.Err() == nil {
+			slog.Warn("could not check for a newer version; trying again in an hour. Set UPDATE_CHECK=false to stop checking", "error", err)
 		}
+		timer := time.NewTimer(nextCheck(err))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
+}
+
+// nextCheck is how long to wait after a check that ended with err.
+func nextCheck(err error) time.Duration {
+	if err != nil {
+		return RetryInterval
+	}
+	return Interval
 }
 
 // Status returns the running version and, when there is one, the newer

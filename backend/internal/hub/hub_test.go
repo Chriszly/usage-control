@@ -275,11 +275,11 @@ func TestNoChangesOnceTheHubStops(t *testing.T) {
 	stop()
 	h.Wait()
 
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, errStopping) {
-		t.Errorf("Add() once stopped error = %v, want errStopping", err)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, ErrStopping) {
+		t.Errorf("Add() once stopped error = %v, want ErrStopping", err)
 	}
-	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, errStopping) {
-		t.Errorf("Remove() once stopped error = %v, want errStopping", err)
+	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, ErrStopping) {
+		t.Errorf("Remove() once stopped error = %v, want ErrStopping", err)
 	}
 	if got := ids(h.Remotes()); len(got) != 1 {
 		t.Errorf("devices once stopped = %q, want the one added before", got)
@@ -378,6 +378,135 @@ func TestRemoveForgetsTheKind(t *testing.T) {
 	}
 	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindServer {
 		t.Errorf("kind after removing = %q, %v; want none stored", kind, err)
+	}
+}
+
+func TestKeepingTheHistoryKeepsAvailabilityAndKindAcrossRestarts(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	now := time.Now()
+	if _, err := store.DB().Exec(`INSERT INTO hub_outages (device, started, ended) VALUES ('laptop', ?, ?)`, now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Remove(ctx, "laptop", true); err != nil {
+		t.Fatalf("Remove(keepHistory) error = %v", err)
+	}
+	if err := h.waitRemoved(ctx, "laptop", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
+
+	again := openTestHub(t, store, nil)
+	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindPC {
+		t.Errorf("kind after a restart = %q, %v; want %q kept", kind, err, KindPC)
+	}
+	if availability, err := readAvailability(ctx, store.DB(), "laptop"); err != nil || availability.Outages != 1 {
+		t.Errorf("availability after a restart = %+v, %v; want the outage kept", availability, err)
+	}
+
+	// Added again a day after it was removed, the device continues them, and
+	// the day it was removed does not count as watched.
+	var sinceBefore int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&sinceBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().Exec(`UPDATE hub_kept SET removed = removed - 86400`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := again.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() again error = %v", err)
+	}
+	if kept, err := again.keptHistory(ctx); err != nil || len(kept) != 0 {
+		t.Errorf("kept devices after adding again = %q, %v; want none", kept, err)
+	}
+	if availability, err := readAvailability(ctx, store.DB(), "laptop"); err != nil || availability.Outages != 1 {
+		t.Errorf("availability after adding again = %+v, %v; want the outage continued", availability, err)
+	}
+	var since int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&since); err != nil {
+		t.Fatal(err)
+	}
+	if gap := since - sinceBefore; gap < 86400 || gap > 86400+5 {
+		t.Errorf("since moved on by %d s after adding again, want the day it was removed", gap)
+	}
+}
+
+func TestAKeptDeviceInHubDevicesIsCollectedFromAgain(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := h.Remove(ctx, "laptop", true); err != nil {
+		t.Fatalf("Remove(keepHistory) error = %v", err)
+	}
+	if err := h.waitRemoved(ctx, "laptop", time.Minute); err != nil {
+		t.Fatalf("waitRemoved() error = %v", err)
+	}
+	// Removed longer than the retention ago, then set in HUB_DEVICES.
+	if _, err := store.DB().Exec(`UPDATE hub_kept SET removed = removed - 31*86400`); err != nil {
+		t.Fatal(err)
+	}
+	var sinceBefore int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&sinceBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	again := openTestHub(t, store, []Device{{ID: "laptop", Name: "Laptop", Address: startDevice(t)}})
+	if err := again.forgetExpired(ctx, time.Now()); err != nil {
+		t.Fatalf("forgetExpired() error = %v", err)
+	}
+
+	if kept, err := again.keptHistory(ctx); err != nil || len(kept) != 0 {
+		t.Errorf("kept devices = %q, %v; want none once in HUB_DEVICES", kept, err)
+	}
+	if kind, err := readKind(ctx, store.DB(), "laptop"); err != nil || kind != KindPC {
+		t.Errorf("kind = %q, %v; want %q kept", kind, err, KindPC)
+	}
+	var since int64
+	if err := store.DB().QueryRow(`SELECT since FROM hub_watched WHERE device = 'laptop'`).Scan(&since); err != nil {
+		t.Fatalf("the device's availability is gone: %v", err)
+	}
+	if gap := since - sinceBefore; gap < 31*86400 || gap > 31*86400+5 {
+		t.Errorf("since moved on by %d s, want the 31 days it was removed", gap)
+	}
+}
+
+func TestKeptDevicesAreForgottenAfterTheRetention(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	h := openTestHub(t, store, nil)
+	for _, name := range []string{"Laptop", "Tablet"} {
+		if _, err := h.Add(ctx, name, startDevice(t), KindPC); err != nil {
+			t.Fatalf("Add(%q) error = %v", name, err)
+		}
+		id := strings.ToLower(name)
+		if err := h.Remove(ctx, id, true); err != nil {
+			t.Fatalf("Remove(%q) error = %v", id, err)
+		}
+		if err := h.waitRemoved(ctx, id, time.Minute); err != nil {
+			t.Fatalf("waitRemoved() error = %v", err)
+		}
+	}
+	// The laptop was removed 31 days ago, longer than the retention of 30.
+	if _, err := store.DB().Exec(`UPDATE hub_kept SET removed = removed - 31*86400 WHERE device = 'laptop'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.forgetExpired(ctx, time.Now()); err != nil {
+		t.Fatalf("forgetExpired() error = %v", err)
+	}
+	for id, want := range map[string]int{"laptop": 0, "tablet": 1} {
+		var kept, watched, kinds int
+		if err := store.DB().QueryRow(`SELECT (SELECT COUNT(*) FROM hub_kept WHERE device = ?1), (SELECT COUNT(*) FROM hub_watched WHERE device = ?1), (SELECT COUNT(*) FROM hub_device_kinds WHERE device = ?1)`, id).Scan(&kept, &watched, &kinds); err != nil {
+			t.Fatal(err)
+		}
+		if kept != want || watched != want || kinds != want {
+			t.Errorf("rows of %s = %d kept, %d watched, %d kinds; want %d each", id, kept, watched, kinds, want)
+		}
 	}
 }
 
