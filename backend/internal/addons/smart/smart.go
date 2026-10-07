@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	// ReadInterval is how often each disk is read.
-	ReadInterval = 10 * time.Minute
+	// ReadInterval is how often each disk is read, as often as smartd does by
+	// default. A read counts as use of the disk, so reading more often than
+	// the system switches an unused disk off would keep it from ever doing so.
+	ReadInterval = 30 * time.Minute
 	// ScanInterval is how often the list of disks is read again, for disks
 	// plugged in or removed.
 	ScanInterval = time.Hour

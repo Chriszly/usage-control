@@ -1,7 +1,7 @@
 // Command usage-control-smart is the smart add-on of usage-control: it reads
 // the health of the machine's SATA and NVMe disks straight from them, with
 // nothing else to install, and writes it to the add-on folder (see package
-// addons). It reads each disk every 10 minutes, leaving disks that sleep
+// addons). It reads each disk every 30 minutes, leaving disks that sleep
 // asleep, and reports the last result in between. It runs as root on Linux
 // with only the capabilities the disk commands need, and as LocalSystem on
 // Windows, which lets only administrators send them; usage-control itself

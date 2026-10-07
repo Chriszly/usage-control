@@ -472,7 +472,7 @@ func (f *fakeSource) counts() (lists, reads int) {
 	return f.lists, f.reads
 }
 
-func TestReaderReadsEveryTenMinutesAndKeepsTheLastResult(t *testing.T) {
+func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 	src := &fakeSource{}
 	r := newReader(src)
 	start := time.Now()
@@ -488,10 +488,10 @@ func TestReaderReadsEveryTenMinutesAndKeepsTheLastResult(t *testing.T) {
 		t.Fatalf("Read() = %+v, want %+v", got, want)
 	}
 	if lists, reads := src.counts(); lists != 1 || reads != 3 {
-		t.Errorf("listed %d and read %d times before ten minutes passed, want 1 and 3", lists, reads)
+		t.Errorf("listed %d and read %d times before ReadInterval passed, want 1 and 3", lists, reads)
 	}
 
-	// Ten minutes later sda sleeps: it keeps its last result and the disks
+	// A read interval later sda sleeps: it keeps its last result and the disks
 	// are not listed again before an hour.
 	src.mu.Lock()
 	src.asleep = true
@@ -508,7 +508,7 @@ func TestReaderReadsEveryTenMinutesAndKeepsTheLastResult(t *testing.T) {
 		t.Error("the disk that cannot be read was not logged")
 	}
 
-	// Another ten minutes later sda cannot be read: it no longer shows the
+	// Another read interval later sda cannot be read: it no longer shows the
 	// check it passed before.
 	src.mu.Lock()
 	src.asleep, src.failing = false, true

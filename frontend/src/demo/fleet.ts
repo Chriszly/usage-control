@@ -579,7 +579,7 @@ const linuxNas: DemoMachine = {
       'temperature:coretemp Package id 0': 39 + cpu * 0.3,
       'temperature:drivetemp sda': drives.sda,
       'temperature:drivetemp sdb': drives.sdb,
-      // The smart add-on reads the disks every 10 minutes.
+      // The smart add-on reads the disks every 30 minutes.
       'extra:smart/wd-x1g2h3jk-temperature': Math.round(drives.sda),
       'extra:smart/wd-x1g2h3jk-power-on-hours': Math.floor((t - openedAt) / 3600) + 21_408,
       'extra:smart/wd-x1g2h3jk-reallocated': 0,

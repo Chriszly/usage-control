@@ -92,11 +92,11 @@ func (windowsSource) list() ([]device, error) {
 }
 
 func (windowsSource) read(d device) (Disk, error) {
-	// Opening a SATA disk to read and write may spin it up when Windows has
-	// switched it off, as its power plan does after a while without use, so
-	// that is first asked through a handle that may only ask, as smartctl
-	// does.
-	if !d.nvme && switchedOff(d.path) {
+	// Opening a disk to read and write may wake it, and spin a SATA disk up,
+	// when Windows has switched it off, as its power plan does after a while
+	// without use, so that is first asked through a handle that may only ask,
+	// as smartctl does.
+	if switchedOff(d.path) {
 		return Disk{}, errAsleep
 	}
 	h, err := open(d.path, windows.GENERIC_READ|windows.GENERIC_WRITE)
