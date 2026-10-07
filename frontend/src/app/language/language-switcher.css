@@ -10,7 +10,6 @@ button {
   background: none;
   cursor: pointer;
   border-radius: var(--mat-sys-corner-extra-small);
-  outline-offset: 1px;
   opacity: 0.6;
 }
 
@@ -19,9 +18,17 @@ button:focus-visible {
   opacity: 1;
 }
 
+/* The focus ring goes around the ring of the current language, so both show. */
+button:focus-visible {
+  outline: 2px solid var(--mat-sys-on-surface);
+  outline-offset: 3px;
+}
+
 button[aria-pressed='true'] {
   opacity: 1;
-  outline: 2px solid var(--mat-sys-primary);
+  box-shadow:
+    0 0 0 1px var(--mat-sys-surface),
+    0 0 0 3px var(--mat-sys-primary);
 }
 
 img {

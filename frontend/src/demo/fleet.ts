@@ -1719,8 +1719,8 @@ function timeZone(machine: DemoMachine, t: number): TimeZone {
   return { name: name && /^[A-Z]{2,5}$/.test(name) ? name : offsetName, offsetSeconds };
 }
 
-/** What GET /api/metrics answers for the machine at t, in Unix seconds. */
-export function snapshotOf(machine: DemoMachine, t: number): Snapshot {
+/** What GET /api/metrics answers for the machine at t, in Unix seconds, running version. */
+export function snapshotOf(machine: DemoMachine, t: number, version: string): Snapshot {
   const v = machine.values(t, 0);
   const linux = machine.os === 'linux';
   const uptimeSeconds = Math.round(machine.bootedDaysAgo * 86400 + (t - openedAt));
@@ -1751,6 +1751,7 @@ export function snapshotOf(machine: DemoMachine, t: number): Snapshot {
   const hottest = Math.max(45, ...temperatures.map((temp) => temp.celsius));
 
   return {
+    version,
     time: new Date(t * 1000).toISOString(),
     timeZone: timeZone(machine, t),
     uptimeSeconds,

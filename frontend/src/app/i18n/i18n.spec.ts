@@ -2,7 +2,11 @@ import { formatDate } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
 
 import { BROWSER_LANGUAGES, I18n, LANGUAGE_STORAGE_KEY, fillIn, preferredLanguage } from './i18n';
-import { MessageKey } from './messages/en';
+import { de } from './messages/de';
+import { MessageKey, Messages, en } from './messages/en';
+import { enUS } from './messages/en-us';
+import { es } from './messages/es';
+import { fr } from './messages/fr';
 
 describe('I18n', () => {
   function i18n(browserLanguages: string[] = ['en-US']): I18n {
@@ -44,6 +48,15 @@ describe('I18n', () => {
     expect(formatDate(time, 'short', service.language(), 'UTC')).toBe('04/10/2026, 17:05');
   });
 
+  it('writes the day with its ordinal dot in German', () => {
+    const service = i18n(['de']);
+    const time = Date.UTC(2026, 9, 7, 17, 5);
+    const format = (key: MessageKey) => formatDate(time, service.t(key), service.language(), 'UTC');
+
+    expect(format('format.dayMonth')).toBe('7. Okt.');
+    expect(format('format.dateTime')).toBe('Mi. 7. Okt., 17:05');
+  });
+
   it('fills placeholders and follows a switch of language', () => {
     const service = i18n();
     expect(service.t('dashboard.usedOfTotal', { used: '1 GiB', total: '2 GiB' })).toBe(
@@ -70,6 +83,21 @@ describe('I18n', () => {
     TestBed.tick();
 
     expect(document.documentElement.lang).toBe('fr');
+  });
+});
+
+describe('translations', () => {
+  // A text may use a placeholder more than once, but must use each one the English text uses.
+  const placeholders = (text: string) =>
+    [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort();
+
+  it('have the same placeholders as the English text', () => {
+    const translations: Record<string, Messages> = { 'en-US': enUS, de, fr, es };
+    for (const [language, messages] of Object.entries(translations)) {
+      for (const key of Object.keys(en) as MessageKey[]) {
+        expect(placeholders(messages[key]), `${language} ${key}`).toEqual(placeholders(en[key]));
+      }
+    }
   });
 });
 

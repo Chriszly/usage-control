@@ -193,6 +193,11 @@ export class HistoryCharts {
           this.history.set(history);
           if (history.retentionDays) {
             this.retentionDays.set(history.retentionDays);
+            // A range picked before the backend said how long it keeps history
+            // may be longer than that; the longest range offered stands in for it.
+            if (!this.unit()) {
+              this.span.set(this.longestRange());
+            }
           }
         }
       });
@@ -204,6 +209,10 @@ export class HistoryCharts {
     if (unit) {
       this.span.set(unit.ranges[unit.ranges.length - 1].seconds);
     }
+  }
+
+  private longestRange(): number {
+    return Math.max(...this.units().flatMap((unit) => unit.ranges.map((range) => range.seconds)));
   }
 }
 
