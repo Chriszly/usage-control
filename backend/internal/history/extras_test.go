@@ -36,10 +36,11 @@ func TestRecorderStoresHowTheExtrasAreDescribed(t *testing.T) {
 	store := openTestStore(t)
 	now := time.Now().Truncate(time.Second)
 	recorder := &Recorder{
-		Store:     store,
-		Recent:    &Recent{},
-		Collector: &sequenceCollector{[]metrics.Snapshot{{Time: now, Extras: []metrics.Extra{pressure}}}},
-		Device:    "nas",
+		Store:      store,
+		Recent:     &Recent{},
+		Collector:  &sequenceCollector{[]metrics.Snapshot{{Time: now, Extras: []metrics.Extra{pressure}}}},
+		Device:     "nas",
+		MaxEntries: DefaultMaxEntries,
 	}
 
 	recorder.read(ctx)

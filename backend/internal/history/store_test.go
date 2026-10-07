@@ -2,8 +2,10 @@ package history
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -313,5 +315,59 @@ func TestValuesKeepsTheFirstEntriesOfEachList(t *testing.T) {
 	}
 	if _, dropped := values(snapshot, 3); dropped {
 		t.Error("values(3 entries) dropped entries, want none with three of each")
+	}
+}
+
+func TestValuesLeavesOutEntriesWithTooLongNames(t *testing.T) {
+	long := strings.Repeat("x", MaxMetricLength)
+	// The longest name whose longest metric, network.receive:<name>, fits.
+	fitting := strings.Repeat("n", MaxMetricLength-len(MetricNetworkReceive+":"))
+	snapshot := metrics.Snapshot{
+		Temperatures: []metrics.Temperature{{Sensor: long, Celsius: 1}, {Sensor: "cpu", Celsius: 2}},
+		Disks:        []metrics.Disk{{Path: long, UsedPercent: 20}, {Path: "/", UsedPercent: 30}},
+		Network:      []metrics.NetworkInterface{{Name: fitting + "n"}, {Name: fitting}},
+		GPUs:         []metrics.GPU{{Name: long, UsagePercent: 1}},
+	}
+
+	got, _ := values(snapshot, 1)
+
+	want := map[string]float64{
+		"cpu": 0, "memory": 0, "temperature:cpu": 2, "disk:/": 30,
+		"network.receive:" + fitting: 0, "network.send:" + fitting: 0,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("values() = %v, want %v", got, want)
+	}
+}
+
+func TestValuesKeepsAtMostSoManyValuesOfExtras(t *testing.T) {
+	const maxEntries = 2
+	var extras []metrics.Extra
+	for g := range 3 {
+		group := metrics.Extra{ID: fmt.Sprintf("g%d", g), Title: "Group"}
+		for i := range 7 {
+			group.Items = append(group.Items, metrics.ExtraItem{ID: fmt.Sprintf("v%d", i), Label: "Value", Unit: metrics.UnitNumber, Value: number(1), History: true})
+		}
+		extras = append(extras, group)
+	}
+
+	got, dropped := values(metrics.Snapshot{Extras: extras}, maxEntries)
+
+	stored := 0
+	for metric := range got {
+		if strings.HasPrefix(metric, MetricExtra+":") {
+			stored++
+		}
+	}
+	if stored != extrasPerEntry*maxEntries || !dropped {
+		t.Errorf("values() kept %d values of extras, dropped = %v; want %d with some dropped", stored, dropped, extrasPerEntry*maxEntries)
+	}
+	_, last := got["extra:g2/v1"]
+	_, past := got["extra:g2/v2"]
+	if !last || past {
+		t.Errorf("values() = %v, want the first values kept, up to extra:g2/v1", got)
+	}
+	if info := extraInfo(extras, maxEntries); len(info) != stored {
+		t.Errorf("extraInfo() describes %d values, want the %d stored", len(info), stored)
 	}
 }

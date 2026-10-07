@@ -99,13 +99,13 @@ func (r *Recorder) read(ctx context.Context) {
 	v, dropped := values(snapshot, r.MaxEntries)
 	if dropped && !r.dropped {
 		r.dropped = true
-		slog.Warn("the device reports more disks, sensors, network cards or GPUs than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
+		slog.Warn("the device reports more disks, sensors, network cards, GPUs or values of extras than the history keeps; raise HISTORY_MAX_ENTRIES to keep them all",
 			"device", r.Device, "kept", r.MaxEntries)
 	}
 	// Only a history keeps how the extras are described; a hub reads that
 	// from a data-only device's own answers.
 	if store, ok := r.Store.(*Store); ok {
-		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras), snapshot.Time); err != nil {
+		if err := r.extraInfo.write(ctx, store, r.Device, extraInfo(snapshot.Extras, r.MaxEntries), snapshot.Time); err != nil {
 			slog.Error("store how the extras are described", "device", r.Device, "error", err)
 		}
 	}
