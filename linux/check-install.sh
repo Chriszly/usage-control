@@ -51,8 +51,9 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote n
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
 # The pressure add-on reads /proc/pressure, which a kernel without pressure
-# stall information lacks; it then runs but reports nothing.
-"$folder/install.sh" --addons=pressure
+# stall information lacks; it then runs but reports nothing. Both add-ons are
+# installed, so --addons= below has to remove both.
+"$folder/install.sh" --addons=power,pressure
 systemctl is-active --quiet usage-control-pressure || { journalctl -u usage-control-pressure --no-pager | tail -20 >&2; echo "the pressure add-on is not running" >&2; exit 1; }
 if [[ -f /proc/pressure/cpu ]]; then
   for _ in $(seq 1 10); do
