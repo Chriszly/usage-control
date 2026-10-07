@@ -252,6 +252,144 @@ function memoryValues(
   };
 }
 
+/**
+ * What the memory add-on reports on Windows, from the Memory performance
+ * counters; its values come from windowsMemoryValues().
+ */
+function windowsMemoryAddOn(): Extra[] {
+  const item = (
+    id: string,
+    label: string,
+    labels: Record<string, string>,
+    unit: 'bytes' | 'perSecond' | 'bytesPerSecond',
+  ) => ({ id, label, labels, unit, history: true });
+  return [
+    {
+      id: 'memory',
+      title: 'Memory details',
+      titles: { de: 'Speicherdetails', fr: 'Détails de la mémoire', es: 'Detalles de la memoria' },
+      items: [
+        item(
+          'modified',
+          'Modified (waiting to be written)',
+          {
+            de: 'Geändert, ungeschrieben (Modified)',
+            fr: 'Modifiée, pas encore écrite (Modified)',
+            es: 'Modificada, sin escribir (Modified)',
+          },
+          'bytes',
+        ),
+        item(
+          'pool-paged',
+          'Kernel paged pool',
+          {
+            de: 'Kernel-Pool, auslagerbar',
+            fr: 'Pool paginé du noyau',
+            es: 'Bloque paginado del núcleo',
+          },
+          'bytes',
+        ),
+        item(
+          'pool-nonpaged',
+          'Kernel nonpaged pool',
+          {
+            de: 'Kernel-Pool, nicht auslagerbar',
+            fr: 'Pool non paginé du noyau',
+            es: 'Bloque no paginado del núcleo',
+          },
+          'bytes',
+        ),
+        item(
+          'committed',
+          'Committed',
+          {
+            de: 'Zugesagt (Committed)',
+            fr: 'Engagée (Committed)',
+            es: 'Comprometida (Committed)',
+          },
+          'bytes',
+        ),
+        item(
+          'page-faults',
+          'Page faults',
+          { de: 'Seitenfehler', fr: 'Défauts de page', es: 'Fallos de página' },
+          'perSecond',
+        ),
+        item(
+          'page-reads',
+          'Disk reads for page faults',
+          {
+            de: 'Lesezugriffe für Seitenfehler',
+            fr: 'Lectures disque pour défauts de page',
+            es: 'Lecturas de disco por fallos de página',
+          },
+          'perSecond',
+        ),
+        item(
+          'paged-in',
+          'Paged in (page file and mapped files)',
+          {
+            de: 'Eingelagert (Auslagerungsdatei und Dateien)',
+            fr: "Pages lues (fichier d'échange et fichiers)",
+            es: 'Páginas leídas (archivo de paginación y archivos)',
+          },
+          'bytesPerSecond',
+        ),
+        item(
+          'paged-out',
+          'Paged out (page file and mapped files)',
+          {
+            de: 'Ausgelagert (Auslagerungsdatei und Dateien)',
+            fr: "Pages écrites (fichier d'échange et fichiers)",
+            es: 'Páginas escritas (archivo de paginación y archivos)',
+          },
+          'bytesPerSecond',
+        ),
+      ],
+    },
+  ];
+}
+
+/**
+ * The Windows memory add-on's values for a machine with memoryBytes of
+ * memory, busy by load (0 to 1), from seeds seed to seed + 7.
+ */
+function windowsMemoryValues(
+  t: number,
+  step: number,
+  seed: number,
+  memoryBytes: number,
+  load: number,
+): Record<string, number> {
+  const m = memoryBytes;
+  return {
+    'extra:memory/modified': vary(
+      t,
+      step,
+      seed,
+      m * (0.002 + 0.006 * load),
+      [[m * 0.002, 60]],
+      0,
+      m,
+    ),
+    'extra:memory/pool-paged': vary(t, step, seed + 1, m * 0.008, [[m * 0.001, 3600]], 0, m),
+    'extra:memory/pool-nonpaged': vary(t, step, seed + 2, m * 0.004, [[m * 0.0005, 3600]], 0, m),
+    'extra:memory/committed': vary(
+      t,
+      step,
+      seed + 3,
+      m * (0.5 + 0.3 * load),
+      [[m * 0.05, 900]],
+      0,
+      2 * m,
+    ),
+    'extra:memory/page-faults': vary(t, step, seed + 4, 2e3 + 30e3 * load, [[1500, 30]], 0, 1e7),
+    'extra:memory/page-reads': vary(t, step, seed + 5, 2 + 30 * load, [[3, 60]], 0, 1e5),
+    'extra:memory/paged-in': vary(t, step, seed + 6, 50e3 + 2e6 * load, [[200e3, 120]], 0, 1e9),
+    'extra:memory/paged-out': vary(t, step, seed + 7, 10e3 * load, [[30e3, 600]], 0, 1e9),
+  };
+}
+
 const piHub: DemoMachine = {
   device: LOCAL_DEVICE,
   os: 'linux',
@@ -480,6 +618,7 @@ const windowsServer: DemoMachine = {
     { name: 'Ethernet 3' },
     { name: 'Ethernet 4' },
   ],
+  extras: windowsMemoryAddOn(),
   utc: true,
   bootedDaysAgo: 23.6,
   values: (t, step) => {
@@ -511,6 +650,7 @@ const windowsServer: DemoMachine = {
       'network.send:Ethernet 1': vary(t, step, 61, 3e6 + 22e6 * busy, [[10e6, 90]], 0, 1e9),
       'network.receive:Ethernet 2': vary(t, step, 62, 800e3, [[600e3, 300]], 0, 1e9),
       'network.send:Ethernet 2': vary(t, step, 63, 300e3, [[250e3, 300]], 0, 1e9),
+      ...windowsMemoryValues(t, step, 170, 64 * GB, busy),
     };
   },
 };

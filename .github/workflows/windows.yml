@@ -148,6 +148,7 @@ jobs:
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/metrics-tests.exe ./internal/metrics
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/winservice-tests.exe ./internal/winservice
           GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/power-tests.exe ./internal/addons/power
+          GOOS=windows GOARCH=amd64 go test -c -o ../dist/tests/memory-tests.exe ./internal/addons/memory
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -180,6 +181,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Only the Windows reading: the other power tests are the same on Linux.
           dist\tests\power-tests.exe '-test.v' '-test.run=Windows'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dist\tests\memory-tests.exe '-test.v'
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
   installer:

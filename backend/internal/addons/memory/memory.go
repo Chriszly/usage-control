@@ -1,9 +1,10 @@
 // Package memory reads details of the machine's memory beyond what
-// usage-control itself shows, for the memory add-on: from /proc/meminfo how
-// much is dirty, being written back, held by the kernel's slab caches, shared,
-// used for page tables and committed, and from /proc/vmstat the page faults
-// and the swapping per second. It reads Linux's /proc only, so elsewhere it
-// reports nothing.
+// usage-control itself shows, for the memory add-on. On Linux it reads from
+// /proc/meminfo how much is dirty, being written back, held by the kernel's
+// slab caches, shared, used for page tables and committed, and from
+// /proc/vmstat the page faults and the swapping per second. On Windows it
+// reads the nearest performance counters of the Memory object (see
+// counters.go); elsewhere it reports nothing.
 //
 // It only reads; nothing in here changes the machine.
 package memory
@@ -34,8 +35,12 @@ var sizes = []size{
 	{"Slab", "slab", "Kernel caches (slab)", map[string]string{"de": "Kernel-Caches (Slab)", "fr": "Caches du noyau (slab)", "es": "Cachés del núcleo (slab)"}},
 	{"Shmem", "shared", "Shared memory", map[string]string{"de": "Gemeinsamer Speicher", "fr": "Mémoire partagée", "es": "Memoria compartida"}},
 	{"PageTables", "page-tables", "Page tables", map[string]string{"de": "Seitentabellen", "fr": "Tables de pages", "es": "Tablas de páginas"}},
-	{"Committed_AS", "committed", "Committed", map[string]string{"de": "Zugesagt (Committed)", "fr": "Engagée (Committed)", "es": "Comprometida (Committed)"}},
+	committed,
 }
+
+// committed is the memory the system has promised to programs, which Windows
+// counts too.
+var committed = size{"Committed_AS", "committed", "Committed", map[string]string{"de": "Zugesagt (Committed)", "fr": "Engagée (Committed)", "es": "Comprometida (Committed)"}}
 
 // rate is a counter of /proc/vmstat shown per second. A counter of pages
 // swapped is shown in bytes per second, the others as events per second.
@@ -48,11 +53,15 @@ type rate struct {
 }
 
 var rates = []rate{
-	{"pgfault", "page-faults", "Page faults", map[string]string{"de": "Seitenfehler", "fr": "Défauts de page", "es": "Fallos de página"}, false},
+	pageFaults,
 	{"pgmajfault", "major-page-faults", "Major page faults (read from disk)", map[string]string{"de": "Schwere Seitenfehler (von der Platte)", "fr": "Défauts de page majeurs (lus sur disque)", "es": "Fallos de página mayores (leídos del disco)"}, false},
 	{"pswpin", "swap-in", "Swapped in", map[string]string{"de": "Aus dem Swap gelesen", "fr": "Lu depuis le swap", "es": "Leído del swap"}, true},
 	{"pswpout", "swap-out", "Swapped out", map[string]string{"de": "In den Swap geschrieben", "fr": "Écrit dans le swap", "es": "Escrito en el swap"}, true},
 }
+
+// pageFaults are all page faults, those resolved in memory and those read from
+// disk, which Windows counts too.
+var pageFaults = rate{"pgfault", "page-faults", "Page faults", map[string]string{"de": "Seitenfehler", "fr": "Défauts de page", "es": "Fallos de página"}, false}
 
 // Reader reads the memory details of the machine.
 type Reader struct {
@@ -111,6 +120,11 @@ func (r *Reader) Read(now time.Time) []metrics.Extra {
 		}
 	}
 	r.previous, r.previousTime = counters, now
+	return group(items)
+}
+
+// group returns the group of extras holding items, or nothing without items.
+func group(items []metrics.ExtraItem) []metrics.Extra {
 	if len(items) == 0 {
 		return nil
 	}
