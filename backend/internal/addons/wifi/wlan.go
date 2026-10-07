@@ -2,6 +2,7 @@ package wifi
 
 import (
 	"encoding/binary"
+	"fmt"
 	"unicode/utf16"
 )
 
@@ -32,6 +33,16 @@ type wlanInterface struct {
 	guid        [16]byte
 	description string
 	connected   bool
+}
+
+// key returns the interface's GUID as 32 hex digits, in the order of its
+// usual form ({00112233-4455-6677-8899-aabbccddeeff}): the GUID tells two
+// adapters of the same model apart, which share a description, and stays the
+// same across reboots.
+func (w wlanInterface) key() string {
+	g := w.guid[:]
+	return fmt.Sprintf("%08x%04x%04x%x", binary.LittleEndian.Uint32(g), binary.LittleEndian.Uint16(g[4:]),
+		binary.LittleEndian.Uint16(g[6:]), g[8:])
 }
 
 // interfaceListSize returns how many bytes a WLAN_INTERFACE_INFO_LIST of

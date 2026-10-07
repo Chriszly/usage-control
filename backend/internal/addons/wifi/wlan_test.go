@@ -34,6 +34,18 @@ func TestParseInterfacesReadsEachInterface(t *testing.T) {
 	}
 }
 
+func TestInterfaceKeyIsTheGUID(t *testing.T) {
+	// {00112233-4455-6677-8899-aabbccddeeff}, whose first three parts
+	// Windows keeps little-endian.
+	iface := wlanInterface{guid: [16]byte{0x33, 0x22, 0x11, 0x00, 0x55, 0x44, 0x77, 0x66, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff}}
+	if got := iface.key(); got != "00112233445566778899aabbccddeeff" {
+		t.Errorf("key() = %q, want the GUID's 32 digits", got)
+	}
+	if got := idOf(iface.key(), "-quality"); got != "00112233445566778899aabbccddeeff-quality" {
+		t.Errorf("idOf(key()) = %q, want the whole GUID", got)
+	}
+}
+
 func TestParseInterfacesStopsAtTheEnd(t *testing.T) {
 	b := interfaceList(wlanInterface{description: "one"}, wlanInterface{description: "two"})
 	// Claims three interfaces, but holds two.

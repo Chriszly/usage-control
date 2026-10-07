@@ -82,7 +82,7 @@ func readWLAN() ([]Reading, string) {
 		if !iface.connected {
 			continue
 		}
-		reading := Reading{Interface: iface.description}
+		reading := Reading{Interface: iface.description, Key: iface.key()}
 		if dBm, err := queryRSSI(handle, &iface.guid); err == nil && dBm < 0 {
 			reading.SignalDBm = float64(dBm)
 			reading.HasSignal = true

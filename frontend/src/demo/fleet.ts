@@ -125,10 +125,16 @@ function powerAddOn(
 }
 
 /**
- * What the Wi-Fi add-on reports for the interface name: on Linux its name, on Windows the adapter's description, whose
- * ids are cut to id. Its values come from values() as "extra:wifi/<id>-quality" and "-signal".
+ * What the Wi-Fi add-on reports for the interface name: on Linux its name, which is its id too, on Windows the
+ * adapter's description, with the interface's GUID as id. Its values come from values() as "extra:wifi/<id>-quality"
+ * and "-signal"; only the quality keeps its history, as the signal is below 0.
  */
 function wifiAddOn(name: string, id = name): Extra[] {
+  // Like the add-on, a name too long for a label of 80 characters is cut so what the value is stays whole.
+  const label = (what: string) =>
+    name.length + 1 + what.length <= 80
+      ? `${name} ${what}`
+      : `${name.slice(0, 78 - what.length).trimEnd()}… ${what}`;
   return [
     {
       id: 'wifi',
@@ -137,25 +143,24 @@ function wifiAddOn(name: string, id = name): Extra[] {
       items: [
         {
           id: `${id}-quality`,
-          label: `${name} link quality`,
+          label: label('link quality'),
           labels: {
-            de: `${name} Verbindungsqualität`,
-            fr: `${name} qualité du lien`,
-            es: `${name} calidad del enlace`,
+            de: label('Verbindungsqualität'),
+            fr: label('qualité du lien'),
+            es: label('calidad del enlace'),
           },
           unit: 'percent',
           history: true,
         },
         {
           id: `${id}-signal`,
-          label: `${name} signal (dBm)`,
+          label: label('signal (dBm)'),
           labels: {
-            de: `${name} Signal (dBm)`,
-            fr: `${name} signal (dBm)`,
-            es: `${name} señal (dBm)`,
+            de: label('Signal (dBm)'),
+            fr: label('signal (dBm)'),
+            es: label('señal (dBm)'),
           },
           unit: 'number',
-          history: true,
         },
       ],
     },
@@ -308,8 +313,8 @@ const windowsPc: DemoMachine = {
   },
 };
 
-/** The id the Wi-Fi add-on makes of the Windows laptop's adapter description. */
-const WINDOWS_WIFI = 'qualcomm-fastconnect-7800-wi-fi';
+/** The interface GUID of the Windows laptop's Wi-Fi adapter, which the Wi-Fi add-on keeps its values by. */
+const WINDOWS_WIFI = '5c3e9a1f7b2d4e68a0c4d91f2b8e6a37';
 
 const windowsLaptop: DemoMachine = {
   device: {

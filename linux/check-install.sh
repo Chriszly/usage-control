@@ -51,8 +51,8 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote n
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
 # The Wi-Fi add-on runs too; a runner without Wi-Fi gets a report without
-# values.
-"$folder/install.sh" --addons=wifi
+# values. Both add-ons are installed, so --addons= below has to remove both.
+"$folder/install.sh" --addons=power,wifi
 systemctl is-active --quiet usage-control-wifi || { journalctl -u usage-control-wifi --no-pager | tail -20 >&2; echo "the Wi-Fi add-on is not running" >&2; exit 1; }
 for _ in $(seq 1 10); do
   [[ -f /run/usage-control-addons/wifi.json ]] && break
@@ -64,6 +64,10 @@ if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/us
   echo "--addons= left the power add-on behind" >&2
   exit 1
 fi
+if systemctl cat usage-control-wifi > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-wifi ]]; then
+  echo "--addons= left the Wi-Fi add-on behind" >&2
+  exit 1
+fi
 "$folder/install.sh" --addons=power
 
 "$folder/install.sh" --uninstall --purge
@@ -72,4 +76,4 @@ if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-p
   echo "the uninstall left usage-control behind" >&2
   exit 1
 fi
-echo "Install, update, the power add-on and uninstall work."
+echo "Install, update, the power and Wi-Fi add-ons and uninstall work."

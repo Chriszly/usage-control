@@ -7,11 +7,14 @@
 package wifi
 
 import (
+	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
@@ -21,6 +24,10 @@ type Reading struct {
 	// Interface names the interface: its name on Linux, such as wlan0, and
 	// the adapter's description on Windows.
 	Interface string
+	// Key tells the interface apart from every other one and stays the same
+	// across reboots: its name on Linux and its interface GUID on Windows,
+	// where two adapters of the same model have the same description.
+	Key string
 	// QualityPercent is the link quality from 0 to 100, as the system rates
 	// it: the driver's link quality on Linux, the signal quality on Windows.
 	QualityPercent float64
@@ -74,7 +81,7 @@ func parse(text string) []Reading {
 		if errQ != nil || errL != nil || (quality == 0 && level == 0) {
 			continue
 		}
-		reading := Reading{Interface: name}
+		reading := Reading{Interface: name, Key: name}
 		maximum := 100.0
 		if level < 0 {
 			maximum = 70
@@ -100,12 +107,12 @@ func Extras(readings []Reading) []metrics.Extra {
 	for _, r := range readings {
 		quality := r.QualityPercent
 		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:    idOf(r.Interface, "-quality"),
-			Label: r.Interface + " link quality",
+			ID:    idOf(r.Key, "-quality"),
+			Label: label(r.Interface, "link quality"),
 			Labels: map[string]string{
-				"de": r.Interface + " Verbindungsqualität",
-				"fr": r.Interface + " qualité du lien",
-				"es": r.Interface + " calidad del enlace",
+				"de": label(r.Interface, "Verbindungsqualität"),
+				"fr": label(r.Interface, "qualité du lien"),
+				"es": label(r.Interface, "calidad del enlace"),
 			},
 			Unit:    metrics.UnitPercent,
 			Value:   &quality,
@@ -114,21 +121,38 @@ func Extras(readings []Reading) []metrics.Extra {
 		if !r.HasSignal {
 			continue
 		}
+		// The signal is shown as it is now, without history: its chart
+		// starts at 0 and has no room for values below it. The quality,
+		// which follows from the signal, is the one charted.
 		signal := r.SignalDBm
 		group.Items = append(group.Items, metrics.ExtraItem{
-			ID:    idOf(r.Interface, "-signal"),
-			Label: r.Interface + " signal (dBm)",
+			ID:    idOf(r.Key, "-signal"),
+			Label: label(r.Interface, "signal (dBm)"),
 			Labels: map[string]string{
-				"de": r.Interface + " Signal (dBm)",
-				"fr": r.Interface + " signal (dBm)",
-				"es": r.Interface + " señal (dBm)",
+				"de": label(r.Interface, "Signal (dBm)"),
+				"fr": label(r.Interface, "signal (dBm)"),
+				"es": label(r.Interface, "señal (dBm)"),
 			},
-			Unit:    metrics.UnitNumber,
-			Value:   &signal,
-			History: true,
+			Unit:  metrics.UnitNumber,
+			Value: &signal,
 		})
 	}
 	return []metrics.Extra{group}
+}
+
+// maxLabel is the most characters of a label metrics.CleanExtras keeps.
+const maxLabel = 80
+
+// label joins an interface's name and what a value of it is, as in "wlan0
+// link quality". A name too long for both to fit in maxLabel characters, as
+// a Windows adapter's description can be, is cut and ends in "…", so what
+// tells the values of the interface apart is never cut off.
+func label(name, what string) string {
+	room := maxLabel - 1 - utf8.RuneCountInString(what)
+	if runes := []rune(name); len(runes) > room {
+		name = strings.TrimRight(string(runes[:room-1]), " ") + "…"
+	}
+	return name + " " + what
 }
 
 // HostProc returns where /proc is: HOST_PROC in a container that mounts the
@@ -142,15 +166,17 @@ func HostProc() string {
 
 var notInID = regexp.MustCompile(`[^a-z0-9]+`)
 
-// idOf turns a name into an id for an extra that ends in suffix ("-quality"
-// or "-signal"): lowercase letters and digits joined by "-", at most 40
-// characters. A long name, such as a Windows adapter's description, is cut
-// the same for both suffixes, never the suffix, so the ids of one interface
-// stay apart and alike.
-func idOf(name, suffix string) string {
-	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(name), "-"), "-")
+// idOf turns an interface's key into an id for an extra that ends in suffix
+// ("-quality" or "-signal"): lowercase letters and digits joined by "-", at
+// most 40 characters. Keys fit: Linux's interface names have at most 15
+// characters and a Windows GUID 32. A longer one is cut the same for both
+// suffixes, never the suffix, and ends in a checksum of the whole, so the ids
+// of one interface stay alike and apart from those of others.
+func idOf(key, suffix string) string {
+	id := strings.Trim(notInID.ReplaceAllString(strings.ToLower(key), "-"), "-")
 	if limit := 40 - len("-quality"); len(id) > limit {
-		id = strings.TrimRight(id[:limit], "-")
+		sum := crc32.ChecksumIEEE([]byte(id))
+		id = fmt.Sprintf("%s-%08x", strings.TrimRight(id[:limit-9], "-"), sum)
 	}
 	if id == "" {
 		id = "wifi"
