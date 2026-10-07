@@ -63,7 +63,9 @@ import (
 
 func main() {
 	// Installed on Windows, the service manager starts the program and tells
-	// it when to stop; everywhere else it runs until it is interrupted.
+	// it when to stop; everywhere else it runs until it is interrupted. A
+	// service has no console, so its warnings go to the event log too.
+	winservice.LogWarnings("UsageControl")
 	ranAsService, err := winservice.Run("UsageControl", run)
 	if !ranAsService && err == nil {
 		// Only outside the service manager: Go turns a user logging off
@@ -73,7 +75,10 @@ func main() {
 		stop()
 	}
 	if err != nil {
-		slog.Error("usage-control stopped", "error", err)
+		// winservice.Run has written a service's error to the event log already.
+		if !ranAsService {
+			slog.Error("usage-control stopped", "error", err)
+		}
 		os.Exit(1)
 	}
 }

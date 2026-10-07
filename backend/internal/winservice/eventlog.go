@@ -15,8 +15,9 @@ type eventWriter interface {
 }
 
 // eventLogHandler passes every record on to next, and writes warnings and
-// errors to the event log too, as text without the time and level, which the
-// event log keeps itself.
+// errors to the event log too: the message, then a line with its
+// attributes as key=value text, without the time and level, which the event log keeps
+// itself.
 type eventLogHandler struct {
 	next slog.Handler
 	log  eventWriter
@@ -32,7 +33,7 @@ func newEventLogHandler(next slog.Handler, log eventWriter) *eventLogHandler {
 	text := slog.NewTextHandler(buf, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if len(groups) == 0 && (a.Key == slog.TimeKey || a.Key == slog.LevelKey) {
+			if len(groups) == 0 && (a.Key == slog.TimeKey || a.Key == slog.LevelKey || a.Key == slog.MessageKey) {
 				return slog.Attr{}
 			}
 			return a
@@ -50,7 +51,7 @@ func (h *eventLogHandler) Handle(ctx context.Context, r slog.Record) error {
 		h.mu.Lock()
 		h.buf.Reset()
 		if h.text.Handle(ctx, r) == nil {
-			message := strings.TrimSpace(h.buf.String())
+			message := strings.TrimSpace(r.Message + "\r\n" + h.buf.String())
 			if r.Level >= slog.LevelError {
 				_ = h.log.Error(1, message)
 			} else {

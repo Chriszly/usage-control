@@ -29,10 +29,10 @@ func TestEventLogHandlerWritesWarningsAndErrors(t *testing.T) {
 	logger.Warn("could not read the Wi-Fi", "error", "access denied")
 	logger.Error("write the add-on's report", "file", `C:\addons\wifi.json`)
 
-	if want := []string{`msg="could not read the Wi-Fi" add-on=wifi error="access denied"`}; strings.Join(events.warnings, "|") != strings.Join(want, "|") {
+	if want := []string{"could not read the Wi-Fi\r\nadd-on=wifi error=\"access denied\""}; strings.Join(events.warnings, "|") != strings.Join(want, "|") {
 		t.Errorf("warnings = %q, want %q", events.warnings, want)
 	}
-	if want := []string{`msg="write the add-on's report" add-on=wifi file=C:\addons\wifi.json`}; strings.Join(events.errors, "|") != strings.Join(want, "|") {
+	if want := []string{"write the add-on's report\r\nadd-on=wifi file=C:\\addons\\wifi.json"}; strings.Join(events.errors, "|") != strings.Join(want, "|") {
 		t.Errorf("errors = %q, want %q", events.errors, want)
 	}
 	if got := strings.Count(stderr.String(), "\n"); got != 3 {
