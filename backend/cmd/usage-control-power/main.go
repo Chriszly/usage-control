@@ -2,8 +2,9 @@
 // few seconds it reads how much power the machine draws and writes it to the
 // add-on folder (see package addons). It runs as root on Linux, as newer
 // kernels let only root read the CPU's energy counters; usage-control itself
-// stays without privileges. On Windows, where it reads NVIDIA GPUs only, the
-// installer runs it as the service UsageControlPower.
+// stays without privileges. On Windows, where it reads the energy meters and
+// batteries Windows offers and NVIDIA GPUs, the installer runs it as the
+// service UsageControlPower in the Local Service account.
 //
 // Settings come from environment variables:
 //

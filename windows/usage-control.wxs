@@ -10,9 +10,11 @@
   that writes to C:\ProgramData\Usage Control\addons, which usage-control
   shows. The Add-ons page offers each one as a box, and each has an install
   option. POWER=1 installs the power add-on, usage-control-power.exe, as the
-  Windows service "Usage Control power add-on", which reads the power NVIDIA
-  GPUs draw. PORTS=1 installs the ports add-on, usage-control-ports.exe, as
-  "Usage Control ports add-on", which lists the ports the PC listens on.
+  Windows service "Usage Control power add-on", which reads the power the
+  energy meters Windows offers report (CPU, memory and laptop meters), what
+  the battery gives while the PC runs on it, and what NVIDIA GPUs draw.
+  PORTS=1 installs the ports add-on, usage-control-ports.exe, as "Usage
+  Control ports add-on", which lists the ports the PC listens on.
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
@@ -284,7 +286,7 @@
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
         <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
         <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
-        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power: what the NVIDIA graphics card draws" />
+        <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
         <Control Id="Ports" Type="CheckBox" X="20" Y="106" Width="330" Height="15" Property="PORTS" CheckBoxValue="1" Text="P&amp;orts: which TCP and UDP ports the PC listens on" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
