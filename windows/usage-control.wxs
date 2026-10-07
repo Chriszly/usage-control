@@ -249,8 +249,11 @@
       <!--
         Which add-ons to install, one box each with what it tracks in its
         text. Slot i is at Y = 55 + 17 * i, ten slots up to the bottom line.
-        Slots: 0 power, 1 gpu, 2 processes, 3 ports, 4 kernel, 5 memory,
-        6 pressure, 7 wifi, 8 smart, 9 free.
+        Each add-on that runs on Windows has a fixed slot, so adding one never
+        moves the others; a slot stays empty until its add-on is added:
+        0 power, 1 gpu, 2 processes, 3 ports, 4 kernel, 5 memory, 6 pressure,
+        7 wifi, 8 smart, 9 free. The Linux-only add-ons (inodes, containers)
+        have none.
       -->
       <Dialog Id="AddOnsDlg" Width="370" Height="270" Title="[ProductName] Setup">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
