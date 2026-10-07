@@ -83,6 +83,24 @@ func TestExtraInfoWriterOnlyWritesChanges(t *testing.T) {
 	}
 }
 
+func TestExtraInfoLeavesOutABrokenDescription(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	info := map[string]ExtraInfo{"extra:a/b": {Title: "A", Label: "B", Unit: metrics.UnitNumber}}
+	if err := store.SetExtraInfo(ctx, "nas", info, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO extra_info (device, metric, info, written) VALUES ('nas', 'extra:a/c', '{', 0)`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.ExtraInfo(ctx, "nas")
+
+	if err != nil || len(got) != 1 || got["extra:a/b"].Label != "B" {
+		t.Errorf("ExtraInfo() = %v, %v, want the one description that can be read", got, err)
+	}
+}
+
 func TestDeleteBeforeDeletesTheDescriptionsOfExtrasWithoutValues(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

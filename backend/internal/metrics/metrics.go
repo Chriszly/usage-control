@@ -237,7 +237,7 @@ func temperaturesOf(readings []sensors.TemperatureStat) []Temperature {
 		temperatures = append(temperatures, Temperature{Sensor: r.SensorKey, Celsius: r.Temperature})
 		names = append(names, r.SensorKey)
 	}
-	for i, name := range numberDuplicates(names) {
+	for i, name := range NumberDuplicates(names) {
 		temperatures[i].Sensor = name
 	}
 	return temperatures

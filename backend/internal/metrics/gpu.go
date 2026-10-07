@@ -33,7 +33,7 @@ func sortGPUs(gpus []GPU) []GPU {
 	for i, g := range gpus {
 		names[i] = g.Name
 	}
-	for i, name := range numberDuplicates(names) {
+	for i, name := range NumberDuplicates(names) {
 		gpus[i].Name = name
 	}
 	return gpus
