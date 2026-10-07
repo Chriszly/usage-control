@@ -399,3 +399,26 @@ func TestReadWalksTheCgroupTreeWhenCgroupsComeOrGo(t *testing.T) {
 		t.Errorf("Read() = %+v, want three containers once web stopped", got)
 	}
 }
+
+func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		// Podman with the cgroupfs driver: no ".scope", and conmon apart.
+		"libpod_parent/libpod-" + podmanID + "/cpu.stat":        "usage_usec 1",
+		"libpod_parent/libpod-conmon-" + podmanID + "/cpu.stat": "usage_usec 1",
+		"libpod_parent/conmon/cpu.stat":                         "usage_usec 1",
+		// CRI-O with the cgroupfs driver.
+		"kubepods/besteffort/pod1/crio-" + webID + "/cpu.stat": "usage_usec 1",
+	})
+	found := map[string]string{}
+
+	findContainers(root, 0, found)
+
+	want := map[string]string{
+		podmanID: filepath.Join(root, "libpod_parent", "libpod-"+podmanID),
+		webID:    filepath.Join(root, "kubepods", "besteffort", "pod1", "crio-"+webID),
+	}
+	if len(found) != len(want) || found[podmanID] != want[podmanID] || found[webID] != want[webID] {
+		t.Errorf("found = %v, want %v", found, want)
+	}
+}

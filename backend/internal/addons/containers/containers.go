@@ -297,9 +297,11 @@ func (r *Reader) find() map[string]string {
 var (
 	// scope matches the cgroup of a container with the systemd cgroup driver:
 	// docker-<id>.scope, libpod-<id>.scope (Podman), cri-containerd-<id>.scope
-	// and crio-<id>.scope (Kubernetes).
-	scope = regexp.MustCompile(`^(?:docker|libpod|cri-containerd|crio)-([0-9a-f]{64})\.scope$`)
-	// bareID matches it with the cgroupfs driver, such as /docker/<id>.
+	// and crio-<id>.scope (Kubernetes); and without ".scope" with the
+	// cgroupfs driver of Podman (libpod_parent/libpod-<id>) and CRI-O.
+	scope = regexp.MustCompile(`^(?:docker|libpod|cri-containerd|crio)-([0-9a-f]{64})(?:\.scope)?$`)
+	// bareID matches it with Docker's and containerd's cgroupfs driver, such
+	// as /docker/<id>.
 	bareID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 

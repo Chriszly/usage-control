@@ -39,7 +39,14 @@ func TestParseUptimeCountsClockTicks(t *testing.T) {
 	if !ok || ticks != 35073547 {
 		t.Errorf("parseUptime() = %v, %v; want 35073547", ticks, ok)
 	}
-	for _, text := range []string{"", "soon 1.00", "-1.00 1.00", "NaN 1.00"} {
+	// More digits than ticks are cut, not rounded up past the current tick.
+	if ticks, ok := parseUptime([]byte("12.349 1.00\n")); !ok || ticks != 1234 {
+		t.Errorf("parseUptime(12.349) = %v, %v; want 1234", ticks, ok)
+	}
+	if ticks, ok := parseUptime([]byte("7 1.00\n")); !ok || ticks != 700 {
+		t.Errorf("parseUptime(7) = %v, %v; want 700", ticks, ok)
+	}
+	for _, text := range []string{"", "soon 1.00", "-1.00 1.00", "NaN 1.00", "1.2x 1.00"} {
 		if _, ok := parseUptime([]byte(text)); ok {
 			t.Errorf("parseUptime(%q) is ok, want false", text)
 		}
