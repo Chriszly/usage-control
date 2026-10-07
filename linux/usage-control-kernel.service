@@ -2,7 +2,7 @@
 # writes it to /run/usage-control-addons, which usage-control shows.
 # install.sh puts it in /etc/systemd/system when the add-on is picked.
 [Unit]
-Description=Usage Control kernel add-on: reads context switches, interrupts, new processes, open files, sockets, TCP connections and retransmissions; runs as root without capabilities
+Description=Usage Control kernel add-on: reads context switches, interrupts, new processes, open files, sockets, established TCP connections and retransmissions; runs as root without capabilities
 Documentation=https://github.com/Chriszly/usage-control
 PartOf=usage-control.service
 After=usage-control.service

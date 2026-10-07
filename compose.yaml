@@ -89,8 +89,8 @@ services:
       - no-new-privileges:true
 
   # The kernel add-on, started with COMPOSE_PROFILES=kernel: reads context
-  # switches, interrupts, new processes, open files, sockets, TCP connections
-  # and retransmissions from the host's /proc. The network values come from
+  # switches, interrupts, new processes, open files, sockets, established TCP
+  # connections and retransmissions from the host's /proc. The network values come from
   # /host/proc/1/net, the host's init's network, not the container's. It runs
   # as root only to write to the add-on volume, without any capability and
   # without network.

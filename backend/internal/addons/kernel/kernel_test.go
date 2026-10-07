@@ -54,7 +54,9 @@ func TestReadMeasuresRatesSinceThePreviousRead(t *testing.T) {
 	start := time.Now()
 
 	first := r.Read(start)
-	want := map[string]float64{openFiles: 1888, sockets: 56, tcpConnections: 34}
+	// Established connections, from CurrEstab, not the 34 TCP sockets in use,
+	// which count listening sockets too.
+	want := map[string]float64{openFiles: 1888, sockets: 56, tcpEstablished: 30}
 	if !reflect.DeepEqual(first, want) {
 		t.Fatalf("first Read() = %v, want %v without rates yet", first, want)
 	}
@@ -66,7 +68,7 @@ func TestReadMeasuresRatesSinceThePreviousRead(t *testing.T) {
 	got := r.Read(start.Add(2 * time.Second))
 	want = map[string]float64{
 		contextSwitches: 5000, interrupts: 1000, newProcesses: 5, retransmissions: 2,
-		openFiles: 1888, sockets: 56, tcpConnections: 34,
+		openFiles: 1888, sockets: 56, tcpEstablished: 30,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("second Read() = %v, want %v", got, want)
@@ -105,10 +107,16 @@ func TestParsersSkipWhatTheyDoNotKnow(t *testing.T) {
 		t.Errorf("parseFileNr(garbage) = %v, want nil", got)
 	}
 	if got := parseSNMP("Tcp: RtoAlgorithm\nTcp: 1\n"); got != nil {
-		t.Errorf("parseSNMP() without RetransSegs = %v, want nil", got)
+		t.Errorf("parseSNMP() without CurrEstab and RetransSegs = %v, want nil", got)
 	}
-	if got := parseSockstat("TCP: orphan 0 inuse 7\n"); got[tcpConnections] != 7 || len(got) != 1 {
-		t.Errorf("parseSockstat() = %v, want only 7 TCP connections", got)
+	if got := parseSNMP("Tcp: CurrEstab InSegs\nTcp: 12 400\n"); !reflect.DeepEqual(got, counters{tcpEstablished: 12}) {
+		t.Errorf("parseSNMP() = %v, want only 12 established connections", got)
+	}
+	if got := parseSockstat("TCP: inuse 7 orphan 0\nsockets: used 9\n"); !reflect.DeepEqual(got, counters{sockets: 9}) {
+		t.Errorf("parseSockstat() = %v, want only 9 sockets", got)
+	}
+	if got := parseSockstat("TCP: inuse 7\n"); got != nil {
+		t.Errorf("parseSockstat() without sockets = %v, want nil", got)
 	}
 }
 

@@ -171,10 +171,10 @@ function kernelAddOn(): Extra[] {
           fr: 'Sockets utilisés',
           es: 'Sockets en uso',
         }),
-        number('tcp-connections', 'TCP connections', {
-          de: 'TCP-Verbindungen',
-          fr: 'Connexions TCP',
-          es: 'Conexiones TCP',
+        number('tcp-established', 'Established TCP connections', {
+          de: 'Aufgebaute TCP-Verbindungen',
+          fr: 'Connexions TCP établies',
+          es: 'Conexiones TCP establecidas',
         }),
         perSecond('tcp-retransmissions', 'TCP retransmissions', {
           de: 'TCP-Neuübertragungen',
@@ -196,7 +196,7 @@ function kernelValues(t: number, step: number, seed: number, cpu: number, size: 
     'extra:kernel/new-processes': vary(t, step, seed + 2, 1 + cpu * 0.08, [[1, 60]], 0, 1e6) * size,
     'extra:kernel/open-files': count(1400, 150, 3600, 3),
     'extra:kernel/sockets': count(160, 20, 1800, 4),
-    'extra:kernel/tcp-connections': count(30, 8, 900, 5),
+    'extra:kernel/tcp-established': count(12, 6, 900, 5),
     'extra:kernel/tcp-retransmissions': vary(t, step, seed + 6, 0.2, [[0.3, 120]], 0, 1e6) * size,
   };
 }

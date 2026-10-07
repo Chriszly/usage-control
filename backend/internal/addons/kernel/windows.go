@@ -19,19 +19,42 @@ type tcpStats struct {
 	_ [3]uint32
 }
 
-// tcpCounters adds up the TCP statistics of IPv4 and IPv6: the established
-// connections and the retransmitted segments, a running total of which the
-// add-on shows the change per second. Linux counts its retransmissions over
-// both versions too.
-func tcpCounters(versions ...tcpStats) counters {
+// tcpTotals adds up the TCP statistics of IPv4 and IPv6, as Linux counts
+// over both versions too: the established connections and the retransmitted
+// segments, a running total of which the add-on shows the change per second.
+//
+// Windows keeps a running total of retransmissions for each version, and a
+// read can lack a version for which GetTcpStatisticsEx failed. Adding up the
+// totals would then jump by a whole version's total when it answers again,
+// so the running total grows instead by each version's change since the
+// previous read, and a version missing on either read adds nothing.
+type tcpTotals struct {
+	// previous is each version's retransmissions at the previous read.
+	previous map[string]uint32
+	// retransmitted is the running total the add-on shows the change of.
+	retransmitted uint64
+}
+
+// counters turns the TCP statistics of the versions that answered on this
+// read, by version, into the add-on's counters.
+func (t *tcpTotals) counters(versions map[string]tcpStats) counters {
+	previous := t.previous
+	t.previous = map[string]uint32{}
 	if len(versions) == 0 {
 		return nil
 	}
 	found := counters{}
-	for _, stats := range versions {
+	for version, stats := range versions {
 		found[tcpEstablished] += uint64(stats.currEstab)
-		found[retransmissions] += uint64(stats.retransSegs)
+		if before, ok := previous[version]; ok {
+			// A 32-bit total, which wraps; subtracting in 32 bits gives the
+			// change across the wrap too. It only starts again with Windows,
+			// and so does the add-on.
+			t.retransmitted += uint64(stats.retransSegs - before)
+		}
+		t.previous[version] = stats.retransSegs
 	}
+	found[retransmissions] = t.retransmitted
 	return found
 }
 

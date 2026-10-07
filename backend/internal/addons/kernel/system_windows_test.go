@@ -23,7 +23,7 @@ func TestSystemReaderReadsWindows(t *testing.T) {
 	if got[handles] < 1 || got[contextSwitches] <= 0 {
 		t.Errorf("Read() = %v, want handles and context switches", got)
 	}
-	for _, id := range []string{newProcesses, openFiles, sockets, tcpConnections} {
+	for _, id := range []string{newProcesses, openFiles, sockets} {
 		if _, ok := got[id]; ok {
 			t.Errorf("Read() has %s, which Windows does not count", id)
 		}

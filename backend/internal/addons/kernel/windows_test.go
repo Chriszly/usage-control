@@ -23,16 +23,63 @@ func TestWindowsStructsHaveTheSizesWindowsExpects(t *testing.T) {
 }
 
 func TestTCPCountersAddUpIPv4AndIPv6(t *testing.T) {
-	v4 := tcpStats{currEstab: 30, retransSegs: 10}
-	v6 := tcpStats{currEstab: 4, retransSegs: 2}
-
-	got := tcpCounters(v4, v6)
-
-	if want := (counters{tcpEstablished: 34, retransmissions: 12}); !reflect.DeepEqual(got, want) {
-		t.Errorf("tcpCounters() = %v, want %v", got, want)
+	var totals tcpTotals
+	first := totals.counters(map[string]tcpStats{
+		"IPv4": {currEstab: 30, retransSegs: 10},
+		"IPv6": {currEstab: 4, retransSegs: 2},
+	})
+	// The running total of retransmissions starts at the first read.
+	if want := (counters{tcpEstablished: 34, retransmissions: 0}); !reflect.DeepEqual(first, want) {
+		t.Errorf("first counters() = %v, want %v", first, want)
 	}
-	if got := tcpCounters(); got != nil {
-		t.Errorf("tcpCounters() without statistics = %v, want nil", got)
+
+	got := totals.counters(map[string]tcpStats{
+		"IPv4": {currEstab: 31, retransSegs: 15},
+		"IPv6": {currEstab: 5, retransSegs: 4},
+	})
+
+	if want := (counters{tcpEstablished: 36, retransmissions: 7}); !reflect.DeepEqual(got, want) {
+		t.Errorf("second counters() = %v, want %v", got, want)
+	}
+	if got := totals.counters(nil); got != nil {
+		t.Errorf("counters() without statistics = %v, want nil", got)
+	}
+}
+
+func TestTCPRetransmissionsSkipAVersionMissingOnEitherRead(t *testing.T) {
+	var totals tcpTotals
+	var m meter
+	start := time.Now()
+	read := func(seconds int, versions map[string]tcpStats) map[string]float64 {
+		return m.measure(start.Add(time.Duration(seconds)*time.Second), totals.counters(versions))
+	}
+	read(0, map[string]tcpStats{"IPv4": {retransSegs: 100}, "IPv6": {retransSegs: 5000}})
+
+	// IPv6 fails once: only IPv4's change counts, now and when IPv6 is back,
+	// instead of all of IPv6's 5000 at once.
+	steps := []struct {
+		versions map[string]tcpStats
+		want     float64
+	}{
+		{map[string]tcpStats{"IPv4": {retransSegs: 110}}, 2},
+		{map[string]tcpStats{"IPv4": {retransSegs: 120}, "IPv6": {retransSegs: 5010}}, 2},
+		{map[string]tcpStats{"IPv4": {retransSegs: 130}, "IPv6": {retransSegs: 5020}}, 4},
+	}
+	for i, step := range steps {
+		if got := read(5*(i+1), step.versions); got[retransmissions] != step.want {
+			t.Errorf("read %d: %v retransmissions per second, want %v", i+2, got[retransmissions], step.want)
+		}
+	}
+}
+
+func TestTCPRetransmissionsCountAcrossTheWrap(t *testing.T) {
+	var totals tcpTotals
+	totals.counters(map[string]tcpStats{"IPv4": {retransSegs: 1<<32 - 6}})
+
+	got := totals.counters(map[string]tcpStats{"IPv4": {retransSegs: 4}})
+
+	if got[retransmissions] != 10 {
+		t.Errorf("counters() = %v, want 10 retransmissions across the wrap", got)
 	}
 }
 
@@ -47,13 +94,14 @@ func TestHandleCounters(t *testing.T) {
 
 func TestWindowsCountersMeasureRetransmissionsPerSecond(t *testing.T) {
 	var m meter
+	var totals tcpTotals
 	start := time.Now()
-	first := m.measure(start, handleCounters(performanceInformation{handleCount: 900}), tcpCounters(tcpStats{currEstab: 5, retransSegs: 100}))
+	first := m.measure(start, handleCounters(performanceInformation{handleCount: 900}), totals.counters(map[string]tcpStats{"IPv4": {currEstab: 5, retransSegs: 100}}))
 	if want := map[string]float64{handles: 900, tcpEstablished: 5}; !reflect.DeepEqual(first, want) {
 		t.Fatalf("first measure() = %v, want %v", first, want)
 	}
 
-	got := m.measure(start.Add(5*time.Second), tcpCounters(tcpStats{currEstab: 6, retransSegs: 110}))
+	got := m.measure(start.Add(5*time.Second), totals.counters(map[string]tcpStats{"IPv4": {currEstab: 6, retransSegs: 110}}))
 
 	if want := map[string]float64{tcpEstablished: 6, retransmissions: 2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("second measure() = %v, want %v", got, want)

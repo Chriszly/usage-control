@@ -2,9 +2,9 @@
 // the kernel add-on.
 //
 // On Linux it reads context switches, interrupts and new processes per second from
-// /proc/stat, the open files from /proc/sys/fs/file-nr, the sockets and TCP
-// connections in use from /proc/net/sockstat and the TCP retransmissions per
-// second from /proc/net/snmp.
+// /proc/stat, the open files from /proc/sys/fs/file-nr, the sockets in use
+// from /proc/net/sockstat and the established TCP connections and the TCP
+// retransmissions per second from /proc/net/snmp.
 //
 // /proc/net shows the network namespace of the process that reads it, so the
 // add-on reads /proc/1/net: the host's init's, which is the host's network
@@ -40,14 +40,13 @@ const (
 	openFiles       = "open-files"
 	handles         = "handles"
 	sockets         = "sockets"
-	tcpConnections  = "tcp-connections"
 	tcpEstablished  = "tcp-established"
 	retransmissions = "tcp-retransmissions"
 )
 
 var order = []string{
 	contextSwitches, interrupts, newProcesses, openFiles, handles,
-	sockets, tcpConnections, tcpEstablished, retransmissions,
+	sockets, tcpEstablished, retransmissions,
 }
 
 // rates are the values shown per second, from the change of a counter.
@@ -63,7 +62,6 @@ var labels = map[string]struct {
 	openFiles:       {"Open files", map[string]string{"de": "Offene Dateien", "fr": "Fichiers ouverts", "es": "Archivos abiertos"}},
 	handles:         {"Open handles", map[string]string{"de": "Offene Handles", "fr": "Handles ouverts", "es": "Handles abiertos"}},
 	sockets:         {"Sockets in use", map[string]string{"de": "Belegte Sockets", "fr": "Sockets utilisés", "es": "Sockets en uso"}},
-	tcpConnections:  {"TCP connections", map[string]string{"de": "TCP-Verbindungen", "fr": "Connexions TCP", "es": "Conexiones TCP"}},
 	tcpEstablished:  {"Established TCP connections", map[string]string{"de": "Aufgebaute TCP-Verbindungen", "fr": "Connexions TCP établies", "es": "Conexiones TCP establecidas"}},
 	retransmissions: {"TCP retransmissions", map[string]string{"de": "TCP-Neuübertragungen", "fr": "Retransmissions TCP", "es": "Retransmisiones TCP"}},
 }
@@ -211,33 +209,28 @@ func parseFileNr(text string) counters {
 	return counters{openFiles: n}
 }
 
-// parseSockstat reads "sockets: used N" and "TCP: inuse N" of
-// /proc/net/sockstat.
+// parseSockstat reads "sockets: used N" of /proc/net/sockstat. Its
+// "TCP: inuse" is left out: it counts listening sockets too, so it is not
+// the connections Windows counts (see parseSNMP).
 func parseSockstat(text string) counters {
-	found := counters{}
 	for line := range strings.Lines(text) {
 		fields := strings.Fields(line)
-		for i := 1; i+1 < len(fields); i += 2 {
-			id := ""
-			switch {
-			case fields[0] == "sockets:" && fields[i] == "used":
-				id = sockets
-			case fields[0] == "TCP:" && fields[i] == "inuse":
-				id = tcpConnections
-			default:
-				continue
-			}
-			if n, err := strconv.ParseUint(fields[i+1], 10, 64); err == nil {
-				found[id] = n
-			}
+		if len(fields) < 3 || fields[0] != "sockets:" || fields[1] != "used" {
+			continue
+		}
+		if n, err := strconv.ParseUint(fields[2], 10, 64); err == nil {
+			return counters{sockets: n}
 		}
 	}
-	return found
+	return nil
 }
 
-// parseSNMP reads RetransSegs of /proc/net/snmp, where each protocol has a
-// line of names followed by a line of numbers.
+// parseSNMP reads CurrEstab and RetransSegs of /proc/net/snmp, where each
+// protocol has a line of names followed by a line of numbers. CurrEstab is
+// the TCP connections in the states ESTABLISHED and CLOSE-WAIT, as Windows
+// counts them, over IPv4 and IPv6.
 func parseSNMP(text string) counters {
+	ids := map[string]string{"CurrEstab": tcpEstablished, "RetransSegs": retransmissions}
 	var names []string
 	for line := range strings.Lines(text) {
 		fields := strings.Fields(line)
@@ -248,14 +241,18 @@ func parseSNMP(text string) counters {
 			names = fields
 			continue
 		}
+		found := counters{}
 		for i, name := range names {
-			if name == "RetransSegs" && i < len(fields) {
+			if id, ok := ids[name]; ok && i < len(fields) {
 				if n, err := strconv.ParseUint(fields[i], 10, 64); err == nil {
-					return counters{retransmissions: n}
+					found[id] = n
 				}
 			}
 		}
-		return nil
+		if len(found) == 0 {
+			return nil
+		}
+		return found
 	}
 	return nil
 }

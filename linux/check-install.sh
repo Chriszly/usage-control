@@ -50,21 +50,25 @@ test -f /run/usage-control-addons/power.json || { echo "the power add-on wrote n
 "$folder/install.sh" < /dev/null
 systemctl is-active --quiet usage-control-power || { echo "the update removed the power add-on" >&2; exit 1; }
 answer /api/metrics > /dev/null
+# The kernel add-on reads /proc, which every runner has. Both add-ons are
+# installed, so --addons= below has to remove both.
+"$folder/install.sh" --addons=power,kernel
+systemctl is-active --quiet usage-control-kernel || { journalctl -u usage-control-kernel --no-pager | tail -20 >&2; echo "the kernel add-on is not running" >&2; exit 1; }
+for _ in $(seq 1 10); do
+  grep -qs '"tcp-established"' /run/usage-control-addons/kernel.json && break
+  sleep 1
+done
+grep -qs '"tcp-established"' /run/usage-control-addons/kernel.json || { echo "the kernel add-on wrote no report" >&2; exit 1; }
 "$folder/install.sh" --addons=
 if systemctl cat usage-control-power > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-power ]]; then
   echo "--addons= left the power add-on behind" >&2
   exit 1
 fi
-"$folder/install.sh" --addons=power
-
-# The kernel add-on reads /proc, which every runner has.
-"$folder/install.sh" --addons=kernel
-systemctl is-active --quiet usage-control-kernel || { journalctl -u usage-control-kernel --no-pager | tail -20 >&2; echo "the kernel add-on is not running" >&2; exit 1; }
-for _ in $(seq 1 10); do
-  grep -qs '"tcp-connections"' /run/usage-control-addons/kernel.json && break
-  sleep 1
-done
-grep -qs '"tcp-connections"' /run/usage-control-addons/kernel.json || { echo "the kernel add-on wrote no report" >&2; exit 1; }
+if systemctl cat usage-control-kernel > /dev/null 2>&1 || [[ -e /usr/local/bin/usage-control-kernel ]]; then
+  echo "--addons= left the kernel add-on behind" >&2
+  exit 1
+fi
+"$folder/install.sh" --addons=power,kernel
 
 "$folder/install.sh" --uninstall --purge
 if systemctl cat usage-control > /dev/null 2>&1 || systemctl cat usage-control-power > /dev/null 2>&1 ||

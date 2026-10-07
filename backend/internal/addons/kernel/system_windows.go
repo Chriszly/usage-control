@@ -24,6 +24,7 @@ import (
 // out. All of these need no privileges.
 type systemReader struct {
 	meter meter
+	tcp   tcpTotals
 
 	// query reads the counters, by id, or is nil when Windows has none.
 	query    *pdh.Query
@@ -64,7 +65,7 @@ func NewSystemReader() Source {
 // Read returns the values by id. Rates are the average since the previous
 // call, so the first call leaves them out.
 func (r *systemReader) Read(now time.Time) map[string]float64 {
-	values := r.meter.measure(now, handleCounters(performanceInfo()), tcpCounters(tcpStatistics()...))
+	values := r.meter.measure(now, handleCounters(performanceInfo()), r.tcp.counters(tcpStatistics()))
 	if r.query == nil || len(r.counters) == 0 {
 		return values
 	}
@@ -104,15 +105,15 @@ func performanceInfo() performanceInformation {
 }
 
 // tcpStatistics returns the TCP statistics of each IP version the machine
-// has.
+// has, by version.
 //
 //nolint:gosec // iphlpapi.dll takes a pointer, which needs unsafe.
-func tcpStatistics() []tcpStats {
-	var found []tcpStats
-	for _, family := range []uintptr{windows.AF_INET, windows.AF_INET6} {
+func tcpStatistics() map[string]tcpStats {
+	found := map[string]tcpStats{}
+	for version, family := range map[string]uintptr{"IPv4": windows.AF_INET, "IPv6": windows.AF_INET6} {
 		var stats tcpStats
 		if ret, _, _ := getTCPStatisticsEx.Call(uintptr(unsafe.Pointer(&stats)), family); ret == 0 {
-			found = append(found, stats)
+			found[version] = stats
 		}
 	}
 	return found
