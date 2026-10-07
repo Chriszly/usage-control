@@ -90,6 +90,17 @@ func qualityFromRSSI(dBm float64) float64 {
 	return min(100, max(0, (dBm+100)*2))
 }
 
+// standingProblem returns the problem a read leaves logged: the one it
+// found, or, when it found none but nothing is connected, the one logged
+// before, which it could not have run into. So a disconnect is not taken
+// for the problem gone, nor the next connection for it come back.
+func standingProblem(logged, found string, connected int) string {
+	if found == "" && connected == 0 {
+		return logged
+	}
+	return found
+}
+
 // utf16String reads a NUL-terminated little-endian UTF-16 string.
 func utf16String(b []byte) string {
 	chars := make([]uint16, 0, len(b)/2)

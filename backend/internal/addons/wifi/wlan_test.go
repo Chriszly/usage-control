@@ -7,6 +7,26 @@ import (
 	"unicode/utf16"
 )
 
+func TestStandingProblemOutlastsADisconnect(t *testing.T) {
+	const denied = "the quality follows from the signal"
+	tests := []struct {
+		logged, found string
+		connected     int
+		want          string
+	}{
+		{denied, "", 0, denied},     // disconnected: still denied, not read in full again
+		{denied, denied, 1, denied}, // connected again: nothing new to log
+		{denied, "", 1, ""},         // connected and read in full: the problem is gone
+		{"", "", 0, ""},
+		{"", denied, 1, denied},
+	}
+	for _, tt := range tests {
+		if got := standingProblem(tt.logged, tt.found, tt.connected); got != tt.want {
+			t.Errorf("standingProblem(%q, %q, %d) = %q, want %q", tt.logged, tt.found, tt.connected, got, tt.want)
+		}
+	}
+}
+
 // interfaceList builds a WLAN_INTERFACE_INFO_LIST as wlanapi.dll returns it.
 func interfaceList(interfaces ...wlanInterface) []byte {
 	b := make([]byte, interfaceListSize(len(interfaces)))
