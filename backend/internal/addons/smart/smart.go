@@ -240,10 +240,13 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			if disk.Model == "" {
 				disk.Model = d.model
 			}
-			if disk.Serial == "" {
+			// Only a serial number the disk itself sent tells it is the same
+			// disk: the list's can be from before a disk was swapped.
+			identified := disk.Serial != ""
+			if !identified {
 				disk.Serial = d.serial
 			}
-			if serial, ok := lastWithValues[d.path]; ok && disk.refused && disk.Serial != "" && serial == disk.Serial {
+			if serial, ok := lastWithValues[d.path]; ok && disk.refused && identified && serial == disk.Serial {
 				err = errRefusedAfterValues
 			}
 		}

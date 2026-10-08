@@ -654,6 +654,9 @@ type fakeSource struct {
 	// makes it have none.
 	serial   string
 	noSerial bool
+	// listSerial is sda's serial number in the list of disks, as Windows
+	// lists them.
+	listSerial string
 	// gone are the disks no longer listed, by path.
 	gone map[string]bool
 	// ioCounts are the disks' counts of reads and writes, by path; a disk
@@ -669,7 +672,7 @@ func (f *fakeSource) list() ([]device, error) {
 	f.lists++
 	var devices []device
 	for _, d := range []device{
-		{name: "sda", path: "/dev/sda"},
+		{name: "sda", path: "/dev/sda", serial: f.listSerial},
 		{name: "nvme0", path: "/dev/nvme0", nvme: true, model: "Samsung SSD 980", serial: "S64DNX0R1"},
 		{name: "sdb", path: "/dev/sdb"},
 	} {
@@ -855,6 +858,18 @@ func TestReaderShowsARefusalAfterValuesAsUnreadable(t *testing.T) {
 	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], noSerial) {
 		t.Errorf("last() = %+v, want %+v without a serial number", got, noSerial)
 	}
+
+	// Nor can one whose serial number comes only from the list of disks,
+	// which can be from before it was swapped.
+	src = &fakeSource{noSerial: true, listSerial: "WD-LIST"}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.refuse = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	listed := Disk{Name: "sda", Model: "WDC", Serial: "WD-LIST", SMARTOff: true, refused: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], listed) {
+		t.Errorf("last() = %+v, want %+v with the list's serial number", got, listed)
+	}
 }
 
 // A disk that refused its values after them answered, so the disks are not
@@ -895,9 +910,20 @@ func TestReaderLeavesADiskThatRefusedAfterValuesAloneWithoutUse(t *testing.T) {
 		t.Errorf("read %d disks, want 3 with sda read a day ago", n-reads-4)
 	}
 
-	// Once it is used, it is read again, and shows its values once it
-	// sends them.
-	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = false, 3 })
+	// Once it is used, it is read again, and still shows that it cannot be
+	// read while it refuses.
+	src.set(func(f *fakeSource) { f.ioCounts["/dev/sda"] = 3 })
+	_, reads = src.counts()
+	r.refresh(ctx, start.Add(2*ReadInterval+idleReadAfter-time.Minute))
+	if _, n := src.counts(); n != reads+3 {
+		t.Errorf("read %d disks, want 3 with the used sda", n-reads)
+	}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v while it refuses", got, unreadable)
+	}
+
+	// Used again, it shows its values once it sends them.
+	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = false, 4 })
 	r.refresh(ctx, start.Add(2*ReadInterval+idleReadAfter))
 	if got := r.last(); len(got) != 2 || got[0].Unreadable || got[0].Celsius == nil {
 		t.Errorf("last() = %+v, want sda's values once it was used", got)
@@ -905,7 +931,7 @@ func TestReaderLeavesADiskThatRefusedAfterValuesAloneWithoutUse(t *testing.T) {
 
 	// A disk that cannot be read for another reason is still tried at
 	// every read.
-	src.set(func(f *fakeSource) { f.failing, f.ioCounts["/dev/sda"] = true, 4 })
+	src.set(func(f *fakeSource) { f.failing, f.ioCounts["/dev/sda"] = true, 5 })
 	r.refresh(ctx, start.Add(3*ReadInterval+idleReadAfter))
 	_, reads = src.counts()
 	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter))
