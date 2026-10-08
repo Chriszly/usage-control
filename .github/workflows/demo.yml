@@ -12,8 +12,8 @@ name: Demo page
 # other workflow, and a release published on GitHub with a new tag pushes the
 # tag too, so the release event would publish the same demo a second time.
 # A pre-release keeps the root as it is; when it is later made a full release,
-# run this workflow by hand on its tag. So does a bugfix on an older line, such
-# as 1.0.5 after 1.1.0: the root shows the newest release.
+# run this workflow by hand on its tag. A bugfix on an older line, such as 1.0.5
+# after 1.1.0, also keeps the root as it is: the root shows the newest release.
 on:
   push:
     branches:
@@ -59,6 +59,34 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # The version of a release tag as four numbers, the letters of a
+          # bugfix as the fourth, as in the Windows installer: 1.2.3 is
+          # 1 2 3 0, 1.2.3a is 1 2 3 1, 1.2.3z 1 2 3 26 and 1.2.3aa 1 2 3 27.
+          # Fails on a tag that is no release version.
+          version_key() {
+            local letters i code bugfix=0
+            [[ "${1#v}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([a-z]*)$ ]] || return 1
+            letters="${BASH_REMATCH[4]}"
+            for ((i = 0; i < ${#letters}; i++)); do
+              code="$(printf '%d' "'${letters:i:1}")"
+              bugfix=$((bugfix * 26 + code - 96))
+            done
+            echo "$((10#${BASH_REMATCH[1]})) $((10#${BASH_REMATCH[2]})) $((10#${BASH_REMATCH[3]})) $bugfix"
+          }
+          # Whether the version key $1 is newer than $2.
+          newer() {
+            local -a a b
+            local i
+            read -ra a <<< "$1"
+            read -ra b <<< "$2"
+            for i in 0 1 2 3; do
+              if ((a[i] != b[i])); then
+                ((a[i] > b[i]))
+                return
+              fi
+            done
+            return 1
+          }
           skip=false
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             if prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2> error.txt)"; then
@@ -78,10 +106,16 @@ jobs:
                 echo "Could not list the releases, so it is unclear whether $TAG is the newest; run the Demo page workflow again on the tag." >&2
                 exit 1
               fi
-              newest="$(printf '%s\n' "$releases" "$TAG" | sed -e 's/^v//' -e '/^$/d' | sort -V | tail -n 1)"
-              if [[ "$newest" != "${TAG#v}" ]]; then
-                echo "$TAG is older than the release $newest; the demo at the root stays as it is."
-                skip=true
+              # Release tags that are no release version, and a tag that is
+              # none (the publish job fails on it), are left out.
+              if key="$(version_key "$TAG")"; then
+                while read -r release; do
+                  if release_key="$(version_key "$release")" && newer "$release_key" "$key"; then
+                    echo "$TAG is older than the release $release; the demo at the root stays as it is."
+                    skip=true
+                    break
+                  fi
+                done <<< "$releases"
               fi
             fi
           fi
