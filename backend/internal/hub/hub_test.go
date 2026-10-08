@@ -136,11 +136,17 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.1.9"), Mask: net.CIDRMask(24, 32)}}, nil
 	}
 	own := []netip.Addr{netip.MustParseAddr("192.168.1.10")}
+	// In a container on Docker's bridge network, the host is the bridge's
+	// gateway, and has more virtual interfaces, such as a VPN's.
+	h.hostAddrs = func() []netip.Addr {
+		return []netip.Addr{netip.MustParseAddr("172.18.0.1"), netip.MustParseAddr("10.8.0.2")}
+	}
 
 	// Refused at once, however the port, so how long it takes tells nothing.
 	for _, address := range []string{
 		address, "localhost:" + port, "[::1]:9393", "0.0.0.0:9393", "[::]:9393",
-		"169.254.1.1:9393", "[fe80::1]:9393", "192.168.1.9:9393", "[::ffff:192.168.1.9]:9393", "192.168.1.10:9393",
+		"[fe80::1]:9393", "192.168.1.9:9393", "[::ffff:192.168.1.9]:9393", "192.168.1.10:9393",
+		"172.18.0.1:22", "10.8.0.2:9393",
 	} {
 		began := time.Now()
 		if _, err := h.Add(ctx, "Laptop", address, KindServer, own); problemOf(err) != ProblemAddressOwn {
@@ -150,12 +156,19 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 			t.Errorf("Add(%q) took %v, want an answer at once", address, took)
 		}
 	}
-	// Another address on the local network is asked as before.
-	if _, err := h.Add(ctx, "Laptop", "192.168.1.30", KindServer, own); problemOf(err) != ProblemAddress {
-		t.Errorf("Add(192.168.1.30) error = %v, want problem %q", err, ProblemAddress)
+	// Another address on the local network is asked as before: nothing
+	// answers there in the test, so it is unreachable rather than refused.
+	short, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	if _, err := h.Add(short, "Laptop", "192.168.1.30:9393", KindServer, own); problemOf(err) != ProblemUnreachable {
+		t.Errorf("Add(192.168.1.30:9393) error = %v, want problem %q", err, ProblemUnreachable)
 	}
-	if !h.addable(netip.MustParseAddr("192.168.1.30"), own) || !h.addable(netip.MustParseAddr("fd00::30"), own) {
-		t.Errorf("addable(192.168.1.30 or fd00::30) = false, want another device on the network addable")
+	// A device cabled straight to the hub, with a link-local IPv4 address,
+	// can be added too.
+	for _, a := range []string{"192.168.1.30", "fd00::30", "169.254.1.1", "172.18.0.5"} {
+		if !h.addable(netip.MustParseAddr(a), own) {
+			t.Errorf("addable(%s) = false, want another device on the network addable", a)
+		}
 	}
 	if len(h.Remotes()) != 0 {
 		t.Errorf("devices = %q, want none added", ids(h.Remotes()))

@@ -62,6 +62,10 @@ type Hub struct {
 	// allowLoopback lets Add add a device at a loopback address, for tests,
 	// whose devices all run on the machine itself.
 	allowLoopback bool
+	// hostAddrs lists the host's addresses in a container, its virtual
+	// interfaces' too, such as Docker's bridge gateway; metrics.HostAddresses
+	// when nil, replaced in tests.
+	hostAddrs func() []netip.Addr
 
 	// mu guards remotes and removing.
 	mu      sync.Mutex
@@ -241,6 +245,11 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // took would otherwise tell which of the hub's own ports are open, including
 // ones only it can reach.
 func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (metrics.Snapshot, error) {
+	hostAddrs := h.hostAddrs
+	if hostAddrs == nil {
+		hostAddrs = metrics.HostAddresses
+	}
+	own = append(slices.Clone(own), hostAddrs()...)
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
@@ -257,15 +266,18 @@ func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (met
 }
 
 // addable reports whether a device can be added at addr: not one of the
-// hub's own addresses (see suggester.isOwn), nor a loopback, unspecified or
-// link-local one, which only the hub reaches as itself or its link. Other
-// addresses on the local network can be added.
+// hub's own addresses (see suggester.isOwn; own lists the ones its network
+// interfaces do not have, such as the host's in a container), nor a
+// loopback or unspecified one, which is the hub itself, nor a link-local
+// IPv6 one, which would need a zone to be reached. Other addresses on the
+// local network can be added, link-local IPv4 ones too, as of a device
+// cabled straight to the hub.
 func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
 	addr = addr.Unmap().WithZone("")
 	if addr.IsLoopback() && h.allowLoopback {
 		return true
 	}
-	return !addr.IsLoopback() && !addr.IsUnspecified() && !addr.IsLinkLocalUnicast() && !h.suggester.isOwn(addr, own)
+	return !addr.IsLoopback() && !addr.IsUnspecified() && (addr.Is4() || !addr.IsLinkLocalUnicast()) && !h.suggester.isOwn(addr, own)
 }
 
 // save keeps an added device and its kind in the database, both or neither.

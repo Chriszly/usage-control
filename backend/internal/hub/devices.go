@@ -141,7 +141,8 @@ const (
 	ProblemAddressTaken Problem = "addressTaken"
 	ProblemAddress      Problem = "address"
 	// ProblemAddressOwn is an address of the hub itself: loopback,
-	// unspecified, link-local or one of its own.
+	// unspecified, link-local IPv6 or one of its own, the host's in a
+	// container too.
 	ProblemAddressOwn  Problem = "addressOwn"
 	ProblemUnreachable Problem = "unreachable"
 	ProblemNotFound    Problem = "notFound"
