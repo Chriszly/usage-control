@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -227,6 +230,23 @@ func TestRefusedChangesAnswerWithTheirStatus(t *testing.T) {
 		if rec.Code != tt.want {
 			t.Errorf("%#v: status = %d, want %d", tt.err, rec.Code, tt.want)
 		}
+	}
+}
+
+func TestACancelledChangeAnswers503WithoutAnError(t *testing.T) {
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	for _, err := range []error{context.Canceled, fmt.Errorf("save the device: %w", context.Canceled)} {
+		handler := newChangeHandler(&fakeHub{err: err}, &fakePassword{password: "correct horse"})
+		rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%v: status = %d, want %d", err, rec.Code, http.StatusServiceUnavailable)
+		}
+	}
+	if logged.Len() != 0 {
+		t.Errorf("logged %q, want nothing", logged.String())
 	}
 }
 
