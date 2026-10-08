@@ -253,6 +253,44 @@ func TestReadLetsSleepingNvidiaGPUsSleep(t *testing.T) {
 	}
 }
 
+func TestReadSeesAWakeThatComesBeforeNvidiaSMIIsDue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	t.Parallel()
+	sys := t.TempDir()
+	gpu := "bus/pci/devices/0000:01:00.0/"
+	// It may sleep 1 second after it is asked, so nvidia-smi waits 2.
+	writeFiles(t, sys, map[string]string{
+		gpu + "vendor": "0x10de\n", gpu + "class": "0x030200\n", gpu + "power/runtime_status": "active\n",
+		gpu + "power/control": "auto\n", gpu + "power/autosuspend_delay_ms": "1000\n",
+	})
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho '0, GPU-1a2b3c4d-0000, GeForce, 18.42'\n"), 0o700); err != nil { //nolint:gosec // the test runs it
+		t.Fatal(err)
+	}
+	r := NewReader(sys)
+	r.pmic, r.nvidia = "", script
+	start := time.Now()
+	r.Read(t.Context(), start)
+	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "suspended\n"})
+	r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	// It wakes before nvidia-smi may be asked again.
+	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "active\n"})
+	time.Sleep(1100 * time.Millisecond)
+	early := r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))
+	time.Sleep(time.Second)
+	due := r.Read(t.Context(), start.Add(addons.ProgramInterval+2*addons.Interval))
+
+	if len(early) != 1 || early[0].Watts != 0 {
+		t.Errorf("Read() right after waking = %+v, want the sleeping 0 W until nvidia-smi is due", early)
+	}
+	if len(due) != 1 || due[0].Watts != 18.42 {
+		t.Errorf("Read() once nvidia-smi is due = %+v, want the GeForce's 18.42 W", due)
+	}
+}
+
 func TestParseNvidiaCountsALostGPU(t *testing.T) {
 	// A GPU nvidia-smi cannot reach gets only a message, no row; GPU 0
 	// keeps the ID it has while both work.

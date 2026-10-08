@@ -99,6 +99,33 @@ func TestDeviceReadsLetADeviceThatMaySleepFallAsleep(t *testing.T) {
 	}
 }
 
+func TestDeviceReadsReadTheBootDisplayGPUEveryTime(t *testing.T) {
+	sys := t.TempDir()
+	// A desktop's AMD GPU driving the monitor: it allows runtime power
+	// management, but does not sleep while it drives the display.
+	device := filepath.Join(sys, "devices", "0000:03:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "1\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	file := filepath.Join(device, "gpu_busy_percent")
+
+	if _, err := reads.read(file, device); err != nil {
+		t.Fatal(err)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+	now = now.Add(2 * time.Second)
+	data, err := reads.read(file, device)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "20" {
+		t.Errorf("read of the boot display GPU 2 seconds later = %s, want 20", got)
+	}
+}
+
 func TestNvidiaSleepFindsAGPUPluggedInLater(t *testing.T) {
 	sys := t.TempDir()
 	sleep := NewNvidiaSleep(sys)

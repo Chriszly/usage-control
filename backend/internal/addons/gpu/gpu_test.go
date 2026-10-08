@@ -234,3 +234,50 @@ func TestReadLetsSleepingGPUsSleep(t *testing.T) {
 		t.Errorf("Read() after waking = %+v, want a new answer with the fan at 40", got)
 	}
 }
+
+func TestReadSeesAWakeThatComesBeforeNvidiaSMIIsDue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in for nvidia-smi is a shell script")
+	}
+	t.Parallel()
+	sys := t.TempDir()
+	device := filepath.Join(sys, "bus", "pci", "devices", "0000:01:00.0")
+	write := func(path, text string, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(device, "vendor"), "0x10de\n", 0o600)
+	write(filepath.Join(device, "class"), "0x030000\n", 0o600)
+	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
+	// It may sleep 1 second after it is asked, so nvidia-smi waits 2.
+	write(filepath.Join(device, "power", "control"), "auto\n", 0o600)
+	write(filepath.Join(device, "power", "autosuspend_delay_ms"), "1000\n", 0o600)
+	script := filepath.Join(t.TempDir(), "nvidia-smi")
+	answer := func(fan string) {
+		write(script, "#!/bin/sh\necho '0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 4070, "+fan+", 2475, 10501, 0, 3, P0, 200.00'\n", 0o700)
+	}
+	fan := func(extras []metrics.Extra) float64 { return *extras[0].Items[0].Value }
+	answer("35")
+	r := &Reader{program: script, sleep: metrics.NewNvidiaSleep(sys)}
+	start := time.Now()
+	r.Read(t.Context(), start)
+	write(filepath.Join(device, "power", "runtime_status"), "suspended\n", 0o600)
+	r.Read(t.Context(), start.Add(addons.ProgramInterval))
+
+	// It wakes before nvidia-smi may be asked again.
+	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
+	answer("40")
+	time.Sleep(1100 * time.Millisecond)
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))); got != 0 {
+		t.Errorf("fan right after waking = %v, want the sleeping 0 until nvidia-smi is due", got)
+	}
+	time.Sleep(time.Second)
+	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval+2*addons.Interval))); got != 40 {
+		t.Errorf("fan once nvidia-smi is due = %v, want a new answer, 40", got)
+	}
+}

@@ -90,13 +90,17 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	if r.nvidiaAsleep && !asleep {
 		r.lastNvidia.at = time.Time{}
 	}
-	r.nvidiaAsleep = asleep
+	// Not due for the GPUs' sleep, the last readings are kept without
+	// counting as a read, so nvidia-smi is asked once it is due.
+	if !asleep && addons.Due(r.lastNvidia.at, now, addons.ProgramInterval) && !r.nvidiaSleep.Due() {
+		return append(readings, r.lastNvidia.readings...)
+	}
 	readings = append(readings, r.lastNvidia.get(now, func() []Reading {
-		switch {
-		case asleep:
+		// Only a read takes note of the GPUs' sleep, so a wake the reads
+		// above pass over is still seen at the next one.
+		r.nvidiaAsleep = asleep
+		if asleep {
 			return sleepingNvidia(r.lastNvidia.readings)
-		case !r.nvidiaSleep.Due():
-			return r.lastNvidia.readings
 		}
 		return readNvidia(ctx, r.nvidia, &r.nvidiaCalls)
 	})...)

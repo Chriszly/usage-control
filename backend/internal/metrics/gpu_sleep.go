@@ -68,7 +68,8 @@ const (
 // deviceReads reads the sensor files of devices that may sleep at most every
 // wakeDelays autosuspend delays, and keeps the last content of each file for
 // the reads in between. A device that may not sleep, whose power/control is
-// "on", or that has no autosuspend delay is read every time.
+// "on", that has no autosuspend delay, or that is the GPU the display
+// started on, is read every time.
 type deviceReads struct {
 	now func() time.Time
 
@@ -116,7 +117,11 @@ func (d *deviceReads) due(device string) bool {
 		return last.read
 	}
 	read := true
-	if sysfile.Text(filepath.Join(device, "power", "control")) == "auto" {
+	// The GPU the machine started its display on, whose boot_vga the kernel
+	// keeps at 1 without waking it, drives the monitor and does not sleep,
+	// although desktop AMD GPUs allow it (power/control is "auto").
+	bootDisplay := sysfile.Text(filepath.Join(device, "boot_vga")) == "1"
+	if !bootDisplay && sysfile.Text(filepath.Join(device, "power", "control")) == "auto" {
 		// The delay is negative when the device does not autosuspend, and
 		// cannot be read when its driver does not use it.
 		ms, err := strconv.Atoi(sysfile.Text(filepath.Join(device, "power", "autosuspend_delay_ms")))

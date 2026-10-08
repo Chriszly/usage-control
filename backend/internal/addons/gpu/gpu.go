@@ -99,13 +99,15 @@ func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	}
 	asleep := r.sleep.Asleep()
 	woke := r.asleep && !asleep
-	r.asleep = asleep
 	if !woke && !addons.Due(r.at, now, addons.ProgramInterval) {
 		return r.extras
 	}
 	if !asleep && !r.sleep.Due() {
 		return r.extras
 	}
+	// Only a read takes note of the GPUs' sleep, so a wake the reads above
+	// pass over is still seen at the next one.
+	r.asleep = asleep
 	r.extras, r.at = r.read(ctx, asleep), now
 	return r.extras
 }
