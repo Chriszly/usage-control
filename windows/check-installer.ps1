@@ -336,7 +336,7 @@ Assert-PowerAddOn
 Write-Host 'A repair with POWER=0 removes the power add-on and keeps the others, and one with POWER=1 adds it again'
 # The reports the add-ons left behind, so the checks below see new ones.
 Remove-Item "$env:ProgramData\Usage Control\addons\*.json" -ErrorAction SilentlyContinue
-Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=omus POWER=0"
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=0"
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The repair with POWER=0 left the power add-on installed' }
 if (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe") {
     Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|RemoveFiles|FileRemove|filh8V|POWER|in use|reboot|REINSTALLMODE'
@@ -354,7 +354,7 @@ Assert-ProcessesAddOn
 Assert-Website 8091
 # The report the add-on left behind, so the check below sees a new one.
 Remove-Item "$env:ProgramData\Usage Control\addons\power.json" -ErrorAction SilentlyContinue
-Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=omus POWER=1"
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=1"
 if (-not (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe")) {
     Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|InstallFiles|FileCopy|filh8V|POWER|in use|reboot|REINSTALLMODE'
     throw 'The repair with POWER=1 did not install usage-control-power.exe'
