@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -28,9 +29,9 @@ type Sampler struct {
 	source   source
 	interval time.Duration
 
-	// reading lets one reading run at a time, so requests that arrive
-	// together share it.
-	reading sync.Mutex
+	// reading holds a value while a reading runs, so requests that arrive
+	// together share it. A request that ends while it waits stops waiting.
+	reading chan struct{}
 
 	// mu guards the newest reading.
 	mu       sync.Mutex
@@ -41,7 +42,11 @@ type Sampler struct {
 
 // NewSampler returns a Sampler reading from collector.
 func NewSampler(collector *Collector) *Sampler {
-	return &Sampler{source: collector, interval: SamplingInterval}
+	return newSampler(collector, SamplingInterval)
+}
+
+func newSampler(src source, interval time.Duration) *Sampler {
+	return &Sampler{source: src, interval: interval, reading: make(chan struct{}, 1)}
 }
 
 // Collect returns the newest snapshot, reading one first when the last is an
@@ -50,8 +55,18 @@ func (s *Sampler) Collect(ctx context.Context) (Snapshot, error) {
 	if s.isFresh() {
 		return s.newest()
 	}
-	s.reading.Lock()
-	defer s.reading.Unlock()
+	// A request that has ended still reads when nothing else is reading, as
+	// the reading is shared; it only stops waiting for another's.
+	select {
+	case s.reading <- struct{}{}:
+	default:
+		select {
+		case s.reading <- struct{}{}:
+		case <-ctx.Done():
+			return Snapshot{}, fmt.Errorf("wait for the reading: %w", ctx.Err())
+		}
+	}
+	defer func() { <-s.reading }()
 	// Another request may have read while this one waited for its turn.
 	if s.isFresh() {
 		return s.newest()

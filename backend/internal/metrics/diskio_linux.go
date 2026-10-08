@@ -11,8 +11,9 @@ import (
 
 // readDiskCounters returns the counters of the disk or partition holding each
 // path, from /proc/diskstats. A path on a filesystem without a disk of its own,
-// such as a network share, has none.
-func readDiskCounters(_ context.Context, paths []string) map[string]ioCounters {
+// such as a network share, has none. A path that does not answer in time is
+// left out, as in disks.read.
+func readDiskCounters(ctx context.Context, disks *diskReader, paths []string) map[string]ioCounters {
 	text, err := sysfile.Read(filepath.Join(hostPath("HOST_PROC", "/proc"), "diskstats"))
 	if err != nil {
 		return nil
@@ -21,7 +22,8 @@ func readDiskCounters(_ context.Context, paths []string) map[string]ioCounters {
 	result := make(map[string]ioCounters, len(paths))
 	for _, path := range paths {
 		var stat unix.Stat_t
-		if err := unix.Stat(path, &stat); err != nil {
+		var err error
+		if !disks.ask(ctx, path, func() { err = unix.Stat(path, &stat) }) || err != nil {
 			continue
 		}
 		device := deviceNumber{major: unix.Major(stat.Dev), minor: unix.Minor(stat.Dev)}
