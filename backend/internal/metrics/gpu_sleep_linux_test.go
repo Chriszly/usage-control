@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // writeSysFile writes a file below dir, making its folders.
@@ -246,8 +248,9 @@ func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
 func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 	for _, test := range []struct {
 		name string
-		// driver is the GPU's driver, runpm amdgpu's runpm setting.
-		driver, runpm, dpms string
+		// driver is the GPU's driver, runpm and dc amdgpu's runpm and dc
+		// settings, and release the kernel's, "6.6.0" when empty.
+		driver, runpm, dc, release, dpms string
 		// status and enabled are the connector's, "connected" and
 		// "enabled" when empty.
 		status, enabled string
@@ -261,6 +264,13 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 		{name: "amdgpu, runpm -2, standby", driver: "amdgpu", runpm: "-2", dpms: "Standby", sleeps: true},
 		{name: "amdgpu, runpm -2, suspend", driver: "amdgpu", runpm: "-2", dpms: "Suspend", sleeps: true},
 		{name: "amdgpu, runpm -2, showing", driver: "amdgpu", runpm: "-2", dpms: "On", sleeps: false},
+		{name: "amdgpu, before Linux 5.18, blanked", driver: "amdgpu", runpm: "-1", release: "5.17.0", dpms: "Off", sleeps: true},
+		{name: "amdgpu, Linux 5.18, blanked", driver: "amdgpu", runpm: "-1", release: "5.18.0-1-amd64", dpms: "Off", sleeps: false},
+		{name: "amdgpu, unknown kernel, blanked", driver: "amdgpu", runpm: "-1", release: "unknown", dpms: "Off", sleeps: true},
+		{name: "amdgpu, dc 0, runpm -2, unused connector on", driver: "amdgpu", runpm: "-2", dc: "0", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: false},
+		{name: "amdgpu, dc 0, runpm -2, blanked", driver: "amdgpu", runpm: "-2", dc: "0", dpms: "Off", sleeps: true},
+		{name: "amdgpu, dc 0, before Linux 5.7, unused connector on", driver: "amdgpu", runpm: "-2", dc: "0", release: "5.4.0", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: true},
+		{name: "amdgpu, dc chosen, runpm -2, unused connector on", driver: "amdgpu", runpm: "-2", dc: "-1", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: true},
 		{name: "other driver, off", driver: "radeon", runpm: "-1", dpms: "Off", sleeps: true},
 		{name: "other driver, standby", driver: "radeon", runpm: "-1", dpms: "Standby", sleeps: true},
 		{name: "other driver, suspend", driver: "radeon", runpm: "-1", dpms: "Suspend", sleeps: true},
@@ -287,7 +297,8 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 			}
 			now := time.Now()
 			reads := newDeviceReads(func() time.Time { return now })
-			reads.runpm = test.runpm
+			reads.runpm, reads.dc, reads.paramsRead = test.runpm, test.dc, now
+			reads.release, reads.releaseRead = cmp.Or(test.release, "6.6.0"), true
 			file := filepath.Join(device, "gpu_busy_percent")
 			read := func() string {
 				t.Helper()
@@ -312,9 +323,57 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 	}
 }
 
+func TestKernelAtLeast(t *testing.T) {
+	for _, test := range []struct {
+		release string
+		want    bool
+	}{
+		{"5.18.0", true},
+		{"5.18.0-1-amd64", true},
+		{"5.18", true},
+		{"5.18-rc1", true},
+		{"5.17.15", false},
+		{"5.4.250", false},
+		{"6.0.0", true},
+		{"4.19.0", false},
+		{"", false},
+		{"6", false},
+		{"x.18.0", false},
+		{"5.x", false},
+	} {
+		if got := kernelAtLeast(test.release, 5, 18); got != test.want {
+			t.Errorf("kernelAtLeast(%q, 5, 18) = %v, want %v", test.release, got, test.want)
+		}
+	}
+}
+
+func TestDeviceReadsKernelReleaseFallsBackToItsOwnProc(t *testing.T) {
+	own := sysfile.Text("/proc/sys/kernel/osrelease")
+	if own == "" {
+		t.Skip("no /proc/sys/kernel/osrelease here")
+	}
+	// The host's /proc without the file, as when it is mounted elsewhere.
+	t.Setenv("HOST_PROC", t.TempDir())
+	reads := newDeviceReads(time.Now)
+	if got := reads.kernelRelease(); got != own {
+		t.Errorf("kernelRelease() = %q, want the program's own, %q", got, own)
+	}
+
+	// The host's /proc is read first.
+	proc := t.TempDir()
+	t.Setenv("HOST_PROC", proc)
+	writeSysFile(t, proc, "sys/kernel/osrelease", "5.4.0\n")
+	reads = newDeviceReads(time.Now)
+	if got := reads.kernelRelease(); got != "5.4.0" {
+		t.Errorf("kernelRelease() = %q, want the host's, 5.4.0", got)
+	}
+}
+
 func TestDeviceReadsReadAmdgpuRunpm(t *testing.T) {
-	sys := t.TempDir()
+	sys, proc := t.TempDir(), t.TempDir()
 	t.Setenv("HOST_SYS", sys)
+	t.Setenv("HOST_PROC", proc)
+	writeSysFile(t, proc, "sys/kernel/osrelease", "6.6.0\n")
 	// A desktop's second AMD GPU whose connected monitor is blanked.
 	device := filepath.Join(sys, "devices", "0000:03:00.0")
 	writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
@@ -364,6 +423,25 @@ func TestDeviceReadsReadAmdgpuRunpm(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	if got := read(); got != "30" {
 		t.Errorf("read within twice the autosuspend delay once runpm is -2 = %s, want the last value, 30", got)
+	}
+
+	// Once the driver is loaded again with the default runpm, the
+	// connected monitor keeps the GPU awake again; that is seen once the
+	// settings read are paramsTime old.
+	writeSysFile(t, sys, "module/amdgpu/parameters/runpm", "-1\n")
+	now = now.Add(10 * time.Second)
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "50\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "40" {
+		t.Errorf("read within twice the autosuspend delay right after the driver is loaded again = %s, want the last value, 40", got)
+	}
+	now = now.Add(paramsTime)
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "60\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "60" {
+		t.Errorf("read 2 seconds later once runpm is read again = %s, want 60", got)
 	}
 }
 
