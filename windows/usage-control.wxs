@@ -100,7 +100,8 @@
     PORTS           1 to install the ports add-on, 0 to remove it in an update or repair
     SMART           1 to install the smart add-on, 0 to remove it in an update or repair
     PROCESSES       1 to install the processes add-on, 0 to remove it in an update or repair
-                    (default: not installed)
+                    (default: not installed); the installer refuses any
+                    other value for these
   An update keeps the options of the installed version, except RESET_PASSWORD;
   options given to the update replace them. An option given empty counts as
   not given, so to clear a remembered PORT, DEVICE_NAME, HUB_DEVICES,
@@ -203,9 +204,20 @@
       when the add-on is on. A cleared box leaves its property empty, which
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
+
+      Any other value than 1 counts as off, and as an update or repair checks
+      the add-on again (see the power add-on), a typo such as POWER=true would
+      remove it. So, like UPDATE_CHECK, each add-on option takes only 0 or 1,
+      also a remembered one, and the refusal names the command that gives it
+      ($(AddOn)Fix, a repair for the installed version). An uninstall is not
+      held up by it.
     -->
     <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
+    <Property Id="$(AddOn)Fix" Value="$(AddOn)=1" />
+    <SetProperty Action="$(AddOn)FixInstalled" Id="$(AddOn)Fix" Value="REINSTALL=ALL REINSTALLMODE=m $(AddOn)=1" Before="LaunchConditions" Sequence="both" Condition="Installed" />
+    <Launch Condition='REMOVE = "ALL" OR NOT $(AddOn) OR $(AddOn) = "0" OR $(AddOn) = "1"'
+            Message='$(AddOn) must be 0 or 1. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" [$(AddOn)Fix], or with $(AddOn)=0 to remove the add-on' />
     <?endforeach?>
 
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
@@ -651,9 +663,9 @@
 
       <!--
         After an install or update, Finish shows the tray icon when its box is
-        ticked. A repair from the wizard closed the icon, as it replaces the
-        file, and WiX's last page shows the box only for an install, so Finish
-        then shows the icon again without asking.
+        ticked. A repair from the wizard closes the icon (see
+        CloseApplication), and WiX's last page shows the box only for an
+        install, so Finish then shows the icon again without asking.
       -->
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartTray" Order="998"
                Condition='(WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed) OR WixUI_InstallMode = "Repair"' />
