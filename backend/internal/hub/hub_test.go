@@ -182,14 +182,18 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 }
 
 // countingUsage is the hub's own usage, with a network card at addresses,
-// and counts how often it was read.
+// and counts how often it was read. While failing is set, reading it fails.
 type countingUsage struct {
 	addresses []string
 	reads     atomic.Int32
+	failing   atomic.Bool
 }
 
 func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
 	u.reads.Add(1)
+	if u.failing.Load() {
+		return metrics.Snapshot{}, errors.New("cannot read the usage")
+	}
 	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: u.addresses}}}, nil
 }
 
@@ -242,6 +246,21 @@ func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
 	_ = check("tcp4", "192.168.1.30:9393", nil)
 	if n := usage.reads.Load(); n != 2 || hostReads != 2 {
 		t.Errorf("own addresses read %d times from the usage and %d from the host, want twice each once old", n, hostReads)
+	}
+
+	// When the usage cannot be read, the next check reads it again instead
+	// of going without the network cards' addresses for a few seconds.
+	h.ownMu.Lock()
+	h.ownRead = h.ownRead.Add(-ownAddressesFor)
+	h.ownMu.Unlock()
+	usage.failing.Store(true)
+	_ = check("tcp4", "192.168.1.30:9393", nil)
+	usage.failing.Store(false)
+	if err := check("tcp4", "192.168.1.20:9393", nil); !errors.Is(err, errOwnAddress) {
+		t.Errorf("connecting to 192.168.1.20:9393 after a failed reading error = %v, want errOwnAddress", err)
+	}
+	if n := usage.reads.Load(); n != 4 {
+		t.Errorf("usage read %d times, want once more after the failed reading", n)
 	}
 }
 

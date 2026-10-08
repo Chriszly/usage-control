@@ -313,9 +313,13 @@ func (h *Hub) ownAddresses() []netip.Addr {
 		own = metrics.HostAddresses()
 	}
 	if h.local != nil {
-		if snapshot, err := h.local.Collect(h.ctx); err == nil {
-			own = slices.Concat(own, NetworkAddresses(snapshot))
+		snapshot, err := h.local.Collect(h.ctx)
+		if err != nil {
+			// Not kept, so the next check reads the usage again instead of
+			// going without its network cards for a while.
+			return own
 		}
+		own = slices.Concat(own, NetworkAddresses(snapshot))
 	}
 	h.own, h.ownRead = own, time.Now()
 	return own
