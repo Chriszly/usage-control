@@ -18,7 +18,7 @@ remove_check() {
   docker rmi usage-control-check > /dev/null 2>&1 || true
 }
 
-trap 'rm -rf "$work"; if [[ "$docker_check" == true ]]; then remove_check; fi' EXIT
+trap 'if [[ "$docker_check" == true ]]; then remove_check; fi; rm -rf "$work"' EXIT
 # A failing step shows what the services logged.
 trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart -u usage-control-containers -u usage-control-processes --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"

@@ -312,11 +312,15 @@ func signature(root string) string {
 		if !entry.IsDir() {
 			continue
 		}
-		tree.WriteString("\n" + entry.Name())
+		tree.WriteByte('\n')
+		tree.WriteString(entry.Name())
 		children, _ := os.ReadDir(filepath.Join(root, entry.Name()))
 		for _, child := range children {
 			if child.IsDir() {
-				tree.WriteString("\n" + entry.Name() + "/" + child.Name())
+				tree.WriteByte('\n')
+				tree.WriteString(entry.Name())
+				tree.WriteByte('/')
+				tree.WriteString(child.Name())
 			}
 		}
 	}
