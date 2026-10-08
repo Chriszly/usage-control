@@ -83,6 +83,13 @@ type device struct {
 // errAsleep is returned for a disk that sleeps, which is not woken.
 var errAsleep = errors.New("the disk sleeps")
 
+// errSMARTOffAfterValues is the error of a disk that comes back with SMART
+// off after it was read with its values or check. A refusal that reads as
+// SMART off, which only a disk whose IDENTIFY DEVICE does not tell gives,
+// can also be another error of a failing disk, such as one that cannot read
+// its SMART data, so it then shows that it cannot be read.
+var errSMARTOffAfterValues = errors.New("the disk refused its SMART data after it was read with them")
+
 // source lists and reads the disks of one operating system.
 type source interface {
 	list() ([]device, error)
@@ -216,6 +223,8 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 		}
 		disk, err := r.src.read(d)
 		switch {
+		case err == nil && disk.SMARTOff && shownWithValues(last, d.path):
+			failed[d.path] = errSMARTOffAfterValues
 		case err == nil:
 			disk.Name = d.name
 			if disk.Model == "" {
@@ -295,6 +304,13 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 	r.ioCounts = ioCounts
 	r.readAt = now
 	r.reading = false
+}
+
+// shownWithValues reports whether the disk at path was read before with its
+// values or check, or could not be read since.
+func shownWithValues(disks map[string]Disk, path string) bool {
+	before, ok := disks[path]
+	return ok && !before.SMARTOff
 }
 
 // logAsleep logs once that a disk that was never read has been asleep at

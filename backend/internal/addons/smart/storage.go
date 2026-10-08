@@ -172,16 +172,19 @@ var errDriver = errors.New("the disk driver refused the command")
 // register in bIDEError.
 const smartIDEError = 1
 
-// errorIODevice is the Windows error ERROR_IO_DEVICE, with which Windows
-// fails an I/O request the disk answered with an error.
+// errorIODevice is the Windows error ERROR_IO_DEVICE, which storport gives
+// an ATA command that ended with an error, whichever error the disk
+// reported, and other errors of the device.
 const errorIODevice = syscall.Errno(1117)
 
 // sendCmdError reads the error with which DeviceIoControl failed for c. Most
 // disk drivers return the registers of a command the disk refused with
-// SMART_IDE_ERROR, but some fail the IOCTL itself. Of their error codes, only
-// ERROR_IO_DEVICE says that the disk answered with an error, as a disk with
-// SMART off aborts SMART READ DATA, so it is errRefused; readATA only takes
-// that as SMART off when IDENTIFY DEVICE did not tell. Any other code, such
+// SMART_IDE_ERROR, but some fail the IOCTL itself. A disk with SMART off
+// aborts SMART READ DATA, which such a driver fails with ERROR_IO_DEVICE, so
+// that is taken as errRefused, although it can also be another error of the
+// disk: readATA only takes it as SMART off when IDENTIFY DEVICE did not
+// tell, and the Reader shows a disk read before with its values that then
+// comes back with SMART off as one that cannot be read. Any other code, such
 // as a timeout (ERROR_SEM_TIMEOUT) or a driver without the SMART IOCTLs
 // (ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED), stays an error.
 func sendCmdError(c ataCommand, err error) error {

@@ -647,6 +647,8 @@ type fakeSource struct {
 	asleep bool
 	// failing makes sda fail to read, as a failing disk may.
 	failing bool
+	// smartOff makes sda come back with SMART off.
+	smartOff bool
 	// gone are the disks no longer listed, by path.
 	gone map[string]bool
 	// ioCounts are the disks' counts of reads and writes, by path; a disk
@@ -686,6 +688,8 @@ func (f *fakeSource) read(d device) (Disk, error) {
 		return Disk{}, errAsleep
 	case f.failing:
 		return Disk{}, errors.New("input/output error")
+	case f.smartOff:
+		return Disk{Model: "WDC", Serial: "WD-WX12D", SMARTOff: true}, nil
 	}
 	return Disk{Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)}, nil
 }
@@ -760,6 +764,41 @@ func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 	r.refresh(ctx, start.Add(3*ReadInterval))
 	if got := r.last(); !reflect.DeepEqual(got, unreadable) {
 		t.Errorf("Read() = %+v, want %+v while sda fails", got, unreadable)
+	}
+}
+
+// A refusal that reads as SMART off can also be another error of a failing
+// disk, so a disk read before with its values that then comes back with
+// SMART off shows that it cannot be read; one with SMART off from its first
+// read shows SMART off.
+func TestReaderShowsSMARTOffAfterValuesAsUnreadable(t *testing.T) {
+	src := &fakeSource{}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+	r.refresh(ctx, start)
+
+	src.set(func(f *fakeSource) { f.smartOff = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	unreadable := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v first", got, unreadable)
+	}
+	if !r.warned["/dev/sda"] {
+		t.Error("the disk that came back with SMART off was not logged")
+	}
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v while it comes back with SMART off", got, unreadable)
+	}
+
+	src = &fakeSource{smartOff: true}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	r.refresh(ctx, start.Add(ReadInterval))
+	off := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", SMARTOff: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], off) {
+		t.Errorf("last() = %+v, want %+v first", got, off)
 	}
 }
 
