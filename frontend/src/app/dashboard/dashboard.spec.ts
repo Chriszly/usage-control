@@ -461,6 +461,39 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('12.5 %');
   });
 
+  it('points to HUB_DEVICES for a device at an address of the hub, without its availability', () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'vm', name: 'VM', kind: 'pc', unreachable: true, refused: true },
+    ]);
+    devices.selectedId.set('vm');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http
+      .expectOne('/api/metrics?device=vm')
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    // The time it was refused is not counted, so it would seem to have always answered.
+    http.expectOne('/api/availability?device=vm').flush({
+      kind: 'pc',
+      since: '2026-10-01T12:00:00Z',
+      countedSince: '2026-10-01T12:00:00Z',
+      offlineSeconds: 0,
+      outages: 0,
+    });
+    fixture.detectChanges();
+
+    expect(text()).toContain('VM is at an address of the hub itself');
+    expect(text()).toContain('HUB_DEVICES');
+    expect(text()).not.toContain('has not answered recently');
+    expect(text()).not.toContain('switched off');
+    expect(text()).not.toContain('100 %');
+    expect(text()).not.toContain('Switched on all the time');
+  });
+
   it('shows how long another device was offline since it was added', () => {
     vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
     respond(snapshot);

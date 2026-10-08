@@ -46,6 +46,10 @@
 
 @if (problem() === 'backend' && !connection.lost()) {
   <p class="warning" role="alert">{{ i18n.t('dashboard.unreachable') }}</p>
+} @else if (problem() === 'device' && refused()) {
+  <p class="warning" role="alert">
+    {{ i18n.t('dashboard.deviceRefused', { device: deviceName() }) }}
+  </p>
 } @else if (problem() === 'device' && isPC()) {
   <p class="notice" role="status">
     {{ i18n.t('dashboard.deviceNotInUse', { device: deviceName() }) }}
@@ -403,11 +407,11 @@
       }
     </div>
 
-    @if (availability(); as a) {
+    @if (shownAvailability(); as a) {
       <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
     }
   </div>
-} @else if (problem() === 'device' && availability(); as a) {
+} @else if (problem() === 'device' && shownAvailability(); as a) {
   <div class="cards alone">
     <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
   </div>

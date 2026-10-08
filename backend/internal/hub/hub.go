@@ -66,6 +66,14 @@ type Hub struct {
 	// interfaces' too, such as Docker's bridge gateway; metrics.HostAddresses
 	// when nil, replaced in tests.
 	hostAddrs func() []netip.Addr
+	// local reads the usage of the machine the hub runs on, whose network
+	// cards' addresses are the hub's own, also in a container; nil in tests.
+	local Usage
+
+	// ownMu guards own and ownRead, the hub's own addresses as read last.
+	ownMu   sync.Mutex
+	own     []netip.Addr
+	ownRead time.Time
 
 	// mu guards remotes and removing.
 	mu      sync.Mutex
@@ -95,19 +103,25 @@ type Remote struct {
 	kind Kind
 }
 
+// Usage reads the usage of the machine the hub runs on.
+type Usage interface {
+	Collect(ctx context.Context) (metrics.Snapshot, error)
+}
+
 // New starts collecting from the fixed devices and the ones added on the page
 // earlier, until ctx is done. The history is kept in store, with the first
 // historyEntries disks, sensors, network cards and GPUs each of a device, for
 // retention. Every device is told pagePort, the port the hub's page is
-// reachable on.
-func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string) (*Hub, error) {
-	return newHub(ctx, store, fixed, historyEntries, retention, pagePort, false)
+// reachable on. local reads the hub's own usage: a device added on the page
+// is not collected from at an address of its network cards either.
+func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string, local Usage) (*Hub, error) {
+	return newHub(ctx, store, fixed, historyEntries, retention, pagePort, local, false)
 }
 
 // newHub is New, with allowLoopback set before any device is collected from,
 // for tests.
-func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string, allowLoopback bool) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx, allowLoopback: allowLoopback}
+func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string, local Usage, allowLoopback bool) (*Hub, error) {
+	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx, local: local, allowLoopback: allowLoopback}
 	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema, idSchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -188,8 +202,9 @@ func (h *Hub) Remotes() []*Remote {
 // usage-control answers at its address, keeps it in the database with its
 // kind and starts collecting from it. An address of the hub itself is
 // refused (see addable); own lists more of the machine's addresses besides
-// its network interfaces', as for Suggest. Problems with the device are
-// InputErrors.
+// its network interfaces', as for Suggest, and so does ownAddresses, which
+// the hub refuses again whenever it connects to the device. Problems with
+// the device are InputErrors.
 func (h *Hub) Add(ctx context.Context, name, address string, kind Kind, own []netip.Addr) (Device, error) {
 	device, err := NewDevice(name, address)
 	if err != nil {
@@ -251,7 +266,7 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // took would otherwise tell which of the hub's own ports are open, including
 // ones only it can reach.
 func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (metrics.Snapshot, error) {
-	own = append(slices.Clone(own), h.hostAddresses()...)
+	own = slices.Concat(own, h.ownAddresses())
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
@@ -276,12 +291,54 @@ func (h *Hub) refuseOwn(own func() []netip.Addr) func(network, address string, c
 	}
 }
 
-// hostAddresses lists the host's addresses in a container; see hostAddrs.
-func (h *Hub) hostAddresses() []netip.Addr {
-	if h.hostAddrs != nil {
-		return h.hostAddrs()
+// ownAddressesFor is how long the hub's own addresses are used again before
+// they are read anew. A device that does not answer is connected to every
+// few seconds, and each time its address is checked against them.
+const ownAddressesFor = 5 * time.Second
+
+// ownAddresses lists the hub's addresses besides those of its network
+// interfaces: the host's in a container (see hostAddrs) and those of the
+// network cards in its usage, which in a container are the machine's. They
+// are read at most every ownAddressesFor, or sooner while its own usage
+// cannot be read.
+func (h *Hub) ownAddresses() []netip.Addr {
+	h.ownMu.Lock()
+	defer h.ownMu.Unlock()
+	if !h.ownRead.IsZero() && time.Since(h.ownRead) < ownAddressesFor {
+		return h.own
 	}
-	return metrics.HostAddresses()
+	var own []netip.Addr
+	if h.hostAddrs != nil {
+		own = h.hostAddrs()
+	} else {
+		own = metrics.HostAddresses()
+	}
+	if h.local != nil {
+		snapshot, err := h.local.Collect(h.ctx)
+		if err != nil {
+			// Not kept, so the next check reads the usage again instead of
+			// going without its network cards for a while.
+			return own
+		}
+		own = slices.Concat(own, NetworkAddresses(snapshot))
+	}
+	h.own, h.ownRead = own, time.Now()
+	return own
+}
+
+// NetworkAddresses lists the addresses of the network cards in a machine's
+// usage. In a container, the machine's own addresses are not the
+// container's, but its usage lists them.
+func NetworkAddresses(snapshot metrics.Snapshot) []netip.Addr {
+	var addresses []netip.Addr
+	for _, network := range snapshot.Network {
+		for _, address := range network.Addresses {
+			if addr, err := netip.ParseAddr(address); err == nil {
+				addresses = append(addresses, addr.Unmap())
+			}
+		}
+	}
+	return addresses
 }
 
 // addable reports whether a device can be added at addr: not one of the
@@ -308,7 +365,7 @@ func (h *Hub) addableAddress(address string) bool {
 		return true
 	}
 	ip, err := netip.ParseAddr(host)
-	return err != nil || h.addable(ip, h.hostAddresses())
+	return err != nil || h.addable(ip, h.ownAddresses())
 }
 
 // save keeps an added device and its kind in the database, both or neither.
@@ -580,6 +637,12 @@ func (r *Remote) Unreachable() (since time.Time, unreachable bool) {
 	return time.Time{}, true
 }
 
+// Refused reports whether the hub did not connect to the device the last
+// time it tried, as its address is the hub's own; see watchedAgent.Collect.
+func (r *Remote) Refused() bool {
+	return r.watched.isRefused()
+}
+
 // Kind tells what the device is used as.
 func (r *Remote) Kind() Kind {
 	r.mu.Lock()
@@ -616,7 +679,7 @@ func (h *Hub) start(device Device, fixed bool) {
 	// its host name resolves to the hub only later.
 	agent := NewAgent(device.Address)
 	if !fixed {
-		agent = newAgent(device.Address, h.refuseOwn(h.hostAddresses))
+		agent = newAgent(device.Address, h.refuseOwn(h.ownAddresses))
 	}
 	agent.pagePort = h.pagePort
 	agent.hubID = h.id

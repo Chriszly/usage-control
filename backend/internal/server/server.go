@@ -44,9 +44,13 @@ type Device struct {
 	// Unreachable is set for another device that has not answered recently.
 	Unreachable bool `json:"unreachable,omitempty"`
 	// UnreachableSince is when it stopped answering, when that is known.
-	UnreachableSince *time.Time    `json:"unreachableSince,omitempty"`
-	Metrics          Collector     `json:"-"`
-	History          HistoryReader `json:"-"`
+	UnreachableSince *time.Time `json:"unreachableSince,omitempty"`
+	// Refused is set for an unreachable device added on the page that the
+	// hub does not connect to, as its address is the hub's own; it can be
+	// collected from when listed in HUB_DEVICES instead.
+	Refused bool          `json:"refused,omitempty"`
+	Metrics Collector     `json:"-"`
+	History HistoryReader `json:"-"`
 	// Availability is set for the devices the hub collects from.
 	Availability AvailabilityReader `json:"-"`
 }

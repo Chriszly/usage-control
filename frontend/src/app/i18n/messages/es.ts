@@ -11,6 +11,8 @@ export const es: Messages = {
     'No se puede conectar con el backend. Se muestran los últimos valores conocidos.',
   'dashboard.deviceUnreachable':
     '{device} no ha respondido últimamente. ¿Está usage-control en marcha en él?',
+  'dashboard.deviceRefused':
+    '{device} está en una dirección del propio hub, a la que el hub no se conecta para un dispositivo añadido en la página. Quítalo con «Conservar su historial» marcado y añádelo a HUB_DEVICES con el mismo nombre.',
   'dashboard.deviceNotInUse':
     '{device} está apagado o en reposo, así que no está en uso. Se muestran los últimos valores conocidos.',
   'dashboard.cpu': 'CPU',

@@ -178,6 +178,9 @@ type watchedAgent struct {
 	// refusedLogged is set once the log said that the hub refuses the
 	// device's address as its own.
 	refusedLogged bool
+	// refused is set while the newest reading was refused, as the device's
+	// address is the hub's own.
+	refused bool
 }
 
 // Collect asks the device for its usage and notes an outage when it does not
@@ -188,6 +191,13 @@ type watchedAgent struct {
 // refuses, as the device's address is the hub's own, is no outage either:
 // the device shows as not answering, but the time is not counted, and an
 // outage that lasts ends at its last failed reading.
+//
+// A refusal can hide or split a real outage. A host name that resolves to the
+// hub's own address first and to another, down, address next is refused, as
+// the first refusal is the error the connection returns, so no outage is
+// counted although the device is down. An outage followed by refused
+// readings and then failed ones again counts as two outages, without the
+// time in between.
 func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := w.agent.Collect(ctx)
 	if ctx.Err() != nil {
@@ -197,7 +207,8 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	now := w.now()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if errors.Is(err, errOwnAddress) {
+	w.refused = errors.Is(err, errOwnAddress)
+	if w.refused {
 		if !w.refusedLogged {
 			w.refusedLogged = true
 			slog.Warn("a device added on the page is at an address of the hub itself, which the hub does not connect to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "device", w.device)
@@ -234,6 +245,14 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 		w.outageStart, w.lastEnd = time.Time{}, now
 	}
 	return snapshot, err
+}
+
+// isRefused reports whether the newest reading was refused, as the device's
+// address is the hub's own.
+func (w *watchedAgent) isRefused() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.refused
 }
 
 // ongoing returns the outage that lasts, ending at the newest failed reading,

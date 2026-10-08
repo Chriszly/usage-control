@@ -117,7 +117,7 @@ func TestDataOnlyServesOnlyTheMetrics(t *testing.T) {
 }
 
 func TestListsDevices(t *testing.T) {
-	devices := []Device{{ID: "local"}, {ID: "living-room-pi", Name: "Living room Pi"}}
+	devices := []Device{{ID: "local"}, {ID: "living-room-pi", Name: "Living room Pi"}, {ID: "vm", Name: "VM", Unreachable: true, Refused: true}}
 	handler := newHandler(devices, 0, site)
 
 	rec := get(handler, "/api/devices", "192.168.1.20:5000")

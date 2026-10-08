@@ -156,15 +156,7 @@ func (c *deviceChanges) ownAddresses(ctx context.Context) []netip.Addr {
 	if err != nil {
 		return nil
 	}
-	var own []netip.Addr
-	for _, network := range snapshot.Network {
-		for _, address := range network.Addresses {
-			if addr, err := netip.ParseAddr(address); err == nil {
-				own = append(own, addr.Unmap())
-			}
-		}
-	}
-	return own
+	return hub.NetworkAddresses(snapshot)
 }
 
 // change makes a change once the password is right. Without a password yet,

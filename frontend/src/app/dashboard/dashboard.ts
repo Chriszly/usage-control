@@ -62,8 +62,17 @@ export class Dashboard {
   protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
   /** Whether the picked device is a PC or laptop, which is just not in use while it does not answer. */
   protected readonly isPC = computed(() => this.devices.selected().kind === 'pc');
+  /** Whether the backend does not connect to the picked device, as its address is the hub's own. */
+  protected readonly refused = computed(() => !!this.devices.selected().refused);
   /** How long the picked device did not answer since it was added; null for this device. */
   protected readonly availability = signal<Availability | null>(null);
+  /**
+   * The availability the page shows: none while the device is refused, whose time without an
+   * answer is not counted, so the card would claim it always answered.
+   */
+  protected readonly shownAvailability = computed(() =>
+    this.refused() ? null : this.availability(),
+  );
   protected readonly coreColumns = coreColumns;
 
   constructor() {
