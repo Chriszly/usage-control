@@ -135,7 +135,8 @@ export class DevicesDialog {
    * Asks for the password, makes the change and reads the list again. Emits
    * once when the change worked; a refused change shows its problem instead,
    * and the list is read again too, as a change that got no answer may still
-   * have been made.
+   * have been made. The buttons work again right away rather than after that
+   * read, which can take as long again when the hub is gone.
    */
   private change(
     ask: Omit<PasswordDialogData, 'passwordSet'>,
@@ -160,6 +161,7 @@ export class DevicesDialog {
         ),
         catchError((error: unknown) => {
           this.problem.set(problemMessage(error, this.i18n));
+          this.busy.set(false);
           return this.devices.load().pipe(
             ignoreElements(),
             catchError(() => EMPTY),

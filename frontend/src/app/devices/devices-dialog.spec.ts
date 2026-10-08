@@ -181,6 +181,20 @@ describe('DevicesDialog', () => {
       .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
+  it('lets a failed change be tried again while the list is read again', () => {
+    button('Remove').click();
+
+    http
+      .expectOne('/api/devices/office-pc')
+      .flush('down', { status: 504, statusText: 'Gateway Timeout' });
+    fixture.detectChanges();
+
+    expect(button('Remove').disabled).toBe(false);
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
+  });
+
   it('changes nothing when the password dialog is cancelled', () => {
     answer = undefined;
 
