@@ -1,8 +1,10 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -101,22 +103,66 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	openTestHub(t, store, nil)
-	var up atomic.Bool
-	refused := newAgent(startSwitchableDevice(t, &up), func(string, string, syscall.RawConn) error { return errOwnAddress })
-	watched := &watchedAgent{agent: refused, db: store.DB(), device: "pi"}
-	remote := &Remote{Agent: refused, watched: watched}
-
-	for range 3 {
-		if _, err := watched.Collect(ctx); !errors.Is(err, errOwnAddress) {
-			t.Fatalf("Collect() error = %v, want errOwnAddress", err)
+	var up, refuse atomic.Bool
+	agent := newAgent(startSwitchableDevice(t, &up), func(string, string, syscall.RawConn) error {
+		if refuse.Load() {
+			return errOwnAddress
+		}
+		return nil
+	})
+	began := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	if err := watch(ctx, store.DB(), "pi", began); err != nil {
+		t.Fatalf("watch() error = %v", err)
+	}
+	now := began
+	watched := &watchedAgent{agent: agent, db: store.DB(), device: "pi", clock: func() time.Time { return now }}
+	remote := &Remote{Agent: agent, watched: watched}
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	// collect reads once more, 5 s later, over a new connection, which the
+	// hub checks.
+	collect := func(want error) {
+		t.Helper()
+		now = now.Add(5 * time.Second)
+		agent.client.CloseIdleConnections()
+		_, err := watched.Collect(ctx)
+		if want != nil && !errors.Is(err, want) || want == nil && err == nil {
+			t.Fatalf("Collect() error = %v, want %v", err, want)
 		}
 	}
 
-	if got, err := readAvailability(ctx, store.DB(), "pi"); err != nil || got.Outages != 0 {
-		t.Errorf("availability = %+v, %v; want no outage", got, err)
+	// The device does not answer, then its address turns out to be the hub's own.
+	collect(nil)
+	collect(nil)
+	lastFailed := now
+	refuse.Store(true)
+	for range 3 {
+		collect(errOwnAddress)
+	}
+
+	got, err := readAvailability(ctx, store.DB(), "pi")
+	if err != nil || got.Outages != 1 || got.LastOutage == nil || !got.LastOutage.End.Equal(lastFailed) {
+		t.Fatalf("availability = %+v, %v; want 1 outage ending at the last failed reading %v", got, err, lastFailed)
+	}
+	if _, _, ok := watched.ongoing(); ok {
+		t.Error("ongoing() = true, want the outage ended")
 	}
 	if since, unreachable := remote.Unreachable(); !unreachable || !since.IsZero() {
 		t.Errorf("Unreachable() = %v, %v; want not answering, with no outage", since, unreachable)
+	}
+	if n := strings.Count(logged.String(), "HUB_DEVICES under the same name"); n != 1 {
+		t.Errorf("logged the refusal %d times, want once:\n%s", n, logged.String())
+	}
+
+	// Once the address is not refused, a device that does not answer has an
+	// outage again.
+	refuse.Store(false)
+	collect(nil)
+	collect(nil)
+	got, err = readAvailability(ctx, store.DB(), "pi")
+	if err != nil || got.Outages != 2 || got.LastOutage == nil || !got.LastOutage.Start.After(lastFailed) {
+		t.Errorf("availability = %+v, %v; want a second outage after %v", got, err, lastFailed)
 	}
 }
 

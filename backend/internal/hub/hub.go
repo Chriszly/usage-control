@@ -158,11 +158,6 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 			slog.Warn("a device added on the page has the same address and port as another; collecting from it only once", "name", device.Name, "other", other.Name, "address", device.Address)
 			continue
 		}
-		// Devices added before the hub's own addresses were refused, such as
-		// a VM behind port forwarding on the hub, show as not answering.
-		if !h.addableAddress(device.Address) {
-			slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
-		}
 		h.start(device, false)
 	}
 	h.recording.Go(func() {
@@ -636,6 +631,14 @@ func (h *Hub) start(device Device, fixed bool) {
 	}
 	recent := &history.Recent{}
 	watched := &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID}
+	// A device added on the page before the hub's own addresses were
+	// refused, at one of them, such as a VM behind port forwarding on the
+	// hub, shows as not answering. The log says so here, by name, and not
+	// again when the hub refuses to connect.
+	if !fixed && !h.addableAddress(device.Address) {
+		slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
+		watched.refusedLogged = true
+	}
 	ctx, stop := context.WithCancel(h.ctx)
 	remote := &Remote{
 		Device:   device,

@@ -175,6 +175,9 @@ type watchedAgent struct {
 	// lastEnd is when the previous outage ended. A new one starts after it,
 	// so the two never share the start that keys them in the database.
 	lastEnd time.Time
+	// refusedLogged is set once the log said that the hub refuses the
+	// device's address as its own.
+	refusedLogged bool
 }
 
 // Collect asks the device for its usage and notes an outage when it does not
@@ -195,6 +198,10 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if errors.Is(err, errOwnAddress) {
+		if !w.refusedLogged {
+			w.refusedLogged = true
+			slog.Warn("a device added on the page is at an address of the hub itself, which the hub does not connect to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "device", w.device)
+		}
 		w.firstFailed = time.Time{}
 		if !w.outageStart.IsZero() {
 			w.note(ctx, w.lastFailed)
