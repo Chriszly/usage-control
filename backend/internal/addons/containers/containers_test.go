@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -483,5 +484,79 @@ func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
 	}
 	if !maps.Equal(found, want) {
 		t.Errorf("found = %v, want %v", found, want)
+	}
+}
+
+// BenchmarkSignature sums up a tree shaped like a Raspberry Pi's: a few
+// cgroups in the root and 40 services in system.slice, each with its
+// control files.
+func BenchmarkSignature(b *testing.B) {
+	root := b.TempDir()
+	cgroup := func(dir string) {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			b.Fatal(err)
+		}
+		for i := range 30 {
+			if err := os.WriteFile(filepath.Join(dir, "control"+strconv.Itoa(i)), nil, 0o600); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	cgroup(root)
+	if err := os.WriteFile(filepath.Join(root, "cgroup.stat"), []byte("nr_descendants 44\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for _, dir := range []string{"init.scope", "user.slice", "sys-fs-fuse-connections.mount"} {
+		cgroup(filepath.Join(root, dir))
+	}
+	for i := range 40 {
+		cgroup(filepath.Join(root, "system.slice", "service"+strconv.Itoa(i)+".service"))
+	}
+	r := &Reader{cgroups: root}
+	b.ReportAllocs()
+	for b.Loop() {
+		r.signature()
+	}
+}
+
+func TestSignatureFollowsTheFoldersInTheTopTwoLevels(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		"cgroup.stat":                  "nr_descendants 3\n",
+		"system.slice/cron.service/x":  "",
+		"system.slice/cgroup.procs":    "",
+		"user.slice/user-1000.slice/x": "",
+	})
+	r := &Reader{cgroups: root}
+	before, ok := r.signature()
+	if !ok {
+		t.Fatal("signature() is not ok with cgroup.stat")
+	}
+	if again, _ := r.signature(); again != before {
+		t.Errorf("signature() = %x then %x, want the same for the same tree", before, again)
+	}
+
+	// A control file or a folder further down does not count.
+	writeFiles(t, root, map[string]string{
+		"system.slice/memory.current":    "1",
+		"user.slice/user-1000.slice/z/x": "",
+	})
+	if got, _ := r.signature(); got != before {
+		t.Errorf("signature() = %x, want %x with only a file or a deep folder more", got, before)
+	}
+
+	// A folder swapped for another in the second level does.
+	if err := os.Rename(filepath.Join(root, "system.slice", "cron.service"), filepath.Join(root, "system.slice", "docker-"+webID+".scope")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.signature(); got == before {
+		t.Errorf("signature() = %x, want another once a cgroup is swapped for a container", got)
+	}
+
+	if err := os.Remove(filepath.Join(root, "cgroup.stat")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.signature(); ok {
+		t.Error("signature() is ok without cgroup.stat, want a walk at every read")
 	}
 }
