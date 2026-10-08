@@ -52,8 +52,8 @@ jobs:
 
       # Pull requests only build the installers when they change them, the
       # Go dependencies, a program's command, or the add-on and service code
-      # those share. Other backend packages only get
-      # the Windows tests that run on every pull request.
+      # those share. Other backend packages only get the Windows tests that
+      # run on every pull request.
       - name: Does this change the installer
         id: changes
         run: |

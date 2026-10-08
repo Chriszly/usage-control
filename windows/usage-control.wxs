@@ -79,6 +79,9 @@
                     release (default true); the installer refuses a value
                     the service cannot read: it takes true, false, 1, 0, t
                     and f, in the cases the service takes, without spaces
+                    around. To fix a bad remembered value of the installed
+                    version, repair it with its own installer:
+                      msiexec /i usage-control.msi REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true
     RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
                     devices when the service starts; only from an
                     administrator, and not remembered, so the next install,
@@ -169,12 +172,16 @@
       spaces around the value, which the service trims but a condition cannot;
       a single space means the default. The launch conditions run after the
       remembered options are read, so this also checks those, in a repair too,
-      and names the option that fixes a bad remembered value. Only an
-      uninstall (msiexec /x, as from Apps and Features, which sets REMOVE) is
-      not held up by it.
+      and names the option that fixes a bad remembered value. For the version
+      that is installed, msiexec /i with only the option does nothing, so the
+      command it names then repairs it with the option (UpdateCheckFix). Only
+      an uninstall (msiexec /x, as from Apps and Features, which sets REMOVE)
+      is not held up by it.
     -->
+    <Property Id="UpdateCheckFix" Value="UPDATE_CHECK=true" />
+    <SetProperty Action="UpdateCheckFixInstalled" Id="UpdateCheckFix" Value="REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true" Before="LaunchConditions" Sequence="both" Condition="Installed" />
     <Launch Condition='REMOVE = "ALL" OR NOT UPDATE_CHECK OR UPDATE_CHECK = " " OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "t" OR UPDATE_CHECK = "f" OR UPDATE_CHECK = "T" OR UPDATE_CHECK = "F" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
-            Message='UPDATE_CHECK must be true or false. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" UPDATE_CHECK=true' />
+            Message='UPDATE_CHECK must be true or false. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" [UpdateCheckFix]' />
 
     <!--
       Derived from the options, once all of them are known. Without WEBSITE=1

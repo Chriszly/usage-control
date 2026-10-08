@@ -10,8 +10,8 @@
 # the service and leaves the tray icon running, checks a repair refuses an
 # UPDATE_CHECK the service cannot read and takes one it can, switches the
 # website off and on again with repairs, checks a bad remembered
-# UPDATE_CHECK is refused with the option that fixes it but does not hold up
-# the uninstall, uninstalls it, then installs it with the defaults
+# UPDATE_CHECK is refused with the repair that fixes it, which does, but does
+# not hold up the uninstall, uninstalls it, then installs it with the defaults
 # and checks it only serves the usage data, and last checks that an update
 # with WEBSITE=0 turns the website off and that one with a space clears
 # DISK_PATHS, UPDATE_CHECK and PORT.
@@ -42,17 +42,18 @@ function Get-InstalledVersions {
         ForEach-Object { $_.DisplayVersion }) -join ', '
 }
 
-# Runs the installer and checks it refuses with Message, as a launch
-# condition that is not met does, and changes nothing.
-function Assert-InstallerRefuses([string] $Arguments, [string] $Message) {
+# Runs the installer and checks it refuses with a message that holds each of
+# Messages, as a launch condition that is not met does, and changes nothing.
+function Assert-InstallerRefuses([string] $Arguments, [string[]] $Messages) {
     $before = Get-InstalledVersions
     $process = Start-Process msiexec.exe -ArgumentList "$Arguments /qn /l*v msiexec.log" -Wait -PassThru
     # 1603 is a failed install. Without the zeros the log reads the same
     # whether it was written as ANSI or as UTF-16.
     $log = (Get-Content msiexec.log -Raw) -replace "`0", ''
-    if ($process.ExitCode -ne 1603 -or -not $log.Contains($Message)) {
+    $missing = @($Messages | Where-Object { -not $log.Contains($_) })
+    if ($process.ExitCode -ne 1603 -or $missing.Count -gt 0) {
         Get-Content msiexec.log -Tail 80
-        throw "msiexec $Arguments exited with $($process.ExitCode); it should refuse with '$Message' and 1603"
+        throw "msiexec $Arguments exited with $($process.ExitCode); it should refuse with '$($Messages -join "' and '")' and 1603"
     }
     $after = Get-InstalledVersions
     if ($after -ne $before) { throw "msiexec $Arguments changed the installed version from '$before' to '$after'" }
@@ -234,8 +235,8 @@ function Assert-ProcessesAddOn {
     if ($memory.Count -ne 1 -or $memory[0].items.Count -ne 10) { throw "The processes add-on did not list ten processes by memory: $($groups | ConvertTo-Json -Depth 4)" }
 }
 
-Write-Host 'An UPDATE_CHECK other than true or false is refused'
-Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.'
+Write-Host 'An UPDATE_CHECK other than true or false is refused, naming the option'
+Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.', ".msi`" UPDATE_CHECK=true"
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The refused install installed the service' }
 
 Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
@@ -317,9 +318,13 @@ Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
 Assert-ServiceSetting DATA_ONLY 'false'
 Assert-Website 8091
 
-Write-Host 'A bad remembered UPDATE_CHECK names the option that fixes it, and does not hold up an uninstall'
+Write-Host 'A bad remembered UPDATE_CHECK names the repair that fixes it, which does, and does not hold up an uninstall'
 Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
-Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" UPDATE_CHECK=true"
+Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
+Assert-ServiceSetting UPDATE_CHECK 'true'
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' UPDATE_CHECK) -ne 'true') { throw 'The repair did not rewrite the remembered UPDATE_CHECK' }
+Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
