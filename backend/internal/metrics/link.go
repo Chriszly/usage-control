@@ -46,6 +46,9 @@ func (c *Collector) addLinks(interfaces []NetworkInterface) {
 type route struct {
 	iface   string
 	network netip.Prefix
+	// gateway is whether the network is reached through a router, as with
+	// a narrower route a VPN pushes, rather than on the interface's own link.
+	gateway bool
 }
 
 // parseRoutes reads the networks each interface reaches from the text of
@@ -61,14 +64,19 @@ func parseRoutes(text string) []route {
 			continue
 		}
 		destination, destinationErr := strconv.ParseUint(fields[1], 16, 32)
+		gateway, gatewayErr := strconv.ParseUint(fields[2], 16, 32)
 		mask, maskErr := strconv.ParseUint(fields[7], 16, 32)
-		if destinationErr != nil || maskErr != nil || mask == 0 {
+		if destinationErr != nil || gatewayErr != nil || maskErr != nil || mask == 0 {
 			continue
 		}
 		var address [4]byte
 		binary.LittleEndian.PutUint32(address[:], uint32(destination))
 		ones := bits.OnesCount32(uint32(mask))
-		routes = append(routes, route{iface: fields[0], network: netip.PrefixFrom(netip.AddrFrom4(address), ones)})
+		routes = append(routes, route{
+			iface:   fields[0],
+			network: netip.PrefixFrom(netip.AddrFrom4(address), ones),
+			gateway: gateway != 0,
+		})
 	}
 	return routes
 }
@@ -95,14 +103,22 @@ func parseLocalAddresses(text string) []netip.Addr {
 // addressesByInterface finds the interface of each local address: the one
 // whose route to the address's network is the most specific, as the kernel
 // picks it, so a wider route such as a VPN's does not take the address of
-// the network card.
+// the network card. A route without a gateway, to the interface's own link,
+// comes before one through a router, however narrow, as an address belongs
+// to the link it is on: a VPN may push a narrower route into that network.
 func addressesByInterface(addresses []netip.Addr, routes []route) map[string][]string {
 	result := map[string][]string{}
 	for _, address := range addresses {
 		var best route
 		found := false
 		for _, r := range routes {
-			if r.network.Contains(address) && (!found || r.network.Bits() > best.network.Bits()) {
+			if !r.network.Contains(address) {
+				continue
+			}
+			better := !found ||
+				(best.gateway && !r.gateway) ||
+				(best.gateway == r.gateway && r.network.Bits() > best.network.Bits())
+			if better {
 				best, found = r, true
 			}
 		}

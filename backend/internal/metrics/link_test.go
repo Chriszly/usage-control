@@ -57,6 +57,24 @@ func TestAddressesByInterfacePicksTheMostSpecificRoute(t *testing.T) {
 	}
 }
 
+func TestAddressesByInterfacePrefersTheLinkToAGatewayRoute(t *testing.T) {
+	// A VPN pushes 192.168.60.0/25 through its gateway 10.8.0.1, narrower
+	// than the network card's own link 192.168.60.0/24.
+	routes := `Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT
+eth0	003CA8C0	00000000	0001	0	0	100	00FFFFFF	0	0	0
+tun0	003CA8C0	0100080A	0003	0	0	0	80FFFFFF	0	0	0
+tun0	0000080A	00000000	0001	0	0	0	00FFFFFF	0	0	0
+`
+	addresses := []netip.Addr{netip.MustParseAddr("192.168.60.9"), netip.MustParseAddr("10.8.0.2")}
+
+	got := addressesByInterface(addresses, parseRoutes(routes))
+
+	want := map[string][]string{"eth0": {"192.168.60.9"}, "tun0": {"10.8.0.2"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("addressesByInterface() = %v, want %v", got, want)
+	}
+}
+
 func TestAddLinksReadsAgainOnlyAfterTheInterval(t *testing.T) {
 	c := &Collector{}
 	interfaces := []NetworkInterface{{Name: "eth0"}}
