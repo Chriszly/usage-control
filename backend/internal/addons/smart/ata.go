@@ -122,21 +122,30 @@ func checksum(sector []byte) error {
 }
 
 // parseIdentify reads the model, the serial number and whether SMART is
-// supported and on from the answer to IDENTIFY DEVICE.
-func parseIdentify(sector []byte) (model, serial string, smart bool, err error) {
+// supported and on from the answer to IDENTIFY DEVICE, which is nil when the
+// disk does not tell: word 82 says whether it is supported and word 85
+// whether it is on, but only when words 83 and 87 mark them valid with 01b
+// in their bits 15:14, as smartctl checks too.
+func parseIdentify(sector []byte) (model, serial string, smart *bool, err error) {
 	if len(sector) != 512 {
-		return "", "", false, fmt.Errorf("the sector has %d bytes, not 512", len(sector))
+		return "", "", nil, fmt.Errorf("the sector has %d bytes, not 512", len(sector))
 	}
 	// The checksum is only there when word 255 starts with the signature A5h.
 	if sector[510] == 0xA5 {
 		if err := checksum(sector); err != nil {
-			return "", "", false, err
+			return "", "", nil, err
 		}
 	}
 	word := func(i int) uint16 { return binary.LittleEndian.Uint16(sector[2*i:]) }
-	supported := word(82) != 0xFFFF && word(82)&1 != 0
-	enabled := word(85) != 0xFFFF && word(85)&1 != 0
-	return ataText(sector, 27, 46), ataText(sector, 10, 19), supported && enabled, nil
+	known82, known85 := word(83)>>14 == 1, word(87)>>14 == 1
+	supported, enabled := word(82)&1 != 0, word(85)&1 != 0
+	switch {
+	case known82 && !supported, known85 && !enabled:
+		smart = new(false)
+	case known82 && known85:
+		smart = new(true)
+	}
+	return ataText(sector, 27, 46), ataText(sector, 10, 19), smart, nil
 }
 
 // ataText reads the text in words first to last of IDENTIFY DEVICE, two
@@ -201,9 +210,11 @@ func parseSMARTData(sector []byte) (Disk, error) {
 // whether the disk sleeps first and leaves it alone if it does, then reads
 // its model and serial number, its SMART check and its SMART attributes. A
 // disk whose power mode cannot be read is not read either, as it might sleep.
-// A disk with SMART switched off is returned with SMARTOff, and one whose
-// attributes have a wrong checksum, as some older disks send, with its check
-// but without the attributes, which may be garbled.
+// A disk with SMART switched off or without it is returned with SMARTOff, as
+// is one whose IDENTIFY DEVICE does not tell and that then refuses to send
+// its attributes. One whose attributes have a wrong checksum, as some older
+// disks send, is returned with its check but without the attributes, which
+// may be garbled.
 func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	power, _, err := send(ataCheckPowerMode)
 	if err != nil {
@@ -220,10 +231,13 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	if err != nil {
 		return Disk{}, fmt.Errorf("identify: %w", err)
 	}
-	if !smart {
+	if smart != nil && !*smart {
 		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
 	}
 	_, sector, err = send(ataSMARTReadData)
+	if err != nil && smart == nil {
+		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
+	}
 	if err != nil {
 		return Disk{}, fmt.Errorf("read the SMART data: %w", err)
 	}
