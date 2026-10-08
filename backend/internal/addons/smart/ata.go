@@ -217,9 +217,9 @@ func parseSMARTData(sector []byte) (Disk, error) {
 // disk whose power mode cannot be read is not read either, as it might sleep.
 // A disk with SMART switched off or without it is returned with SMARTOff, as
 // is one whose IDENTIFY DEVICE does not tell and that then refuses to send
-// its attributes (errRefused); any other error reading them is an error. One whose attributes have a wrong checksum, as some older
-// disks send, is returned with its check but without the attributes, which
-// may be garbled.
+// its attributes (errRefused); any other error reading them is an error.
+// One whose attributes have a wrong checksum, as some older disks send, is
+// returned with its check but without the attributes, which may be garbled.
 func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	power, _, err := send(ataCheckPowerMode)
 	if err != nil {

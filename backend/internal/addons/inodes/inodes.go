@@ -223,14 +223,15 @@ func ParseMounts(table, dockerDir string) []Mount {
 	})
 }
 
-// hidden reports whether a filesystem is mounted on a folder above at
-// later than the last one at at, by the lines of the table in last, which
-// hides what is mounted at at. Mount paths use "/" on every system, so the
-// folders above are found with path.Dir, not filepath.Dir.
-func hidden(at string, last map[string]int) bool {
-	for above := at; above != "/"; {
+// hidden reports whether a filesystem is mounted on a folder above
+// mountPath later than the last one at mountPath, by the lines of the table
+// in last, which hides what is mounted at mountPath. Mount paths use "/" on
+// every system, so the folders above are found with path.Dir, not
+// filepath.Dir.
+func hidden(mountPath string, last map[string]int) bool {
+	for above := mountPath; above != "/"; {
 		above = path.Dir(above)
-		if last[above] > last[at] {
+		if last[above] > last[mountPath] {
 			return true
 		}
 	}

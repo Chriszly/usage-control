@@ -313,10 +313,16 @@ const podmanPods = "libpod_parent"
 // podmanPod reports whether path, a folder in dir named by an id, is a
 // Podman pod's folder with the cgroupfs driver, and not a container's: one
 // in libpod_parent, or, for a pod given a cgroup parent of its own
-// (--cgroup-parent), one that holds a container's libpod-<id> folder.
+// (--cgroup-parent), one that holds a container's libpod-<id> folder. The
+// folders of Docker's and Kubernetes's containers, in a folder named docker
+// or below kubepods, are not looked into, as find looks at them at every
+// read.
 func podmanPod(dir, path string) bool {
-	if filepath.Base(dir) == podmanPods {
+	switch {
+	case filepath.Base(dir) == podmanPods:
 		return true
+	case filepath.Base(dir) == "docker", strings.Contains(filepath.ToSlash(dir)+"/", "/kubepods/"):
+		return false
 	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
