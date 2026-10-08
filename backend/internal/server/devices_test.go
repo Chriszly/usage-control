@@ -218,6 +218,8 @@ func TestRefusedChangesAnswerWithTheirStatus(t *testing.T) {
 		{&hub.InputError{Problem: hub.ProblemRemoving}, http.StatusConflict},
 		{&hub.InputError{Problem: hub.ProblemNotFound}, http.StatusNotFound},
 		{&hub.InputError{Problem: hub.ProblemName}, http.StatusBadRequest},
+		{&hub.InputError{Problem: hub.ProblemUnreachable}, http.StatusUnprocessableEntity},
+		{&hub.InputError{Problem: hub.ProblemHostUnknown}, http.StatusUnprocessableEntity},
 		{hub.ErrStopping, http.StatusServiceUnavailable},
 	}
 	for _, tt := range tests {

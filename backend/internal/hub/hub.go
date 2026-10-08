@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"slices"
 	"sync"
@@ -173,7 +174,11 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 		return nil, err
 	}
 	for _, device := range fixed {
-		h.start(device, true)
+		h.start(device, true, nil)
+	}
+	var own []netip.Addr
+	if len(saved) > 0 {
+		own = h.ownAddresses()
 	}
 	for _, device := range saved {
 		if h.find(device.ID) != nil {
@@ -185,7 +190,7 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 			slog.Warn("a device added on the page has the same address and port as another; collecting from it only once", "name", device.Name, "other", other.Name, "address", device.Address)
 			continue
 		}
-		h.start(device, false)
+		h.start(device, false, own)
 	}
 	h.recording.Go(func() {
 		ticker := time.NewTicker(history.PruneInterval)
@@ -241,12 +246,20 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
-	if _, err := h.askNew(ctx, device.Address); err != nil {
+	own, err := h.askNew(ctx, device.Address)
+	if err != nil {
 		if errors.Is(err, errOwnAddress) {
 			return Device{}, &InputError{Problem: ProblemAddressOwn, Message: "the address is the hub itself; give the device's address on the local network"}
 		}
-		// Only the log says why, so the answer does not tell which ports of
-		// the hub's network are open.
+		// A usage-control that does not know the name it was asked by
+		// answers 421, which tells no more than that something answers
+		// there. Otherwise only the log says why, so the answer does not
+		// tell which ports of the hub's network are open.
+		var status *statusError
+		if errors.As(err, &status) && status.Code == http.StatusMisdirectedRequest {
+			slog.Info("could not add a device, as it does not answer to the name it was asked by", "name", device.Name, "address", device.Address, "error", err)
+			return Device{}, &InputError{Problem: ProblemHostUnknown, Message: "the device does not answer to the name in " + device.Address + "; give its IP address or its .local name, or add the name to ALLOWED_HOSTS on the device"}
+		}
 		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
 		return Device{}, &InputError{Problem: ProblemUnreachable, Message: "no usage-control answers at " + device.Address}
 	}
@@ -264,7 +277,7 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	if err := h.save(context.WithoutCancel(ctx), device, kind); err != nil {
 		return Device{}, err
 	}
-	h.start(device, false)
+	h.start(device, false, own)
 	return device, nil
 }
 
@@ -275,17 +288,19 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // refuses an address that is not addable, and a host name that resolves to
 // one when it connects, at once and whatever the port. How long the answer
 // took would otherwise tell which of the hub's own ports are open, including
-// ones only it can reach.
-func (h *Hub) askNew(ctx context.Context, address string) (metrics.Snapshot, error) {
+// ones only it can reach. It returns the hub's own addresses it checked
+// against, for start, which runs holding mu and so does not read them.
+func (h *Hub) askNew(ctx context.Context, address string) ([]netip.Addr, error) {
 	own := h.ownAddresses()
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
 		if ip, err := netip.ParseAddr(host); err == nil && !h.addable(ip, own) {
-			return metrics.Snapshot{}, errOwnAddress
+			return own, errOwnAddress
 		}
 	}
-	return askOnceWith(ctx, newAgent(address, h.refuseOwn(func() []netip.Addr { return own })))
+	_, err := askOnceWith(ctx, newAgent(address, h.refuseOwn(func() []netip.Addr { return own })))
+	return own, err
 }
 
 // refuseOwn returns the check of every address an agent of a device added on
@@ -423,15 +438,16 @@ func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
 }
 
 // addableAddress reports whether a device can be added at address
-// (host:port), as far as an IP address tells: a host name is checked only
-// when it is connected to.
-func (h *Hub) addableAddress(address string) bool {
+// (host:port), as far as an IP address tells, with own listing more of the
+// hub's addresses (see ownAddresses): a host name is checked only when it
+// is connected to.
+func (h *Hub) addableAddress(address string, own []netip.Addr) bool {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return true
 	}
 	ip, err := netip.ParseAddr(host)
-	return err != nil || h.addable(ip, h.ownAddresses())
+	return err != nil || h.addable(ip, own)
 }
 
 // save keeps an added device and its kind in the database, both or neither.
@@ -740,7 +756,10 @@ func (h *Hub) Wait() {
 }
 
 // start begins collecting from a device. The caller holds mu, or New runs.
-func (h *Hub) start(device Device, fixed bool) {
+// own lists more of the hub's addresses (see ownAddresses), read by the
+// caller before taking mu, as reading them can take seconds; it is unused
+// for a fixed device.
+func (h *Hub) start(device Device, fixed bool, own []netip.Addr) {
 	// A device from HUB_DEVICES is collected from at whatever address it is
 	// set to, as the hub's owner chose it, such as a VM behind port
 	// forwarding on the hub itself. One added on the page is not, even when
@@ -766,7 +785,7 @@ func (h *Hub) start(device Device, fixed bool) {
 	// refused, at one of them, such as a VM behind port forwarding on the
 	// hub, shows as not answering. The log says so here, by name, and not
 	// again when the hub refuses to connect.
-	if !fixed && !h.addableAddress(device.Address) {
+	if !fixed && !h.addableAddress(device.Address, own) {
 		slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
 		watched.refusedLogged = true
 	}

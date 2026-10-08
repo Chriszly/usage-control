@@ -217,7 +217,7 @@ Instead of the dialog, devices can be listed on the hub in `HUB_DEVICES`, each a
 HUB_DEVICES=Living room Pi=192.168.1.20:9393,Office PC=192.168.1.30:9393
 ```
 
-Give the devices fixed addresses, for example with an address reservation in the router, since the hub reaches them by the address it was given. A host name works too, as long as it resolves to an address on the local network. The device must then answer to that name: a `.local` name or its own hostname always works, any other name needs the device's `ALLOWED_HOSTS`.
+Give the devices fixed addresses, for example with an address reservation in the router, since the hub reaches them by the address it was given. A host name works too, as long as it resolves to an address on the local network. The device must then answer to that name: a `.local` name always works, and so does its hostname outside Docker; inside Docker the hostname is the container's, so the machine's bare hostname, like any other name, needs the device's `ALLOWED_HOSTS` (see [Open the page by name](#open-the-page-by-name)). Adding a device by a name it does not answer to says so in the dialog.
 
 Buttons above the dashboard switch between the devices. A dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). `DEVICE_NAME` sets how the page names the hub itself (default *Host Hub*).
 
