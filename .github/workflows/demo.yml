@@ -12,7 +12,8 @@ name: Demo page
 # other workflow, and a release published on GitHub with a new tag pushes the
 # tag too, so the release event would publish the same demo a second time.
 # A pre-release keeps the root as it is; when it is later made a full release,
-# run this workflow by hand on its tag.
+# run this workflow by hand on its tag. So does a bugfix on an older line, such
+# as 1.0.5 after 1.1.0: the root shows the newest release.
 on:
   push:
     branches:
@@ -40,14 +41,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A release marked as a pre-release on GitHub is not the latest release, so
-  # it keeps the root as it is. A tag without a release yet is one the other
-  # release workflows are about to release, which they do as a full release.
+  # The root shows the newest release. A release marked as a pre-release on
+  # GitHub is not the latest release, and a tag older than the newest release,
+  # such as a bugfix 1.0.5 after 1.1.0, is not the newest, so both keep the root
+  # as it is. A tag without a release yet is one the other release workflows
+  # are about to release, which they do as a full release.
   release:
     name: Check the release
     runs-on: ubuntu-latest
     outputs:
-      prerelease: ${{ steps.release.outputs.prerelease }}
+      skip: ${{ steps.release.outputs.skip }}
     steps:
       - name: Look up the tag's release
         id: release
@@ -56,12 +59,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          prerelease=false
+          skip=false
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             if prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2> error.txt)"; then
-              if [[ "$prerelease" == true ]]; then
-                echo "The release $TAG is a pre-release; the demo at the root stays as it is."
-              fi
+              :
             elif grep -q 'release not found' error.txt; then
               prerelease=false
             else
@@ -69,13 +70,27 @@ jobs:
               echo "Could not look up the release of $TAG, so it is unclear whether it is a pre-release; run the Demo page workflow again on the tag." >&2
               exit 1
             fi
+            if [[ "$prerelease" == true ]]; then
+              echo "The release $TAG is a pre-release; the demo at the root stays as it is."
+              skip=true
+            else
+              if ! releases="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName')"; then
+                echo "Could not list the releases, so it is unclear whether $TAG is the newest; run the Demo page workflow again on the tag." >&2
+                exit 1
+              fi
+              newest="$(printf '%s\n' "$releases" "$TAG" | sed -e 's/^v//' -e '/^$/d' | sort -V | tail -n 1)"
+              if [[ "$newest" != "${TAG#v}" ]]; then
+                echo "$TAG is older than the release $newest; the demo at the root stays as it is."
+                skip=true
+              fi
+            fi
           fi
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish the demo
     needs: release
-    if: ${{ needs.release.outputs.prerelease != 'true' }}
+    if: ${{ needs.release.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,6 +176,9 @@ jobs:
           for attempt in 1 2 3 4 5; do
             if git push --quiet origin gh-pages; then
               exit 0
+            fi
+            if [[ "$attempt" == 5 ]]; then
+              break
             fi
             echo "gh-pages changed while publishing (attempt ${attempt}); putting the demo on top of it."
             sleep "$attempt"
