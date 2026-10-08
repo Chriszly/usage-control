@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,7 @@ func readSensors(ctx context.Context) ([]sensors.TemperatureStat, []bool) {
 		readings = append(readings, reading)
 		asleep = append(asleep, sleeps)
 	}
+	reportedAwake.keep(files)
 	return readings, asleep
 }
 
@@ -102,4 +104,16 @@ func (s *sensorsReported) set(file string, reported bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reported[file] = reported
+}
+
+// keep forgets the sensors not in files, sorted as filepath.Glob returns
+// them, such as those gone when the hwmon numbering changed.
+func (s *sensorsReported) keep(files []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for file := range s.reported {
+		if _, found := slices.BinarySearch(files, file); !found {
+			delete(s.reported, file)
+		}
+	}
 }

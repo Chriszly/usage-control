@@ -63,34 +63,40 @@ const (
 	// holds, so the values read at one moment, such as an AMD GPU's usage,
 	// temperature and fan, all come new or all come from the last read.
 	decisionTime = time.Second
+	// forgetTime is how long a device or file not asked about is kept, so
+	// those gone, as when hwmon or PCI numbering changed, are dropped.
+	forgetTime = 10 * time.Minute
 )
 
 // deviceReads reads the sensor files of devices that may sleep at most every
 // wakeDelays autosuspend delays, and keeps the last content of each file for
 // the reads in between. A device that may not sleep, whose power/control is
-// "on", that has no autosuspend delay, or that is the GPU the display
-// started on, is read every time.
+// "on", that has no autosuspend delay, or that drives a display, is read
+// every time.
 type deviceReads struct {
 	now func() time.Time
 
-	// mu guards the decisions by the device folder asked about, when each
-	// device that may sleep was last read, by its real folder as /sys
-	// reaches one device through several links, and the last content of
-	// each file.
-	mu        sync.Mutex
-	decisions map[string]readDecision
-	reads     map[string]time.Time
-	values    map[string]fileContent
+	// mu guards the devices by their real folder, as /sys reaches one device
+	// through several links, the last content of each file, and when those
+	// not asked about were last dropped.
+	mu      sync.Mutex
+	devices map[string]deviceState
+	values  map[string]fileContent
+	pruned  time.Time
 }
 
-type readDecision struct {
-	at   time.Time
-	read bool
+// deviceState is the decision whether to read a device, made at decided and
+// held for decisionTime, and when it was last read while it may sleep.
+type deviceState struct {
+	decided  time.Time
+	read     bool
+	lastRead time.Time
 }
 
 type fileContent struct {
-	data []byte
-	err  error
+	data  []byte
+	err   error
+	asked time.Time
 }
 
 // sensorReads is the program's one deviceReads, so every read of a device
@@ -99,51 +105,83 @@ var sensorReads = newDeviceReads(time.Now)
 
 func newDeviceReads(now func() time.Time) *deviceReads {
 	return &deviceReads{
-		now:       now,
-		decisions: map[string]readDecision{},
-		reads:     map[string]time.Time{},
-		values:    map[string]fileContent{},
+		now:     now,
+		devices: map[string]deviceState{},
+		values:  map[string]fileContent{},
 	}
 }
 
 // due reports whether device may be read now. Its power/control and
 // power/autosuspend_delay_ms, which the kernel keeps without waking it, are
-// read at most once per decisionTime.
+// read at most once per decisionTime, and that one decision holds for every
+// link to the device.
 func (d *deviceReads) due(device string) bool {
+	if resolved, err := filepath.EvalSymlinks(device); err == nil {
+		device = resolved
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
-	if last, ok := d.decisions[device]; ok && now.Sub(last.at) >= 0 && now.Sub(last.at) < decisionTime {
-		return last.read
+	d.prune(now)
+	state := d.devices[device]
+	if since := now.Sub(state.decided); !state.decided.IsZero() && since >= 0 && since < decisionTime {
+		return state.read
 	}
-	read := true
-	// The GPU the machine started its display on, whose boot_vga the kernel
-	// keeps at 1 without waking it, drives the monitor and does not sleep,
-	// although desktop AMD GPUs allow it (power/control is "auto").
-	bootDisplay := sysfile.Text(filepath.Join(device, "boot_vga")) == "1"
-	if !bootDisplay && sysfile.Text(filepath.Join(device, "power", "control")) == "auto" {
+	state.decided, state.read = now, true
+	if sysfile.Text(filepath.Join(device, "power", "control")) == "auto" && !drivesDisplay(device) {
 		// The delay is negative when the device does not autosuspend, and
 		// cannot be read when its driver does not use it.
 		ms, err := strconv.Atoi(sysfile.Text(filepath.Join(device, "power", "autosuspend_delay_ms")))
 		if err == nil && ms > 0 {
-			key := device
-			if resolved, err := filepath.EvalSymlinks(device); err == nil {
-				key = resolved
-			}
-			last, seen := d.reads[key]
-			since := now.Sub(last)
-			switch {
-			case seen && since >= 0 && since < decisionTime:
-				// The same moment, read through another link to the device.
-			case seen && since >= 0 && since < wakeDelays*time.Duration(ms)*time.Millisecond:
-				read = false
-			default:
-				d.reads[key] = now
+			since := now.Sub(state.lastRead)
+			if !state.lastRead.IsZero() && since >= 0 && since < wakeDelays*time.Duration(ms)*time.Millisecond {
+				state.read = false
+			} else {
+				state.lastRead = now
 			}
 		}
 	}
-	d.decisions[device] = readDecision{at: now, read: read}
-	return read
+	d.devices[device] = state
+	return state.read
+}
+
+// prune drops, at most once per forgetTime, the devices and files not asked
+// about for forgetTime. d.mu is held.
+func (d *deviceReads) prune(now time.Time) {
+	if since := now.Sub(d.pruned); since >= 0 && since < forgetTime {
+		return
+	}
+	d.pruned = now
+	for device, state := range d.devices {
+		if now.Sub(state.decided) >= forgetTime {
+			delete(d.devices, device)
+		}
+	}
+	for file, value := range d.values {
+		if now.Sub(value.asked) >= forgetTime {
+			delete(d.values, file)
+		}
+	}
+}
+
+// drivesDisplay reports whether a GPU drives a display, so it does not sleep,
+// although desktop AMD GPUs allow it (power/control is "auto"): the GPU the
+// machine started its display on, whose boot_vga is 1, or one with a
+// connector in use, such as a second card driving a second monitor, whose
+// drm/card*/card*-*/enabled is "enabled". The kernel keeps both without
+// waking the GPU. A connector that is not in use, as for a monitor that is
+// plugged in but switched off in the display settings, lets the GPU sleep.
+func drivesDisplay(device string) bool {
+	if sysfile.Text(filepath.Join(device, "boot_vga")) == "1" {
+		return true
+	}
+	connectors, _ := filepath.Glob(filepath.Join(device, "drm", "card*", "card*-*", "enabled"))
+	for _, connector := range connectors {
+		if sysfile.Text(connector) == "enabled" {
+			return true
+		}
+	}
+	return false
 }
 
 // read returns the content of file, a sensor of devices, or its last content
@@ -155,13 +193,17 @@ func (d *deviceReads) read(file string, devices ...string) ([]byte, error) {
 	}
 	d.mu.Lock()
 	last, ok := d.values[file]
+	if ok && !due {
+		last.asked = d.now()
+		d.values[file] = last
+	}
 	d.mu.Unlock()
 	if !due && ok {
 		return last.data, last.err
 	}
 	data, err := sysfile.Read(file)
 	d.mu.Lock()
-	d.values[file] = fileContent{data: data, err: err}
+	d.values[file] = fileContent{data: data, err: err, asked: d.now()}
 	d.mu.Unlock()
 	return data, err
 }
