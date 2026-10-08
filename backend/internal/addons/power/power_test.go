@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/addons"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 func writeFiles(t *testing.T, root string, files map[string]string) {
@@ -269,18 +270,20 @@ func TestReadSeesAWakeThatComesBeforeNvidiaSMIIsDue(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho '0, GPU-1a2b3c4d-0000, GeForce, 18.42'\n"), 0o700); err != nil { //nolint:gosec // the test runs it
 		t.Fatal(err)
 	}
+	start := time.Now()
+	clock := start
 	r := NewReader(sys)
 	r.pmic, r.nvidia = "", script
-	start := time.Now()
+	r.nvidiaSleep = metrics.NewNvidiaSleepWithClock(sys, func() time.Time { return clock })
 	r.Read(t.Context(), start)
 	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "suspended\n"})
 	r.Read(t.Context(), start.Add(addons.ProgramInterval))
 
 	// It wakes before nvidia-smi may be asked again.
 	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "active\n"})
-	time.Sleep(1100 * time.Millisecond)
+	clock = start.Add(1100 * time.Millisecond)
 	early := r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))
-	time.Sleep(time.Second)
+	clock = start.Add(2100 * time.Millisecond)
 	due := r.Read(t.Context(), start.Add(addons.ProgramInterval+2*addons.Interval))
 
 	if len(early) != 1 || early[0].Watts != 0 {

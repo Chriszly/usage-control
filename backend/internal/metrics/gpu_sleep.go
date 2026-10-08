@@ -194,6 +194,13 @@ func NewNvidiaSleep(sysDir string) *NvidiaSleep {
 	return &NvidiaSleep{sysDir: sysDir, reads: sensorReads}
 }
 
+// NewNvidiaSleepWithClock returns an NvidiaSleep like NewNvidiaSleep that
+// tells when nvidia-smi is due by now, not by the time of day, and on its
+// own, not counting the program's other reads of the GPUs; for tests.
+func NewNvidiaSleepWithClock(sysDir string, now func() time.Time) *NvidiaSleep {
+	return &NvidiaSleep{sysDir: sysDir, reads: newDeviceReads(now)}
+}
+
 // gpus returns the NVIDIA GPUs' folders, looked up again once the list is
 // nvidiaListInterval old.
 func (s *NvidiaSleep) gpus() []string {
