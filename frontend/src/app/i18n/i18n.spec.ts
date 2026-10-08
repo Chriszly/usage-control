@@ -55,6 +55,7 @@ describe('I18n', () => {
 
     expect(format('format.dayMonth')).toBe('7. Okt.');
     expect(format('format.dateTime')).toBe('Mi. 7. Okt., 17:05');
+    expect(format('format.dayMonthYear')).toBe('7. Okt. 2026');
   });
 
   it('fills placeholders and follows a switch of language', () => {

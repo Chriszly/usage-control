@@ -223,4 +223,7 @@ export const fr: Messages = {
   'format.dayMonth': 'd MMM',
   'format.dateTime': 'EEE d MMM, HH:mm',
   'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  'format.dayMonthYear': 'd MMM y',
+  'format.dateTimeYear': 'EEE d MMM y, HH:mm',
+  'format.dateTimeSecondsYear': 'EEE d MMM y, HH:mm:ss',
 };

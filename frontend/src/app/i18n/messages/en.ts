@@ -222,6 +222,10 @@ export const en = {
   'format.dayMonth': 'd MMM',
   'format.dateTime': 'EEE d MMM, HH:mm',
   'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  // The same with the year, for charts over most of a year or into another year.
+  'format.dayMonthYear': 'd MMM y',
+  'format.dateTimeYear': 'EEE d MMM y, HH:mm',
+  'format.dateTimeSecondsYear': 'EEE d MMM y, HH:mm:ss',
 } as const;
 
 /** The key of one text on the website. */
