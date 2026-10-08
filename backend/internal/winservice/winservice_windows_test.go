@@ -65,16 +65,16 @@ func TestWindowsServiceServesAgainAfterAFailure(t *testing.T) {
 	}
 }
 
-// maxRetryDelay is far longer than a failure takes, so no failure counts as
-// one after serving for maxRetryDelay, which would start over.
+// Each failure comes right away, far sooner than the wait before it, so none
+// counts as one that came back after serving, which would be logged again.
 func TestWindowsServiceLogsAFailureOnceAndBacksOff(t *testing.T) {
 	var attempts atomic.Int32
 	var logged []string
 	served := make(chan struct{})
 	service := &windowsService{
 		log:           func(err error) { logged = append(logged, err.Error()) },
-		retryDelay:    time.Millisecond,
-		maxRetryDelay: time.Second,
+		retryDelay:    20 * time.Millisecond,
+		maxRetryDelay: 10 * time.Second,
 		serve: func(ctx context.Context) error {
 			switch attempts.Add(1) {
 			case 1, 2, 3, 4:
@@ -95,8 +95,8 @@ func TestWindowsServiceLogsAFailureOnceAndBacksOff(t *testing.T) {
 
 	service.Execute(nil, requests, make(chan svc.Status, 2))
 	want := []string{
-		"no add-on folder; trying again in 1ms, then less often, up to every 1s, until it works",
-		"port in use; trying again in 16ms, then less often, up to every 1s, until it works",
+		"no add-on folder; trying again in 20ms, then less often, up to every 10s, until it works",
+		"port in use; trying again in 320ms, then less often, up to every 10s, until it works",
 	}
 	if len(logged) != len(want) || logged[0] != want[0] || logged[1] != want[1] {
 		t.Errorf("logged %q, want %q", logged, want)
@@ -165,6 +165,34 @@ func TestWindowsServiceStartsOverAfterServingForMaxRetryDelay(t *testing.T) {
 	want := "port in use; trying again in 1ms, then less often, up to every 20ms, until it works"
 	if len(logged) != 2 || logged[0] != want || logged[1] != want {
 		t.Errorf("logged %q, want %q twice", logged, want)
+	}
+}
+
+func TestWindowsServiceLogsAFailureAgainThatComesBackAfterServing(t *testing.T) {
+	var attempts atomic.Int32
+	service := &windowsService{retryDelay: 10 * time.Millisecond, maxRetryDelay: 10 * time.Second}
+	logged := runUntilServed(service, func(ctx context.Context, served func()) error {
+		switch attempts.Add(1) {
+		case 1:
+			return errors.New("port in use")
+		case 2:
+			// Served for longer than the 10ms wait, then failed the same way.
+			time.Sleep(30 * time.Millisecond)
+			return errors.New("port in use")
+		case 3:
+			// Right away again, sooner than the 20ms wait: not logged.
+			return errors.New("port in use")
+		}
+		served()
+		<-ctx.Done()
+		return nil
+	})
+	want := []string{
+		"port in use; trying again in 10ms, then less often, up to every 10s, until it works",
+		"port in use; trying again in 20ms, then less often, up to every 10s, until it works",
+	}
+	if len(logged) != len(want) || logged[0] != want[0] || logged[1] != want[1] {
+		t.Errorf("logged %q, want %q", logged, want)
 	}
 }
 
