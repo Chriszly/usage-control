@@ -242,6 +242,70 @@ func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
 	}
 }
 
+func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// driver is the GPU's driver, runpm amdgpu's runpm setting.
+		driver, runpm, dpms string
+		// sleeps is whether the GPU may sleep, so it is not read every time.
+		sleeps bool
+	}{
+		{name: "amdgpu, default runpm, blanked", driver: "amdgpu", runpm: "-1", dpms: "Off", sleeps: false},
+		{name: "amdgpu, default runpm, showing", driver: "amdgpu", runpm: "-1", dpms: "On", sleeps: false},
+		{name: "amdgpu, runpm -2, off", driver: "amdgpu", runpm: "-2", dpms: "Off", sleeps: true},
+		{name: "amdgpu, runpm -2, standby", driver: "amdgpu", runpm: "-2", dpms: "Standby", sleeps: true},
+		{name: "amdgpu, runpm -2, suspend", driver: "amdgpu", runpm: "-2", dpms: "Suspend", sleeps: true},
+		{name: "amdgpu, runpm -2, showing", driver: "amdgpu", runpm: "-2", dpms: "On", sleeps: false},
+		{name: "other driver, off", driver: "radeon", runpm: "-1", dpms: "Off", sleeps: true},
+		{name: "other driver, standby", driver: "radeon", runpm: "-1", dpms: "Standby", sleeps: true},
+		{name: "other driver, suspend", driver: "radeon", runpm: "-1", dpms: "Suspend", sleeps: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sys := t.TempDir()
+			// A desktop's second AMD GPU with a monitor connected and in
+			// use, though the display started on the first.
+			device := filepath.Join(sys, "devices", "0000:03:00.0")
+			writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", "connected\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "enabled\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", test.dpms+"\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+			driver := filepath.Join(sys, "bus", "pci", "drivers", test.driver)
+			if err := os.MkdirAll(driver, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(driver, filepath.Join(device, "driver")); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			reads := newDeviceReads(func() time.Time { return now })
+			reads.amdgpuRunpm = func() string { return test.runpm }
+			file := filepath.Join(device, "gpu_busy_percent")
+			read := func() string {
+				t.Helper()
+				data, err := reads.read(file, device)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return strings.TrimSpace(string(data))
+			}
+
+			read()
+			writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+			now = now.Add(2 * time.Second)
+			want := "20"
+			if test.sleeps {
+				want = "10"
+			}
+			if got := read(); got != want {
+				t.Errorf("read 2 seconds later = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 func TestDeviceReadsForgetWhatIsNoLongerAsked(t *testing.T) {
 	// The devices are kept by their real folder.
 	sys, err := filepath.EvalSymlinks(t.TempDir())

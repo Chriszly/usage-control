@@ -85,7 +85,13 @@ type deviceReads struct {
 	links   map[string]deviceLink
 	values  map[string]fileContent
 	pruned  time.Time
+	// amdgpuRunpm returns the amdgpu driver's runpm setting, read once, as
+	// it is fixed while the driver is loaded.
+	amdgpuRunpm func() string
 }
+
+// amdgpuRunpmFile holds the amdgpu driver's runpm setting.
+const amdgpuRunpmFile = "/sys/module/amdgpu/parameters/runpm"
 
 // deviceLink is the real folder of a folder asked about, looked up at
 // resolved. It is looked up again once the decision made then has expired,
@@ -120,6 +126,9 @@ func newDeviceReads(now func() time.Time) *deviceReads {
 		devices: map[string]deviceState{},
 		links:   map[string]deviceLink{},
 		values:  map[string]fileContent{},
+		amdgpuRunpm: sync.OnceValue(func() string {
+			return sysfile.Text(amdgpuRunpmFile)
+		}),
 	}
 }
 
@@ -146,7 +155,7 @@ func (d *deviceReads) due(device string) bool {
 		return state.read
 	}
 	state.decided, state.read = now, true
-	if sysfile.Text(filepath.Join(device, "power", "control")) == "auto" && !drivesDisplay(device) {
+	if sysfile.Text(filepath.Join(device, "power", "control")) == "auto" && !d.drivesDisplay(device) {
 		// The delay is negative when the device does not autosuspend, and
 		// cannot be read when its driver does not use it.
 		ms, err := strconv.Atoi(sysfile.Text(filepath.Join(device, "power", "autosuspend_delay_ms")))
@@ -190,20 +199,32 @@ func (d *deviceReads) prune(now time.Time) {
 // drivesDisplay reports whether a GPU drives a display, so it does not sleep,
 // although desktop AMD GPUs allow it (power/control is "auto"): the GPU the
 // machine started its display on, whose boot_vga is 1, or one with a
-// connector in use, such as a second card driving a second monitor, whose
-// drm/card*/card*-*/enabled is "enabled" and whose dpms is "On". The kernel
-// keeps these files without waking the GPU. A connector that is not in use,
-// as for a monitor that is plugged in but switched off in the display
-// settings, or one that is only blanked (DPMS off), lets the GPU sleep:
-// blanking leaves enabled set, but turns dpms to "Off" in drivers that keep
-// the kernel's legacy display state up to date, as amdgpu does. A connector
-// without dpms counts by enabled alone.
-func drivesDisplay(device string) bool {
+// connector in use, such as a second card driving a second monitor. The
+// kernel keeps the files read here without waking the GPU. A connector is in
+// use when its drm/card*/card*-*/enabled is "enabled" and its dpms is "On",
+// not when its monitor is switched off in the display settings or only
+// blanked (DPMS off), which leaves enabled set but turns dpms to "Off" in
+// drivers that keep it up to date, as amdgpu does. amdgpu, though, keeps its
+// GPU awake while any monitor is connected (since Linux 6.0), blanked or
+// not, unless its runpm is -2, so there a connector whose status is
+// "connected" is in use too. A connector without dpms counts by enabled
+// alone.
+func (d *deviceReads) drivesDisplay(device string) bool {
 	if sysfile.Text(filepath.Join(device, "boot_vga")) == "1" {
 		return true
 	}
 	connectors, _ := filepath.Glob(filepath.Join(device, "drm", "card*", "card*-*"))
+	if len(connectors) == 0 {
+		return false
+	}
+	awakeWhileConnected := false
+	if driver, err := filepath.EvalSymlinks(filepath.Join(device, "driver")); err == nil && filepath.Base(driver) == "amdgpu" {
+		awakeWhileConnected = d.amdgpuRunpm() != "-2"
+	}
 	for _, connector := range connectors {
+		if awakeWhileConnected && sysfile.Text(filepath.Join(connector, "status")) == "connected" {
+			return true
+		}
 		if sysfile.Text(filepath.Join(connector, "enabled")) != "enabled" {
 			continue
 		}

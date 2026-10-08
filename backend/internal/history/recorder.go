@@ -129,10 +129,11 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 	// so it gets its point instead of being skipped. That fills a minute
 	// mainly for a hub's recorder of another device, whose minute is fetched
 	// from the device. This device's own recorder takes no readings while it
-	// stalls, so its caught-up minute has few or none and is often not
-	// stored: the chart shows a gap, as after a restart, for a time nothing
-	// was read. Keeping stored back to before the stall would fill it, but
-	// only with the readings of the minute before, which is stored already.
+	// stalls, as read.C is not served while it is inside store or the
+	// program is held up, so its caught-up minute has few or none, although
+	// stored already stays at the time the store was due, before the stall.
+	// Such a minute is often not stored: the chart shows a gap, as after a
+	// restart, for a time nothing was read.
 	if !last.IsZero() {
 		after := last.Add(SampleInterval)
 		if oldest := now.Add(-SampleInterval - storeAt - r.lag()).Truncate(SampleInterval).Add(SampleInterval); oldest.After(after) {
