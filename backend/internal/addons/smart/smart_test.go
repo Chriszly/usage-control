@@ -112,19 +112,51 @@ func TestParseSMARTDataChecksTheChecksum(t *testing.T) {
 func TestParseIdentifyReadsTheModelAndSMART(t *testing.T) {
 	sector := readTestdata(t, "ata-identify.bin")
 	model, serial, smart, err := parseIdentify(sector)
-	if err != nil || model != "WDC WD40EFRX-68N32N0" || serial != "WD-WCC7K0000000" || !smart {
+	if err != nil || model != "WDC WD40EFRX-68N32N0" || serial != "WD-WCC7K0000000" || smart == nil || !*smart {
 		t.Errorf("parseIdentify() = %q, %q, %v, %v, want the model and serial with SMART on", model, serial, smart, err)
 	}
 
 	// SMART switched off.
 	sector[2*85] &^= 1
 	sector[511]++
-	if _, _, smart, err := parseIdentify(sector); err != nil || smart {
+	if _, _, smart, err := parseIdentify(sector); err != nil || smart == nil || *smart {
 		t.Errorf("parseIdentify() = %v, %v, want SMART off", smart, err)
 	}
 	sector[0]++
 	if _, _, _, err := parseIdentify(sector); !errors.Is(err, errChecksum) {
 		t.Errorf("parseIdentify() = %v, want a checksum error", err)
+	}
+}
+
+func TestParseIdentifyReadsSMARTOnlyFromValidWords(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		// clear are the words whose bit 0 is cleared, invalid those whose
+		// bits 15:14 are cleared.
+		clear, invalid []int
+		want           *bool
+	}{
+		{name: "words 83 and 87 valid", want: yes()},
+		{name: "word 87 not valid", invalid: []int{87}},
+		{name: "word 83 not valid", invalid: []int{83}},
+		{name: "neither valid, word 85 off", clear: []int{85}, invalid: []int{83, 87}},
+		{name: "word 83 not valid, word 85 off", clear: []int{85}, invalid: []int{83}, want: no()},
+		{name: "word 87 not valid, word 82 off", clear: []int{82}, invalid: []int{87}, want: no()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sector := readTestdata(t, "ata-identify.bin")
+			sector[510] = 0 // no checksum
+			for _, w := range tt.clear {
+				sector[2*w] &^= 1
+			}
+			for _, w := range tt.invalid {
+				sector[2*w+1] &^= 0xC0
+			}
+			_, _, smart, err := parseIdentify(sector)
+			if err != nil || !reflect.DeepEqual(smart, tt.want) {
+				t.Errorf("parseIdentify() = %v, %v, want %v", smart, err, tt.want)
+			}
+		})
 	}
 }
 
@@ -192,10 +224,11 @@ type fakeATA struct {
 	t      *testing.T
 	power  byte
 	passed bool
-	// smartOff switches SMART off in the identify data, and badChecksum
-	// spoils the checksum of the SMART data.
-	smartOff, badChecksum bool
-	sent                  []byte
+	// smartOff switches SMART off in the identify data, unknown marks its
+	// words 83 and 87 as not valid, refuse makes the disk refuse to send its
+	// attributes, and badChecksum spoils their checksum.
+	smartOff, unknown, refuse, badChecksum bool
+	sent                                   []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
@@ -209,7 +242,14 @@ func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
 			sector[2*85] &^= 1
 			sector[511]++
 		}
+		if f.unknown {
+			sector[2*83+1] &^= 0xC0
+			sector[2*87+1] &^= 0xC0
+			sector[511] += 0x80
+		}
 		return ataResult{}, sector, nil
+	case c == ataSMARTReadData && f.refuse:
+		return ataResult{}, nil, errors.New("the disk refused the command 0xb0")
 	case c == ataSMARTReadData:
 		sector := readTestdata(f.t, "ata-smart.bin")
 		if f.badChecksum {
@@ -253,6 +293,33 @@ func TestReadATAShowsADiskWithSMARTOff(t *testing.T) {
 	}
 	if !bytes.Equal(disk.sent, []byte{0xE5, 0xEC}) {
 		t.Errorf("sent % x, want no SMART command", disk.sent)
+	}
+}
+
+func TestReadATAReadsSMARTOfADiskThatDoesNotTell(t *testing.T) {
+	disk := &fakeATA{t: t, power: 0xFF, passed: true, unknown: true}
+	got, err := readATA(disk.send)
+
+	want := Disk{
+		Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000",
+		Passed: yes(), Celsius: ptr(34), PowerOnHours: ptr(35215), ReallocatedSectors: ptr(8),
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v", got, err, want)
+	}
+
+	// One that then refuses to send its attributes shows SMART off.
+	disk = &fakeATA{t: t, power: 0xFF, unknown: true, refuse: true}
+	got, err = readATA(disk.send)
+	want = Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v", got, err, want)
+	}
+
+	// One with SMART on that refuses is an error, not SMART off.
+	disk = &fakeATA{t: t, power: 0xFF, refuse: true}
+	if got, err := readATA(disk.send); err == nil {
+		t.Errorf("readATA() = %+v, want an error", got)
 	}
 }
 
