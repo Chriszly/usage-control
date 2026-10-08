@@ -116,11 +116,11 @@ export class Dashboard {
   }
 
   /**
-   * The share of the time since the device was added that it answered, rounded down: its
+   * The share of the time the device was watched that it answered, rounded down: its
    * availability for a server, how much of the time it was in use for a PC or laptop.
    */
   protected availablePercent(a: Availability): number {
-    const seconds = Math.max(1, (Date.now() - Date.parse(a.since)) / 1000);
+    const seconds = Math.max(1, (Date.now() - Date.parse(a.countedSince)) / 1000);
     const percent = 100 * (1 - Math.min(a.offlineSeconds, seconds) / seconds);
     return Math.floor(percent * 100) / 100;
   }

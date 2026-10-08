@@ -176,7 +176,7 @@ function availability(machine: DemoMachine, now: number): Availability {
   const kind = machine.device.kind ?? 'server';
   const online = machine.online;
   if (!online) {
-    return { kind, since: iso(since), offlineSeconds: 0, outages: 0 };
+    return { kind, since: iso(since), countedSince: iso(since), offlineSeconds: 0, outages: 0 };
   }
   let offlineSeconds = 0;
   let outages = 0;
@@ -192,6 +192,7 @@ function availability(machine: DemoMachine, now: number): Availability {
   return {
     kind,
     since: iso(since),
+    countedSince: iso(since),
     offlineSeconds,
     outages,
     lastOutage: { start: iso(offlineSince(online, now)), end: iso(now) },

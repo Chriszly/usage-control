@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -25,9 +28,12 @@ type fakeHub struct {
 	asked      []netip.Addr
 	// own is the machine's own addresses the last Suggest got.
 	own []netip.Addr
+	// addOwn is the machine's own addresses the last Add got.
+	addOwn []netip.Addr
 }
 
-func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind) (hub.Device, error) {
+func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind, own []netip.Addr) (hub.Device, error) {
+	f.addOwn = own
 	if f.err != nil {
 		return hub.Device{}, f.err
 	}
@@ -230,6 +236,23 @@ func TestRefusedChangesAnswerWithTheirStatus(t *testing.T) {
 	}
 }
 
+func TestACancelledChangeAnswers503WithoutAnError(t *testing.T) {
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	for _, err := range []error{context.Canceled, fmt.Errorf("save the device: %w", context.Canceled)} {
+		handler := newChangeHandler(&fakeHub{err: err}, &fakePassword{password: "correct horse"})
+		rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%v: status = %d, want %d", err, rec.Code, http.StatusServiceUnavailable)
+		}
+	}
+	if logged.Len() != 0 {
+		t.Errorf("logged %q, want nothing", logged.String())
+	}
+}
+
 func TestRefusesAShortFirstPassword(t *testing.T) {
 	devices := &fakeHub{}
 	handler := newChangeHandler(devices, &fakePassword{})
@@ -294,6 +317,21 @@ func TestDoesNotSuggestTheHubItself(t *testing.T) {
 	}
 	if !slices.Contains(devices.own, netip.MustParseAddr("192.168.1.20")) {
 		t.Errorf("own addresses given to the hub = %v, want the ones from the usage", devices.own)
+	}
+}
+
+func TestAddIsToldTheHubsOwnAddresses(t *testing.T) {
+	devices := &fakeHub{}
+	own := fakeCollector{snapshot: metrics.Snapshot{Network: []metrics.NetworkInterface{
+		{Name: "eth0", Addresses: []string{"192.168.1.20", "fd00::20"}},
+	}}}
+	handler := New(Site{Devices: DeviceList(device(own, nil)), Hub: devices, Password: &fakePassword{password: "correct horse"}, Files: site})
+
+	rec := send(handler, http.MethodPost, "/api/devices", `{"name":"Office PC","address":"192.168.1.30:9393","password":"correct horse"}`)
+
+	want := []netip.Addr{netip.MustParseAddr("192.168.1.20"), netip.MustParseAddr("fd00::20")}
+	if rec.Code != http.StatusCreated || !slices.Equal(devices.addOwn, want) {
+		t.Errorf("status = %d, own addresses given to Add = %v; want 201 and %v from the usage", rec.Code, devices.addOwn, want)
 	}
 }
 

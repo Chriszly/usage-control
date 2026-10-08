@@ -67,7 +67,13 @@ type Agent struct {
 
 // NewAgent returns an Agent for the device at address (host:port).
 func NewAgent(address string) *Agent {
-	dialer := &net.Dialer{Timeout: requestTimeout, Control: localNetworkOnly}
+	return newAgent(address, localNetworkOnly)
+}
+
+// newAgent returns an Agent that checks every address it connects to with
+// control, which refuses one by returning an error.
+func newAgent(address string, control func(network, address string, c syscall.RawConn) error) *Agent {
+	dialer := &net.Dialer{Timeout: requestTimeout, Control: control}
 	return &Agent{
 		url:        "http://" + address + "/api/metrics",
 		minutesURL: "http://" + address + MinutesPath,
@@ -88,7 +94,10 @@ func NewAgent(address string) *Agent {
 // askOnce asks the device at address for its usage a single time and closes
 // the connection, which would otherwise stay open unused.
 func askOnce(ctx context.Context, address string) (metrics.Snapshot, error) {
-	agent := NewAgent(address)
+	return askOnceWith(ctx, NewAgent(address))
+}
+
+func askOnceWith(ctx context.Context, agent *Agent) (metrics.Snapshot, error) {
 	defer agent.client.CloseIdleConnections()
 	return agent.ask(ctx)
 }

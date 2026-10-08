@@ -226,6 +226,40 @@ func TestRecorderStoresUnderTheMinuteItWasDueFor(t *testing.T) {
 	}
 }
 
+func TestRecorderStoresTheMinuteAfterAStall(t *testing.T) {
+	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
+	for _, lag := range []time.Duration{0, fetchLag} {
+		recorder := &Recorder{}
+		if lag != 0 {
+			recorder.Fetch = func(context.Context, time.Time) bool { return true }
+		}
+		last := minute.Add(-time.Minute)
+		at := minute.Add(storeAt + lag)
+		// Storing last took 50 seconds: the next minute's time is 10 seconds
+		// away, too close for untilStore, and is still waited for.
+		if wait, due := recorder.next(at.Add(-10*time.Second), last); !due.Equal(minute) || wait != 10*time.Second {
+			t.Errorf("lag %v: next() 10 s before = %v, %v; want %v in 10s", lag, wait, due, minute)
+		}
+		// 45 seconds late: stored at once, under the minute it was due for.
+		now := at.Add(45 * time.Second)
+		wait, due := recorder.next(now, last)
+		if !due.Equal(minute) || wait != 0 {
+			t.Errorf("lag %v: next() 45 s late = %v, %v; want %v at once", lag, wait, due, minute)
+		}
+		if got, ok := recorder.storedUnder(now, due, last); !ok || !got.Equal(minute) {
+			t.Errorf("lag %v: storedUnder() 45 s late = %v, %v; want %v", lag, got, ok, minute)
+		}
+		// Then the one after it at its own time.
+		if wait, due := recorder.next(now, minute); !due.Equal(minute.Add(time.Minute)) || !now.Add(wait).Equal(at.Add(time.Minute)) {
+			t.Errorf("lag %v: next() after catching up = %v, %v; want %v at its storeAt", lag, wait, due, minute.Add(time.Minute))
+		}
+		// More than a minute late, it is no longer due: the next one is.
+		if _, due := recorder.next(at.Add(90*time.Second), last); !due.Equal(minute.Add(2 * time.Minute)) {
+			t.Errorf("lag %v: next() 90 s late = %v; want %v", lag, due, minute.Add(2*time.Minute))
+		}
+	}
+}
+
 func TestRecorderStoresUnderTheMinuteTheClockShowsAfterAJump(t *testing.T) {
 	minute := time.Unix(1_800_000_000, 0).Truncate(time.Minute)
 	for _, lag := range []time.Duration{0, fetchLag} {
@@ -236,7 +270,9 @@ func TestRecorderStoresUnderTheMinuteTheClockShowsAfterAJump(t *testing.T) {
 		at := minute.Add(storeAt + lag)
 		last := minute.Add(-time.Minute)
 		// On time, or with the clock set by some seconds: the minute it was due for.
-		for _, off := range []time.Duration{0, 20 * time.Second, -20 * time.Second} {
+		// A step of 45 seconds, as by NTP after a start from a saved time,
+		// keeps it too, so no minute is lost.
+		for _, off := range []time.Duration{0, 20 * time.Second, -20 * time.Second, 45 * time.Second, -45 * time.Second} {
 			if got, ok := recorder.storedUnder(at.Add(off), minute, last); !ok || !got.Equal(minute) {
 				t.Errorf("lag %v, off %v: storedUnder() = %v, %v; want %v", lag, off, got, ok, minute)
 			}

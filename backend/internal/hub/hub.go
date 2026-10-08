@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/netip"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // savedSchema keeps the devices added on the page. Devices from HUB_DEVICES
@@ -55,6 +59,13 @@ type Hub struct {
 	// beforeDelete, when set, is called before a removed device's data is
 	// deleted, for tests.
 	beforeDelete func(id string)
+	// allowLoopback lets Add add a device at a loopback address, for tests,
+	// whose devices all run on the machine itself.
+	allowLoopback bool
+	// hostAddrs lists the host's addresses in a container, its virtual
+	// interfaces' too, such as Docker's bridge gateway; metrics.HostAddresses
+	// when nil, replaced in tests.
+	hostAddrs func() []netip.Addr
 
 	// mu guards remotes and removing.
 	mu      sync.Mutex
@@ -169,9 +180,11 @@ func (h *Hub) Remotes() []*Remote {
 
 // Add checks the device, asks it for its usage once to make sure a
 // usage-control answers at its address, keeps it in the database with its
-// kind and starts collecting from it. Problems with the device are
+// kind and starts collecting from it. An address of the hub itself is
+// refused (see addable); own lists more of the machine's addresses besides
+// its network interfaces', as for Suggest. Problems with the device are
 // InputErrors.
-func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device, error) {
+func (h *Hub) Add(ctx context.Context, name, address string, kind Kind, own []netip.Addr) (Device, error) {
 	device, err := NewDevice(name, address)
 	if err != nil {
 		return Device{}, err
@@ -196,7 +209,10 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
-	if _, err := askOnce(ctx, device.Address); err != nil {
+	if _, err := h.askNew(ctx, device.Address, own); err != nil {
+		if errors.Is(err, errOwnAddress) {
+			return Device{}, &InputError{Problem: ProblemAddressOwn, Message: "the address is the hub itself; give the device's address on the local network"}
+		}
 		// Only the log says why, so the answer does not tell which ports of
 		// the hub's network are open.
 		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
@@ -218,6 +234,50 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	}
 	h.start(device, false)
 	return device, nil
+}
+
+// errOwnAddress refuses to connect to an address of the hub itself.
+var errOwnAddress = errors.New("the address is the hub's own")
+
+// askNew asks a device about to be added for its usage once, as askOnce, but
+// refuses an address that is not addable, and a host name that resolves to
+// one when it connects, at once and whatever the port. How long the answer
+// took would otherwise tell which of the hub's own ports are open, including
+// ones only it can reach.
+func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (metrics.Snapshot, error) {
+	hostAddrs := h.hostAddrs
+	if hostAddrs == nil {
+		hostAddrs = metrics.HostAddresses
+	}
+	own = append(slices.Clone(own), hostAddrs()...)
+	// An IP address is checked before connecting, which may fail before the
+	// check below, as with IPv6 on a machine without it.
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		if ip, err := netip.ParseAddr(host); err == nil && !h.addable(ip, own) {
+			return metrics.Snapshot{}, errOwnAddress
+		}
+	}
+	return askOnceWith(ctx, newAgent(address, func(network, address string, c syscall.RawConn) error {
+		if addrPort, err := netip.ParseAddrPort(address); err == nil && !h.addable(addrPort.Addr(), own) {
+			return errOwnAddress
+		}
+		return localNetworkOnly(network, address, c)
+	}))
+}
+
+// addable reports whether a device can be added at addr: not one of the
+// hub's own addresses (see suggester.isOwn; own lists the ones its network
+// interfaces do not have, such as the host's in a container), nor a
+// loopback or unspecified one, which is the hub itself, nor a link-local
+// IPv6 one, which would need a zone to be reached. Other addresses on the
+// local network can be added, link-local IPv4 ones too, as of a device
+// cabled straight to the hub.
+func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
+	addr = addr.Unmap().WithZone("")
+	if addr.IsLoopback() && h.allowLoopback {
+		return true
+	}
+	return !addr.IsLoopback() && !addr.IsUnspecified() && (addr.Is4() || !addr.IsLinkLocalUnicast()) && !h.suggester.isOwn(addr, own)
 }
 
 // save keeps an added device and its kind in the database, both or neither.

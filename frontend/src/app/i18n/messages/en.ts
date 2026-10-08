@@ -134,6 +134,8 @@ export const en = {
   'devices.problem.addressTaken':
     'A device at this address and port is in the list already. A device on another port can be added.',
   'devices.problem.address': 'Write the address as IP address and port, such as 192.168.1.20:9393.',
+  'devices.problem.addressOwn':
+    "This address is the hub itself. Write the device's address on the local network, such as 192.168.1.20:9393.",
   'devices.problem.kind': 'Pick whether the device is a server or IoT device, or a PC or laptop.',
   'devices.problem.unreachable':
     'No usage-control answers at this address. Is it running, and is the address on the local network?',

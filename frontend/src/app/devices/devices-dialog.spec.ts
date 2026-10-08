@@ -215,6 +215,22 @@ describe('DevicesDialog', () => {
       .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
+  it("says when the address is the hub's own", async () => {
+    await type('name', 'Laptop');
+    await type('address', '127.0.0.1:9393');
+    button('Add').click();
+
+    http
+      .expectOne('/api/devices')
+      .flush({ problem: 'addressOwn' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    expect(element().textContent).toContain('This address is the hub itself.');
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
+  });
+
   it('changes nothing when the password dialog is cancelled', () => {
     answer = undefined;
 
