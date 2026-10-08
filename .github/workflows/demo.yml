@@ -2,19 +2,27 @@ name: Demo page
 
 # Publishes the demo of the page to GitHub Pages: the real page, built with
 # `npm run build:demo`, with made-up devices instead of a backend. The site is
-# the gh-pages branch, which GitHub Pages serves as it is. A published release
+# the gh-pages branch, which GitHub Pages serves as it is. A release tag
 # replaces its root (https://chriszly.github.io/usage-control/) and a change to
 # main replaces main/ (https://chriszly.github.io/usage-control/main/); each
 # leaves the other alone. Pull requests only build the demo, in the CI workflow.
+#
+# Releases run on the tag push, as the other release workflows do, not on the
+# published release: a release they create with the workflow token starts no
+# other workflow, and a release published on GitHub with a new tag pushes the
+# tag too, so the release event would publish the same demo a second time.
 on:
   push:
     branches:
       - main
+    # A release tag, with or without the v: v1.2.3 or 1.2.3. Pushing a tag
+    # runs the workflow whatever the paths below say.
+    tags:
+      - 'v*.*.*'
+      - '[0-9]*.[0-9]*.[0-9]*'
     paths:
       - 'frontend/**'
       - '.github/workflows/demo.yml'
-  release:
-    types: [published]
   # Run on main to rebuild the main demo, or on a release tag to rebuild the
   # release demo from it.
   workflow_dispatch:
@@ -29,10 +37,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A release marked as a pre-release on GitHub is not the latest release, so
+  # it keeps the root as it is. A tag without a release yet is one the other
+  # release workflows are about to release, which they do as a full release.
+  release:
+    name: Check the release
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Look up the tag's release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease=false
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            # Prints nothing when the tag has no release yet.
+            prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2> /dev/null || true)"
+            if [[ "$prerelease" == true ]]; then
+              echo "The release $TAG is a pre-release; the demo at the root stays as it is."
+            else
+              prerelease=false
+            fi
+          fi
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Publish the demo
-    # A prerelease is not the latest release, so it keeps the root as it is.
-    if: ${{ !github.event.release.prerelease }}
+    needs: release
+    if: ${{ needs.release.outputs.prerelease != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
