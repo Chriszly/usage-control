@@ -263,8 +263,9 @@ func TestReadSeesAWakeThatComesBeforeNvidiaSMIIsDue(t *testing.T) {
 	}
 	fan := func(extras []metrics.Extra) float64 { return *extras[0].Items[0].Value }
 	answer("35")
-	r := &Reader{program: script, sleep: metrics.NewNvidiaSleep(sys)}
 	start := time.Now()
+	clock := start
+	r := &Reader{program: script, sleep: metrics.NewNvidiaSleepWithClock(sys, func() time.Time { return clock })}
 	r.Read(t.Context(), start)
 	write(filepath.Join(device, "power", "runtime_status"), "suspended\n", 0o600)
 	r.Read(t.Context(), start.Add(addons.ProgramInterval))
@@ -272,11 +273,11 @@ func TestReadSeesAWakeThatComesBeforeNvidiaSMIIsDue(t *testing.T) {
 	// It wakes before nvidia-smi may be asked again.
 	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
 	answer("40")
-	time.Sleep(1100 * time.Millisecond)
+	clock = start.Add(1100 * time.Millisecond)
 	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))); got != 0 {
 		t.Errorf("fan right after waking = %v, want the sleeping 0 until nvidia-smi is due", got)
 	}
-	time.Sleep(time.Second)
+	clock = start.Add(2100 * time.Millisecond)
 	if got := fan(r.Read(t.Context(), start.Add(addons.ProgramInterval+2*addons.Interval))); got != 40 {
 		t.Errorf("fan once nvidia-smi is due = %v, want a new answer, 40", got)
 	}

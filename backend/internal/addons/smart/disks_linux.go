@@ -309,7 +309,7 @@ func sgAnswer(c ataCommand, hdr *sgIOHdr, sense, data []byte) (ataResult, []byte
 	written := sense[:min(int(hdr.sbLenWr), len(sense))]
 	result, ok := parseATASense(written)
 	if ok && result.status&ataStatusError != 0 {
-		return ataResult{}, nil, fmt.Errorf("the disk refused the command %#x (error %#x)", c.command, result.err)
+		return ataResult{}, nil, fmt.Errorf("%w %#x (error %#x)", errRefused, c.command, result.err)
 	}
 	switch {
 	// Some bridges send a sector with RECOVERED ERROR, which smartctl

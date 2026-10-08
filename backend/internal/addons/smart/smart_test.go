@@ -226,9 +226,10 @@ type fakeATA struct {
 	passed bool
 	// smartOff switches SMART off in the identify data, unknown marks its
 	// words 83 and 87 as not valid, refuse makes the disk refuse to send its
-	// attributes, and badChecksum spoils their checksum.
-	smartOff, unknown, refuse, badChecksum bool
-	sent                                   []byte
+	// attributes, timeout makes it not answer, and badChecksum spoils their
+	// checksum.
+	smartOff, unknown, refuse, timeout, badChecksum bool
+	sent                                            []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
@@ -249,7 +250,9 @@ func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
 		}
 		return ataResult{}, sector, nil
 	case c == ataSMARTReadData && f.refuse:
-		return ataResult{}, nil, errors.New("the disk refused the command 0xb0")
+		return ataResult{}, nil, fmt.Errorf("%w 0xb0 (error 0x4)", errRefused)
+	case c == ataSMARTReadData && f.timeout:
+		return ataResult{}, nil, errors.New("SG_IO driver status 0x6")
 	case c == ataSMARTReadData:
 		sector := readTestdata(f.t, "ata-smart.bin")
 		if f.badChecksum {
@@ -314,6 +317,13 @@ func TestReadATAReadsSMARTOfADiskThatDoesNotTell(t *testing.T) {
 	want = Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("readATA() = %+v, %v, want %+v", got, err, want)
+	}
+
+	// One that does not answer, such as after a timeout, is an error, not
+	// SMART off.
+	disk = &fakeATA{t: t, power: 0xFF, unknown: true, timeout: true}
+	if got, err := readATA(disk.send); err == nil {
+		t.Errorf("readATA() = %+v, want an error after a timeout", got)
 	}
 
 	// One with SMART on that refuses is an error, not SMART off.
@@ -423,7 +433,11 @@ func TestSendCmdLayout(t *testing.T) {
 		t.Errorf("parseSendCmdOut() = %+v, %v, want passed", got, err)
 	}
 	out[4] = 1
-	if _, _, err := parseSendCmdOut(ataSMARTReturnStatus, out); !errors.Is(err, errDriver) {
+	if _, _, err := parseSendCmdOut(ataSMARTReturnStatus, out); !errors.Is(err, errRefused) {
+		t.Errorf("parseSendCmdOut() = %v, want the disk's refusal", err)
+	}
+	out[4] = 9 // SMART_NOT_SUPPORTED
+	if _, _, err := parseSendCmdOut(ataSMARTReturnStatus, out); !errors.Is(err, errDriver) || errors.Is(err, errRefused) {
 		t.Errorf("parseSendCmdOut() = %v, want the driver's error", err)
 	}
 	sector := make([]byte, sendCmdOutSize(ataSMARTReadData))

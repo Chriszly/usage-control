@@ -58,6 +58,16 @@ tank/podman/1f2e /home/me/.local/share/containers/storage/zfs/graph/1f2e zfs rw 
 /dev/zd64 /run/k3s/containerd/io.containerd.runtime.v2.task/k8s.io/9c3f/rootfs ext4 rw 0 0
 /dev/longhorn/pvc-1 /var/lib/kubelet/plugins/kubernetes.io/csi/driver.longhorn.io/ab12/globalmount ext4 rw 0 0
 /dev/longhorn/pvc-1 /var/lib/kubelet/pods/uid1/volumes/kubernetes.io~csi/pvc-1/mount ext4 rw 0 0
+tank/k3s/1a2b /var/lib/rancher/k3s/agent/containerd/io.containerd.snapshotter.v1.zfs/snapshots/1a2b zfs rw 0 0
+tank/rke2/3c4d /var/lib/rancher/rke2/agent/containerd/io.containerd.snapshotter.v1.zfs/snapshots/3c4d zfs rw 0 0
+/dev/sdm1 /var/lib/rancher/k3s/agent/containerd ext4 rw 0 0
+/dev/mapper/pool-snap-7 /var/lib/rancher/rke2/agent/containerd/tmpmounts/containerd-mount456 ext4 rw 0 0
+tank/microk8s/5e6f /var/snap/microk8s/common/var/lib/containerd/io.containerd.snapshotter.v1.zfs/snapshots/5e6f zfs rw 0 0
+/dev/zd80 /var/snap/microk8s/common/run/containerd/io.containerd.runtime.v2.task/k8s.io/7a8b/rootfs ext4 rw 0 0
+/dev/longhorn/pvc-2 /var/snap/microk8s/common/var/lib/kubelet/pods/uid2/volumes/kubernetes.io~csi/pvc-2/mount ext4 rw 0 0
+tank/k0s/9c0d /var/lib/k0s/containerd/io.containerd.snapshotter.v1.zfs/snapshots/9c0d zfs rw 0 0
+/dev/zd96 /run/k0s/containerd/io.containerd.runtime.v2.task/k8s.io/1e2f/rootfs ext4 rw 0 0
+/dev/longhorn/pvc-3 /var/lib/k0s/kubelet/plugins/kubernetes.io/csi/driver.longhorn.io/cd34/globalmount ext4 rw 0 0
 `
 
 func TestParseMountsKeepsRealFilesystems(t *testing.T) {
@@ -68,7 +78,8 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 	// /var/lib/docker/bind and /mnt/data/inner are hidden by a filesystem
 	// mounted later on a folder above them; /mnt/data/again, mounted after
 	// /mnt/data, is kept. Disks below the folders of Docker and rootless
-	// Podman are kept, their layers are not; of a storage pool only its own
+	// Podman and of the containerd of k3s, RKE2, MicroK8s and k0s are kept,
+	// their layers are not; of a storage pool only its own
 	// mount is kept, not the containers' volumes; below LXD's and Incus's
 	// devices, the folders of containerd's snapshots and tasks and kubelet's
 	// pods and plugins nothing is kept, not even a disk.
@@ -86,6 +97,7 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 		{Source: "/dev/sdi1", Path: "/mnt/data", Type: "ext4"},
 		{Source: "/dev/sdj1", Path: "/mnt/data/again", Type: "ext4"},
 		{Source: "/dev/sdk1", Path: "/home/me/.local/share/containers/storage/volumes", Type: "ext4"},
+		{Source: "/dev/sdm1", Path: "/var/lib/rancher/k3s/agent/containerd", Type: "ext4"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseMounts() = %+v, want %+v", got, want)

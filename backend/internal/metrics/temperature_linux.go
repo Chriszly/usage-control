@@ -75,6 +75,7 @@ func readSensors(ctx context.Context) ([]sensors.TemperatureStat, []bool) {
 		readings = append(readings, reading)
 		asleep = append(asleep, sleeps)
 	}
+	reportedAwake.keep(files)
 	return readings, asleep
 }
 
@@ -102,4 +103,20 @@ func (s *sensorsReported) set(file string, reported bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reported[file] = reported
+}
+
+// keep forgets the sensors not in files, such as those gone when the hwmon
+// numbering changed.
+func (s *sensorsReported) keep(files []string) {
+	listed := make(map[string]bool, len(files))
+	for _, file := range files {
+		listed[file] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for file := range s.reported {
+		if !listed[file] {
+			delete(s.reported, file)
+		}
+	}
 }
