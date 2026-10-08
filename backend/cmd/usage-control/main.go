@@ -244,7 +244,7 @@ func withHistory(ctx context.Context, sampler *metrics.Sampler, store *history.S
 		slog.Warn("RESET_PASSWORD deleted the password for changing devices; the next change chooses a new one. Unset RESET_PASSWORD again.")
 	}
 
-	others, err := hub.New(ctx, store, fixed, historyEntries, retention, pagePort)
+	others, err := hub.New(ctx, store, fixed, historyEntries, retention, pagePort, sampler.Reusing(reuseFor))
 	if err != nil {
 		return server.Site{}, nil, err
 	}
@@ -344,6 +344,7 @@ func (d hubDevices) List() []server.Device {
 			Removable:        !remote.Fixed,
 			Unreachable:      unreachable,
 			UnreachableSince: unreachableSince,
+			Refused:          unreachable && remote.Refused(),
 			Metrics:          remote.Agent.Latest(),
 			History:          remote.Reader,
 			Availability:     remote,

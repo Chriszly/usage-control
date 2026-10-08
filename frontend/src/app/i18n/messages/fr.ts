@@ -10,6 +10,8 @@ export const fr: Messages = {
   'dashboard.unreachable': 'Le backend est injoignable. Affichage des dernières valeurs connues.',
   'dashboard.deviceUnreachable':
     '{device} n’a pas répondu récemment. usage-control y est-il lancé ?',
+  'dashboard.deviceRefused':
+    '{device} est à une adresse du hub lui-même, à laquelle le hub ne se connecte pas pour un appareil ajouté sur la page. Retirez-le en conservant son historique et ajoutez-le à HUB_DEVICES sous le même nom.',
   'dashboard.deviceNotInUse':
     '{device} est éteint ou en veille, il n’est donc pas utilisé. Affichage des dernières valeurs connues.',
   'dashboard.cpu': 'CPU',

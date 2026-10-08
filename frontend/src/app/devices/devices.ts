@@ -30,6 +30,11 @@ export interface Device {
   unreachable?: boolean;
   /** When it stopped answering, as an ISO time, when that is known. */
   unreachableSince?: string;
+  /**
+   * Set for an unreachable device added on the page that the backend does not connect to, as its
+   * address is the hub's own; it can be collected from when listed in HUB_DEVICES instead.
+   */
+  refused?: boolean;
 }
 
 /** The body of GET /api/availability: how long another device did not answer since it was added. */

@@ -136,10 +136,16 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	// The device does not answer, then its address turns out to be the hub's own.
 	collect(nil)
 	collect(nil)
+	if remote.Refused() {
+		t.Error("Refused() = true for a device that does not answer, want false")
+	}
 	lastFailed := now
 	refuse.Store(true)
 	for range 3 {
 		collect(errOwnAddress)
+	}
+	if !remote.Refused() {
+		t.Error("Refused() = false, want true while the hub refuses the address")
 	}
 
 	got, err := readAvailability(ctx, store.DB(), "pi")
@@ -161,6 +167,9 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	refuse.Store(false)
 	collect(nil)
 	collect(nil)
+	if remote.Refused() {
+		t.Error("Refused() = true once the address is not refused, want false")
+	}
 	got, err = readAvailability(ctx, store.DB(), "pi")
 	if err != nil || got.Outages != 2 || got.LastOutage == nil || !got.LastOutage.Start.After(lastFailed) {
 		t.Errorf("availability = %+v, %v; want a second outage after %v", got, err, lastFailed)

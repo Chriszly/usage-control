@@ -11,10 +11,12 @@ import (
 	"net/netip"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/history"
+	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
 // startDevice runs a usage-control that answers with a fixed snapshot and
@@ -31,7 +33,7 @@ func startDevice(t *testing.T) string {
 func openTestHub(t *testing.T, store *history.Store, fixed []Device) *Hub {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	h, err := newHub(ctx, store, fixed, history.DefaultMaxEntries, 30*24*time.Hour, "9393", true)
+	h, err := newHub(ctx, store, fixed, history.DefaultMaxEntries, 30*24*time.Hour, "9393", nil, true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -179,6 +181,70 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 	}
 }
 
+// countingUsage is the hub's own usage, with a network card at addresses,
+// and counts how often it was read.
+type countingUsage struct {
+	addresses []string
+	reads     atomic.Int32
+}
+
+func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
+	u.reads.Add(1)
+	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: u.addresses}}}, nil
+}
+
+func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	// In Docker, the machine's network cards are not the container's; its
+	// usage lists them.
+	usage := &countingUsage{addresses: []string{"192.168.1.20"}}
+	h, err := newHub(ctx, openTestStore(t), nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393", usage, false)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		h.Wait()
+	})
+	h.suggester.ownAddrs = func() ([]net.Addr, error) { return nil, nil }
+	hostReads := 0
+	h.hostAddrs = func() []netip.Addr {
+		hostReads++
+		return []netip.Addr{netip.MustParseAddr("172.18.0.1")}
+	}
+
+	// Adding refuses the address, also when the page's request gives none.
+	if _, err := h.Add(ctx, "Laptop", "192.168.1.20:9393", KindServer, nil); problemOf(err) != ProblemAddressOwn {
+		t.Errorf("Add(192.168.1.20:9393) error = %v, want problem %q", err, ProblemAddressOwn)
+	}
+	// So does collecting, as for a host name that resolves to it later.
+	check := h.refuseOwn(h.ownAddresses)
+	for _, address := range []string{"192.168.1.20:9393", "172.18.0.1:9393"} {
+		if err := check("tcp4", address, nil); !errors.Is(err, errOwnAddress) {
+			t.Errorf("connecting to %s error = %v, want errOwnAddress", address, err)
+		}
+	}
+	if err := check("tcp4", "192.168.1.30:9393", nil); err != nil {
+		t.Errorf("connecting to 192.168.1.30:9393 error = %v, want none", err)
+	}
+	if h.addableAddress("192.168.1.20:9393") {
+		t.Error("addableAddress(192.168.1.20:9393) = true, want the hub's own refused")
+	}
+
+	// A device that does not answer is connected to every few seconds; the
+	// hub's addresses are read again only once they are a few seconds old.
+	if n := usage.reads.Load(); n != 1 || hostReads != 1 {
+		t.Errorf("own addresses read %d times from the usage and %d from the host, want once each", n, hostReads)
+	}
+	h.ownMu.Lock()
+	h.ownRead = h.ownRead.Add(-ownAddressesFor)
+	h.ownMu.Unlock()
+	_ = check("tcp4", "192.168.1.30:9393", nil)
+	if n := usage.reads.Load(); n != 2 || hostReads != 2 {
+		t.Errorf("own addresses read %d times from the usage and %d from the host, want twice each once old", n, hostReads)
+	}
+}
+
 func TestDevicesAddedOnThePageAreNotCollectedFromAtTheHubsOwnAddress(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
@@ -193,7 +259,7 @@ func TestDevicesAddedOnThePageAreNotCollectedFromAtTheHubsOwnAddress(t *testing.
 	defer slog.SetDefault(slog.Default())
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
 	running, stop := context.WithCancel(ctx)
-	h, err := newHub(running, store, []Device{{ID: "vm", Name: "VM", Address: fixed}}, history.DefaultMaxEntries, 30*24*time.Hour, "9393", false)
+	h, err := newHub(running, store, []Device{{ID: "vm", Name: "VM", Address: fixed}}, history.DefaultMaxEntries, 30*24*time.Hour, "9393", nil, false)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -370,7 +436,7 @@ func TestNoChangesOnceTheHubStops(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	running, stop := context.WithCancel(ctx)
-	h, err := newHub(running, store, nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393", true)
+	h, err := newHub(running, store, nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393", nil, true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -397,7 +463,7 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
 	nas := Device{ID: "nas", Name: "NAS", Address: startDevice(t)}
 	first, cancel := context.WithCancel(ctx)
-	h, err := newHub(first, store, []Device{pi, nas}, 0, 30*24*time.Hour, "9393", true)
+	h, err := newHub(first, store, []Device{pi, nas}, 0, 30*24*time.Hour, "9393", nil, true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
