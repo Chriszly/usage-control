@@ -11,6 +11,8 @@ name: Demo page
 # published release: a release they create with the workflow token starts no
 # other workflow, and a release published on GitHub with a new tag pushes the
 # tag too, so the release event would publish the same demo a second time.
+# A pre-release keeps the root as it is; when it is later made a full release,
+# run this workflow by hand on its tag.
 on:
   push:
     branches:
@@ -30,10 +32,11 @@ on:
 permissions:
   contents: read
 
-# One change to the gh-pages branch at a time; a newer one waits instead of
-# cancelling a running one.
+# One change to each part of the gh-pages branch at a time; a newer one waits
+# instead of cancelling a running one. Releases and main have groups of their
+# own, so a merge to main never cancels a release run that waits.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref_type }}
   cancel-in-progress: false
 
 jobs:
@@ -55,12 +58,16 @@ jobs:
           set -euo pipefail
           prerelease=false
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            # Prints nothing when the tag has no release yet.
-            prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2> /dev/null || true)"
-            if [[ "$prerelease" == true ]]; then
-              echo "The release $TAG is a pre-release; the demo at the root stays as it is."
-            else
+            if prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2> error.txt)"; then
+              if [[ "$prerelease" == true ]]; then
+                echo "The release $TAG is a pre-release; the demo at the root stays as it is."
+              fi
+            elif grep -q 'release not found' error.txt; then
               prerelease=false
+            else
+              cat error.txt >&2
+              echo "Could not look up the release of $TAG, so it is unclear whether it is a pre-release; run the Demo page workflow again on the tag." >&2
+              exit 1
             fi
           fi
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
@@ -145,7 +152,20 @@ jobs:
             echo "The demo of ${WHAT} is already published."
             exit 0
           fi
-          git -c user.name='github-actions[bot]' \
-            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            commit --quiet -m "Publish the demo of ${WHAT}"
-          git push --quiet origin gh-pages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --quiet -m "Publish the demo of ${WHAT}"
+          # The release and the main demo publish at the same time, to
+          # different paths (the root and main/), so a push the other one got
+          # in first is put on top of it and tried again.
+          for attempt in 1 2 3 4 5; do
+            if git push --quiet origin gh-pages; then
+              exit 0
+            fi
+            echo "gh-pages changed while publishing (attempt ${attempt}); putting the demo on top of it."
+            sleep "$attempt"
+            git fetch --quiet origin gh-pages
+            git rebase --quiet FETCH_HEAD
+          done
+          echo "Could not push the demo of ${WHAT} to gh-pages after 5 attempts; run the Demo page workflow again." >&2
+          exit 1

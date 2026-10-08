@@ -94,7 +94,7 @@ bash ci/check-no-secrets.sh
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
 | `vulnerabilities.yml` | every night, the updates that fix known vulnerabilities on main (`ci/fix-vulnerabilities.sh`), as one pull request; fails when a vulnerability has no fix yet |
-| `demo.yml` | publishes the demo of a release to the root of GitHub Pages on its release tag (not for a release marked as a pre-release), and the demo of main to `main/` on every merge to main that changes the frontend |
+| `demo.yml` | publishes the demo of a release to the root of GitHub Pages on its release tag (not for a release marked as a pre-release), and the demo of main to `main/` on every merge to main that changes the frontend; when a pre-release is later made a full release, run it by hand (*Run workflow*) on the tag |
 
 A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own. Pre-release tags, such as `1.0.4-rc1`, are not supported: the release workflows fail on them before they publish anything.
 
