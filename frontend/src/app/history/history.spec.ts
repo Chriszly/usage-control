@@ -152,6 +152,17 @@ describe('HistoryCharts', () => {
     expect(labels(RANGE)).toEqual([]);
   });
 
+  it('writes the year in the period of a range over a year', () => {
+    respond(400);
+    expect(element().querySelector('.period')?.textContent).not.toContain('2026');
+
+    click(UNIT, 'All');
+    respond(400);
+    const period = element().querySelector('.period')?.textContent ?? '';
+    expect(period).toContain('2025');
+    expect(period).toContain('2026');
+  });
+
   it('offers only ranges within the retention', () => {
     respond(7);
     expect(labels(UNIT)).toEqual(['Minutes', 'Hours', 'Days']);
