@@ -29,6 +29,11 @@ const (
 	// a device that answers more counts as not answering, and the log says
 	// why.
 	maxResponseBytes = 1 << 20
+	// drainBytes is how much of an answer is read after its JSON, so the
+	// connection can be used again: a chunked answer, one larger than the
+	// device's write buffer, ends after the JSON, which the decoder does not
+	// read. More than that, the connection is closed instead.
+	drainBytes = 4 << 10
 	// staleAfter is how old the newest reading may be before the device
 	// counts as unreachable: a few missed readings.
 	staleAfter = 20 * time.Second
@@ -179,6 +184,12 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 		a.closeKeptBefore(a.ownGeneration())
 		request = request.WithContext(httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 			GotConn: func(info httptrace.GotConnInfo) {
+				// Only a reused connection is closed. A new one was just
+				// checked when it was opened, even when its generation is
+				// already behind, and closing it would fail the request:
+				// the transport sends it again over another connection only
+				// when a reused one fails, so the reading would count as an
+				// outage.
 				if conn, ok := info.Conn.(*generationConn); ok && info.Reused && conn.generation < a.ownGeneration() {
 					_ = conn.Close()
 				}
@@ -189,7 +200,10 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 	if err != nil {
 		return fmt.Errorf("ask %s: %w", url, err)
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, drainBytes))
+		_ = response.Body.Close()
+	}()
 	if response.StatusCode != http.StatusOK {
 		return &statusError{URL: url, Status: response.Status, Code: response.StatusCode}
 	}
