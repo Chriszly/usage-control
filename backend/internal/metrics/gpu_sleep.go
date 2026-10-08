@@ -85,13 +85,10 @@ type deviceReads struct {
 	links   map[string]deviceLink
 	values  map[string]fileContent
 	pruned  time.Time
-	// amdgpuRunpm returns the amdgpu driver's runpm setting, read once, as
-	// it is fixed while the driver is loaded.
-	amdgpuRunpm func() string
+	// runpm is the amdgpu driver's runpm setting once read (see
+	// amdgpuRunpm).
+	runpm string
 }
-
-// amdgpuRunpmFile holds the amdgpu driver's runpm setting.
-const amdgpuRunpmFile = "/sys/module/amdgpu/parameters/runpm"
 
 // deviceLink is the real folder of a folder asked about, looked up at
 // resolved. It is looked up again once the decision made then has expired,
@@ -126,9 +123,6 @@ func newDeviceReads(now func() time.Time) *deviceReads {
 		devices: map[string]deviceState{},
 		links:   map[string]deviceLink{},
 		values:  map[string]fileContent{},
-		amdgpuRunpm: sync.OnceValue(func() string {
-			return sysfile.Text(amdgpuRunpmFile)
-		}),
 	}
 }
 
@@ -194,6 +188,16 @@ func (d *deviceReads) prune(now time.Time) {
 			delete(d.values, file)
 		}
 	}
+}
+
+// amdgpuRunpm returns the amdgpu driver's runpm setting. It is fixed while
+// the driver is loaded, so once read it is kept; a failed read, as before
+// the driver is loaded, is tried again next time. d.mu is held.
+func (d *deviceReads) amdgpuRunpm() string {
+	if d.runpm == "" {
+		d.runpm = sysfile.Text(filepath.Join(hostPath("HOST_SYS", "/sys"), "module", "amdgpu", "parameters", "runpm"))
+	}
+	return d.runpm
 }
 
 // drivesDisplay reports whether a GPU drives a display, so it does not sleep,

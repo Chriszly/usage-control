@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,11 +248,15 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 		name string
 		// driver is the GPU's driver, runpm amdgpu's runpm setting.
 		driver, runpm, dpms string
+		// status and enabled are the connector's, "connected" and
+		// "enabled" when empty.
+		status, enabled string
 		// sleeps is whether the GPU may sleep, so it is not read every time.
 		sleeps bool
 	}{
 		{name: "amdgpu, default runpm, blanked", driver: "amdgpu", runpm: "-1", dpms: "Off", sleeps: false},
 		{name: "amdgpu, default runpm, showing", driver: "amdgpu", runpm: "-1", dpms: "On", sleeps: false},
+		{name: "amdgpu, default runpm, disconnected", driver: "amdgpu", runpm: "-1", dpms: "Off", status: "disconnected", enabled: "disabled", sleeps: true},
 		{name: "amdgpu, runpm -2, off", driver: "amdgpu", runpm: "-2", dpms: "Off", sleeps: true},
 		{name: "amdgpu, runpm -2, standby", driver: "amdgpu", runpm: "-2", dpms: "Standby", sleeps: true},
 		{name: "amdgpu, runpm -2, suspend", driver: "amdgpu", runpm: "-2", dpms: "Suspend", sleeps: true},
@@ -268,8 +273,9 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 			writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
 			writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
 			writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
-			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", "connected\n")
-			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "enabled\n")
+			status, enabled := cmp.Or(test.status, "connected"), cmp.Or(test.enabled, "enabled")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", status+"\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", enabled+"\n")
 			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", test.dpms+"\n")
 			writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
 			driver := filepath.Join(sys, "bus", "pci", "drivers", test.driver)
@@ -281,7 +287,7 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 			}
 			now := time.Now()
 			reads := newDeviceReads(func() time.Time { return now })
-			reads.amdgpuRunpm = func() string { return test.runpm }
+			reads.runpm = test.runpm
 			file := filepath.Join(device, "gpu_busy_percent")
 			read := func() string {
 				t.Helper()
