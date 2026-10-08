@@ -255,7 +255,7 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `DATA_ONLY` | `false` | `true` serves only the usage for a hub, with no website and no history of its own |
 | `BUFFER_HOURS` | `24` | with `DATA_ONLY`, hours of usage kept for a hub that cannot reach the device, 1 to 168; see [While the hub is away](architecture.md#while-the-hub-is-away) |
 | `RESET_PASSWORD` | `false` | `true` deletes the password for changing devices at start; unset it again right after |
-| `UPDATE_CHECK` | `true` | `false` stops the daily check for a newer release |
+| `UPDATE_CHECK` | `true` | `false` stops the daily check for a newer release. When set, it must be `true` or `false` on every device, data-only ones too, which never check: an invalid value stops the program |
 | `ALLOWED_HOSTS` | none | other names this device answers to, comma-separated, besides IP addresses, `localhost`, its hostname and `.local` names |
 | `DOCKER_DIR` | `/var/lib/docker` | for the containers add-on: Docker's data folder, as `docker info` shows it under *Docker Root Dir*, from which it reads the containers' names. The Linux service cannot read folders below `/home`, so rootless Docker's names show only with the container. The inodes add-on leaves out the containers' layers mounted below it |
 | `ADDONS_DIR` | `/run/usage-control-addons` for the Linux service; else none | the folder add-ons write their values to, which are shown as extras. Fixed for the Linux service, whose add-ons always write to `/run/usage-control-addons`: leave it out of `/etc/usage-control.env` |
@@ -293,6 +293,7 @@ Deploying to the maintainer's Pi lives in the private settings repository rpi-de
 | "no usage-control answers at …" when adding | Nothing answered at that address within 4 seconds; the hub's log says why. Open `http://<address>/api/metrics` from the hub's network to check |
 | `403 only reachable from the local network` | The request came from outside the local network, or through a proxy. Open the page directly from the LAN. In Docker, check that the port is published as `0.0.0.0:…` (`ss -tlnp` on the host) |
 | `421 Misdirected Request` | The page was opened by a name the device does not know. Use the IP address or a `.local` name, or add the name to `ALLOWED_HOSTS` |
+| The page stays empty inside another page, such as a Home Assistant iframe card | The page refuses to be shown in a frame of another site, so no other page can lay itself over it; there is no setting to allow it. Open it in its own browser tab instead |
 | Temperature shows as unavailable | The system does not report it to programs, as on most Windows PCs and in containers without the host's `/sys` |
 | No GPU card | No GPU the system reports without extra rights; see [GPUs](data.md#gpus) |
 | The program does not start: "check DISK_PATHS" | A path in `DISK_PATHS` cannot be read; the message says which. In Docker, mount it read-only in `compose.yaml` first; on Windows, list drives or folders that exist, such as `C:\,D:\` |
