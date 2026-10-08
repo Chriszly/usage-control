@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -16,12 +17,23 @@ import (
 // which can take more than a second.
 const nvidiaTimeout = 3 * time.Second
 
+// nvidiaGiveUp is how long a read waits for nvidia-smi, which a kill after
+// nvidiaTimeout may not end (see addons.Program).
+const nvidiaGiveUp = nvidiaTimeout + 2*time.Second
+
 // readNvidia reads the power draw of each NVIDIA GPU through nvidia-smi,
-// which comes with the NVIDIA driver. program is "" when it is not installed.
-func readNvidia(ctx context.Context, program string) []Reading {
+// which comes with the NVIDIA driver, run by calls. program is "" when it is
+// not installed. While a call does not end, no GPU is reported.
+func readNvidia(ctx context.Context, program string, calls *addons.Program) []Reading {
 	if program == "" {
 		return nil
 	}
+	out, _ := calls.Output(nvidiaGiveUp, func() (string, error) { return runNvidia(ctx, program) })
+	return parseNvidia(out)
+}
+
+// runNvidia runs nvidia-smi for readNvidia, giving up after nvidiaTimeout.
+func runNvidia(ctx context.Context, program string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, nvidiaTimeout)
 	defer cancel()
 	// program is the nvidia-smi found on the PATH at start, and the arguments are fixed.
@@ -38,7 +50,7 @@ func readNvidia(ctx context.Context, program string) []Reading {
 	if errors.As(err, &exit) {
 		out = append(out, exit.Stderr...)
 	}
-	return parseNvidia(string(out))
+	return string(out), err
 }
 
 // parseNvidia reads lines such as

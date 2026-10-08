@@ -224,4 +224,13 @@ func TestReadLetsSleepingGPUsSleep(t *testing.T) {
 	if !reflect.DeepEqual(values, want) || len(got[0].Items) != len(want) || r.failing {
 		t.Errorf("Read() while asleep = %+v, want %v without the performance state or running nvidia-smi", got[0].Items, want)
 	}
+
+	// Once it wakes, nvidia-smi is asked at the next read, not only once
+	// addons.ProgramInterval has passed.
+	write(filepath.Join(device, "power", "runtime_status"), "active\n", 0o600)
+	write(script, "#!/bin/sh\necho '0, GPU-0000aaaa-0000, NVIDIA GeForce RTX 4070, 40, 2475, 10501, 0, 3, P0, 200.00'\n", 0o700)
+	got = r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))
+	if len(got) != 1 || got[0].Items[0].ID != "0-fan" || *got[0].Items[0].Value != 40 {
+		t.Errorf("Read() after waking = %+v, want a new answer with the fan at 40", got)
+	}
 }

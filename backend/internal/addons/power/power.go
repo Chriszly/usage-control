@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
 
@@ -37,8 +38,11 @@ type Reader struct {
 	nvidia string
 	system *system
 	// nvidiaSleep tells whether the NVIDIA GPUs sleep, when nvidia-smi
-	// would wake them.
-	nvidiaSleep *metrics.NvidiaSleep
+	// would wake them, and nvidiaAsleep whether they did at the last read.
+	nvidiaSleep  *metrics.NvidiaSleep
+	nvidiaAsleep bool
+	// nvidiaCalls runs nvidia-smi.
+	nvidiaCalls addons.Program
 
 	// lastPMIC and lastNvidia keep what vcgencmd and nvidia-smi answered,
 	// which is asked only every pmicInterval and addons.ProgramInterval.
@@ -69,18 +73,32 @@ func NewReader(sysDir string) *Reader {
 // Read returns the power values, in a fixed order. Power measured from an
 // energy counter is the average since the previous call, so the first call
 // leaves those out. vcgencmd is asked only every pmicInterval and nvidia-smi
-// every addons.ProgramInterval, and their last answer is used in between.
+// every addons.ProgramInterval, and at once when the NVIDIA GPUs wake, so one
+// asleep since the add-on started shows up then; their last answer is used
+// in between. While an NVIDIA GPU may sleep, nvidia-smi is asked at most
+// every few autosuspend delays (see metrics.NvidiaSleep.Due).
 func (r *Reader) Read(ctx context.Context, now time.Time) []Reading {
 	var readings []Reading
 	readings = append(readings, r.lastPMIC.get(now, func() []Reading { return r.pmicTotal(ctx) })...)
 	readings = append(readings, r.rapl.read(now)...)
 	readings = append(readings, readHwmon(r.hwmon)...)
 	readings = append(readings, r.system.read()...)
+	if r.nvidia == "" {
+		return readings
+	}
+	asleep := r.nvidiaSleep.Asleep()
+	if r.nvidiaAsleep && !asleep {
+		r.lastNvidia.at = time.Time{}
+	}
+	r.nvidiaAsleep = asleep
 	readings = append(readings, r.lastNvidia.get(now, func() []Reading {
-		if r.nvidiaSleep.Asleep() {
+		switch {
+		case asleep:
 			return sleepingNvidia(r.lastNvidia.readings)
+		case !r.nvidiaSleep.Due():
+			return r.lastNvidia.readings
 		}
-		return readNvidia(ctx, r.nvidia)
+		return readNvidia(ctx, r.nvidia, &r.nvidiaCalls)
 	})...)
 	return readings
 }

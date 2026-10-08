@@ -242,6 +242,15 @@ func TestReadLetsSleepingNvidiaGPUsSleep(t *testing.T) {
 	if !reflect.DeepEqual(asleep, want) || len(strings.Fields(string(data))) != 1 {
 		t.Errorf("Read() while asleep = %+v after %q, want %+v without another run", asleep, data, want)
 	}
+
+	// Once it wakes, nvidia-smi is asked at the next read, not only once
+	// addons.ProgramInterval has passed.
+	writeFiles(t, sys, map[string]string{gpu + "power/runtime_status": "active\n"})
+	woke := r.Read(t.Context(), start.Add(addons.ProgramInterval+addons.Interval))
+	data, _ = os.ReadFile(runs) //nolint:gosec // a file this test created
+	if len(woke) != 1 || woke[0].Watts != 18.42 || len(strings.Fields(string(data))) != 2 {
+		t.Errorf("Read() after waking = %+v after %q, want the GeForce's 18.42 W from a second run", woke, data)
+	}
 }
 
 func TestParseNvidiaCountsALostGPU(t *testing.T) {
