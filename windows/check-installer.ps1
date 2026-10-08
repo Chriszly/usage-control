@@ -1,5 +1,5 @@
 # Checks the Windows installer on a Windows machine, as an administrator:
-# checks it refuses an UPDATE_CHECK other than true or false, installs it
+# checks it refuses an UPDATE_CHECK the service cannot read, installs it
 # with the website and the power, gpu, kernel, pressure, Wi-Fi, memory,
 # ports, smart and processes add-ons on, checks the tray icon pauses,
 # resumes and stops the service, updates it to a newer bugfix without
@@ -7,8 +7,11 @@
 # RESET_PASSWORD, and the tray icon was closed for the update, checks the
 # older bugfix then refuses to install over it, repairs it with
 # RESET_PASSWORD=true and again without, as the docs say to, which restarts
-# the service and leaves the tray icon running, switches the website off and
-# on again with repairs, uninstalls it, then installs it with the defaults
+# the service and leaves the tray icon running, checks a repair refuses an
+# UPDATE_CHECK the service cannot read and takes one it can, switches the
+# website off and on again with repairs, checks a bad remembered
+# UPDATE_CHECK is refused with the option that fixes it but does not hold up
+# the uninstall, uninstalls it, then installs it with the defaults
 # and checks it only serves the usage data, and last checks that an update
 # with WEBSITE=0 turns the website off and that one with a space clears
 # DISK_PATHS, UPDATE_CHECK and PORT.
@@ -297,6 +300,13 @@ Assert-ServiceSetting RESET_PASSWORD ''
 Assert-ServiceSetting UPDATE_CHECK 'false'
 Assert-Website 8091
 
+Write-Host 'A repair refuses an UPDATE_CHECK the service cannot read and takes one it can'
+Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.'
+Assert-ServiceSetting UPDATE_CHECK 'false'
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=F"
+Assert-ServiceSetting UPDATE_CHECK 'F'
+Assert-Website 8091
+
 Write-Host 'A repair with WEBSITE=0 turns the website off, and one with WEBSITE=1 on again'
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=0"
 Assert-ServiceSetting DATA_ONLY 'true'
@@ -306,6 +316,10 @@ if ($status -ne 404) { throw "The website answered $status after the repair with
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
 Assert-ServiceSetting DATA_ONLY 'false'
 Assert-Website 8091
+
+Write-Host 'A bad remembered UPDATE_CHECK names the option that fixes it, and does not hold up an uninstall'
+Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
+Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" UPDATE_CHECK=true"
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""

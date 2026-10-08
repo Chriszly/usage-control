@@ -162,14 +162,18 @@
     <SetProperty Action="ResetPasswordByAdmin" Id="ServiceResetPassword" Value="[RESET_PASSWORD]" After="DefaultWEBSITE" Sequence="execute" Condition="AdminUser AND RESET_PASSWORD" />
 
     <!--
-      The service refuses to start with any UPDATE_CHECK but true or false, and
-      would then fail every 10 seconds, so the installer refuses it instead.
-      The launch conditions run after the remembered options are read, so this
-      also checks those. A repair or uninstall of the installed version is not
-      held up by it.
+      The service refuses to start with an UPDATE_CHECK it cannot read, and
+      would then fail again and again, so the installer refuses it instead. It
+      takes what the service takes, as Go's strconv.ParseBool reads it, except
+      spaces around the value, which the service trims but a condition cannot;
+      a single space means the default. The launch conditions run after the
+      remembered options are read, so this also checks those, in a repair too,
+      and names the option that fixes a bad remembered value. Only an
+      uninstall (msiexec /x, as from Apps and Features, which sets REMOVE) is
+      not held up by it.
     -->
-    <Launch Condition='Installed OR NOT UPDATE_CHECK OR UPDATE_CHECK = " " OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
-            Message="UPDATE_CHECK must be true or false." />
+    <Launch Condition='REMOVE = "ALL" OR NOT UPDATE_CHECK OR UPDATE_CHECK = " " OR UPDATE_CHECK = "true" OR UPDATE_CHECK = "false" OR UPDATE_CHECK = "True" OR UPDATE_CHECK = "False" OR UPDATE_CHECK = "TRUE" OR UPDATE_CHECK = "FALSE" OR UPDATE_CHECK = "t" OR UPDATE_CHECK = "f" OR UPDATE_CHECK = "T" OR UPDATE_CHECK = "F" OR UPDATE_CHECK = "1" OR UPDATE_CHECK = "0"'
+            Message='UPDATE_CHECK must be true or false. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" UPDATE_CHECK=true' />
 
     <!--
       Derived from the options, once all of them are known. Without WEBSITE=1
