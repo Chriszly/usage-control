@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"syscall"
 )
 
 // The byte layouts of the Windows storage IOCTLs the add-on uses
@@ -170,6 +171,28 @@ var errDriver = errors.New("the disk driver refused the command")
 // the driver says that the disk answered with the ERR bit, its error
 // register in bIDEError.
 const smartIDEError = 1
+
+// errorIODevice is the Windows error ERROR_IO_DEVICE, which storport gives
+// an ATA command that ended with an error, whichever error the disk
+// reported, and other errors of the device.
+const errorIODevice = syscall.Errno(1117)
+
+// sendCmdError reads the error with which DeviceIoControl failed for c. Most
+// disk drivers return the registers of a command the disk refused with
+// SMART_IDE_ERROR, but some fail the IOCTL itself. A disk with SMART off
+// aborts SMART READ DATA, which such a driver fails with ERROR_IO_DEVICE, so
+// that is taken as errRefused, although it can also be another error of the
+// disk: readATA only takes it as SMART off when IDENTIFY DEVICE did not
+// tell, and the Reader shows the same disk read before with its values that
+// then refuses so as one that cannot be read. Any other code, such
+// as a timeout (ERROR_SEM_TIMEOUT) or a driver without the SMART IOCTLs
+// (ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED), stays an error.
+func sendCmdError(c ataCommand, err error) error {
+	if errors.Is(err, errorIODevice) {
+		return fmt.Errorf("%w %#x (%w)", errRefused, c.command, err)
+	}
+	return err
+}
 
 // parseSendCmdOut reads SENDCMDOUTPARAMS: the sector, or the registers the
 // disk answered with. A command the disk refused is errRefused.

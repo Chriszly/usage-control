@@ -241,7 +241,7 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	}
 	_, sector, err = send(ataSMARTReadData)
 	if errors.Is(err, errRefused) && smart == nil {
-		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
+		return Disk{Model: model, Serial: serial, SMARTOff: true, refused: true}, nil
 	}
 	if err != nil {
 		return Disk{}, fmt.Errorf("read the SMART data: %w", err)

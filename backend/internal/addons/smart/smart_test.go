@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -229,7 +230,10 @@ type fakeATA struct {
 	// attributes, timeout makes it not answer, and badChecksum spoils their
 	// checksum.
 	smartOff, unknown, refuse, timeout, badChecksum bool
-	sent                                            []byte
+	// ioctlErr is the error with which a Windows disk driver fails the IOCTL
+	// that asks for the attributes.
+	ioctlErr error
+	sent     []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
@@ -251,6 +255,8 @@ func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
 		return ataResult{}, sector, nil
 	case c == ataSMARTReadData && f.refuse:
 		return ataResult{}, nil, fmt.Errorf("%w 0xb0 (error 0x4)", errRefused)
+	case c == ataSMARTReadData && f.ioctlErr != nil:
+		return ataResult{}, nil, sendCmdError(c, f.ioctlErr)
 	case c == ataSMARTReadData && f.timeout:
 		return ataResult{}, nil, errors.New("SG_IO driver status 0x6")
 	case c == ataSMARTReadData:
@@ -314,7 +320,7 @@ func TestReadATAReadsSMARTOfADiskThatDoesNotTell(t *testing.T) {
 	// One that then refuses to send its attributes shows SMART off.
 	disk = &fakeATA{t: t, power: 0xFF, unknown: true, refuse: true}
 	got, err = readATA(disk.send)
-	want = Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true}
+	want = Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true, refused: true}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("readATA() = %+v, %v, want %+v", got, err, want)
 	}
@@ -328,6 +334,36 @@ func TestReadATAReadsSMARTOfADiskThatDoesNotTell(t *testing.T) {
 
 	// One with SMART on that refuses is an error, not SMART off.
 	disk = &fakeATA{t: t, power: 0xFF, refuse: true}
+	if got, err := readATA(disk.send); err == nil {
+		t.Errorf("readATA() = %+v, want an error", got)
+	}
+}
+
+// A Windows disk driver that fails the IOCTL itself, instead of returning the
+// disk's registers, says with ERROR_IO_DEVICE that the disk refused SMART
+// READ DATA; any other error code does not say that.
+func TestReadATAReadsTheErrorOfADriverThatFailsTheIOCTL(t *testing.T) {
+	want := Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true, refused: true}
+	disk := &fakeATA{t: t, power: 0xFF, unknown: true, ioctlErr: syscall.Errno(1117)}
+	if got, err := readATA(disk.send); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v after ERROR_IO_DEVICE", got, err, want)
+	}
+
+	for _, code := range []syscall.Errno{
+		1,   // ERROR_INVALID_FUNCTION
+		31,  // ERROR_GEN_FAILURE
+		50,  // ERROR_NOT_SUPPORTED
+		121, // ERROR_SEM_TIMEOUT
+	} {
+		disk := &fakeATA{t: t, power: 0xFF, unknown: true, ioctlErr: code}
+		if got, err := readATA(disk.send); err == nil || errors.Is(err, errRefused) {
+			t.Errorf("readATA() = %+v, %v, want an error after error %d", got, err, uint(code))
+		}
+	}
+
+	// A disk whose IDENTIFY DEVICE says SMART is on and that refuses is an
+	// error, not SMART off.
+	disk = &fakeATA{t: t, power: 0xFF, ioctlErr: syscall.Errno(1117)}
 	if got, err := readATA(disk.send); err == nil {
 		t.Errorf("readATA() = %+v, want an error", got)
 	}
@@ -611,6 +647,13 @@ type fakeSource struct {
 	asleep bool
 	// failing makes sda fail to read, as a failing disk may.
 	failing bool
+	// smartOff makes sda tell that SMART is off, and refuse makes it refuse
+	// to send its values without telling, which also shows SMART off.
+	smartOff, refuse bool
+	// serial is sda's serial number, WD-WX12D when empty, and noSerial
+	// makes it have none.
+	serial   string
+	noSerial bool
 	// gone are the disks no longer listed, by path.
 	gone map[string]bool
 	// ioCounts are the disks' counts of reads and writes, by path; a disk
@@ -651,7 +694,17 @@ func (f *fakeSource) read(d device) (Disk, error) {
 	case f.failing:
 		return Disk{}, errors.New("input/output error")
 	}
-	return Disk{Model: "WDC", Serial: "WD-WX12D", Celsius: ptr(34)}, nil
+	serial := f.serial
+	if serial == "" && !f.noSerial {
+		serial = "WD-WX12D"
+	}
+	switch {
+	case f.smartOff:
+		return Disk{Model: "WDC", Serial: serial, SMARTOff: true}, nil
+	case f.refuse:
+		return Disk{Model: "WDC", Serial: serial, SMARTOff: true, refused: true}, nil
+	}
+	return Disk{Model: "WDC", Serial: serial, Celsius: ptr(34)}, nil
 }
 
 func (f *fakeSource) ioCount(d device) (uint64, bool) {
@@ -724,6 +777,125 @@ func TestReaderReadsEachDiskOncePerIntervalAndKeepsTheLastResult(t *testing.T) {
 	r.refresh(ctx, start.Add(3*ReadInterval))
 	if got := r.last(); !reflect.DeepEqual(got, unreadable) {
 		t.Errorf("Read() = %+v, want %+v while sda fails", got, unreadable)
+	}
+}
+
+// A refusal that shows SMART off can also be another error of a failing
+// disk, so the same disk read before with its values that then refuses shows
+// that it cannot be read, until it says SMART is off.
+func TestReaderShowsARefusalAfterValuesAsUnreadable(t *testing.T) {
+	src := &fakeSource{}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+	r.refresh(ctx, start)
+
+	src.set(func(f *fakeSource) { f.refuse = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	unreadable := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v first", got, unreadable)
+	}
+	if !r.warned["/dev/sda"] {
+		t.Error("the disk that refused after its values was not logged")
+	}
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v while it refuses", got, unreadable)
+	}
+
+	// Once it says SMART is off, it shows so, and a refusal after that too.
+	off := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", SMARTOff: true}
+	src.set(func(f *fakeSource) { f.smartOff = true })
+	r.refresh(ctx, start.Add(3*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], off) {
+		t.Errorf("last() = %+v, want %+v once it says SMART is off", got, off)
+	}
+	src.set(func(f *fakeSource) { f.smartOff = false })
+	r.refresh(ctx, start.Add(4*ReadInterval))
+	off.refused = true
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], off) {
+		t.Errorf("last() = %+v, want %+v after it said SMART is off", got, off)
+	}
+
+	// A disk that slept in between is still the disk read with its values.
+	src = &fakeSource{}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.asleep = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	src.set(func(f *fakeSource) { f.asleep, f.refuse = false, true })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v after it slept", got, unreadable)
+	}
+
+	// So is one left alone in between as it was not used.
+	src = &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 1}}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	r.refresh(ctx, start.Add(ReadInterval))
+	if got := r.last(); len(got) != 2 || got[0].Celsius == nil {
+		t.Errorf("last() = %+v, want sda's values while it is not used", got)
+	}
+	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = true, 2 })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v after it was not used", got, unreadable)
+	}
+
+	// A disk without a serial number cannot be told from another one, so
+	// it shows SMART off.
+	src = &fakeSource{noSerial: true}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.refuse = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	noSerial := Disk{Name: "sda", Model: "WDC", SMARTOff: true, refused: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], noSerial) {
+		t.Errorf("last() = %+v, want %+v without a serial number", got, noSerial)
+	}
+}
+
+func TestReaderShowsSMARTOffWithoutValuesOfTheSameDisk(t *testing.T) {
+	start := time.Now()
+	ctx := context.Background()
+	off := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", SMARTOff: true}
+
+	// A disk that says SMART is off after it was read with its values.
+	src := &fakeSource{}
+	r := newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.smartOff = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], off) {
+		t.Errorf("last() = %+v, want %+v once it says SMART is off", got, off)
+	}
+
+	// A disk that refuses from its first read, also after a read that
+	// failed in between.
+	src = &fakeSource{refuse: true}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.failing = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	src.set(func(f *fakeSource) { f.failing = false })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	refused := off
+	refused.refused = true
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], refused) {
+		t.Errorf("last() = %+v, want %+v after a failed read", got, refused)
+	}
+
+	// Another disk swapped in at the same path that refuses.
+	src = &fakeSource{}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.refuse, f.serial = true, "WD-OTHER" })
+	r.refresh(ctx, start.Add(ReadInterval))
+	other := Disk{Name: "sda", Model: "WDC", Serial: "WD-OTHER", SMARTOff: true, refused: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], other) {
+		t.Errorf("last() = %+v, want %+v for the other disk", got, other)
 	}
 }
 
@@ -856,26 +1028,33 @@ func TestReaderHoldsTheReadInterval(t *testing.T) {
 	start := time.Now()
 	ctx := context.Background()
 	r.refresh(ctx, start)
-	reading := func() bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return r.reading
+	// The reads are counted on the source once the background read is done,
+	// as a fast one may be done before Read returns.
+	settled := func() int {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			r.mu.Lock()
+			reading := r.reading
+			r.mu.Unlock()
+			if !reading {
+				_, reads := src.counts()
+				return reads
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the background read did not finish")
+			}
+			time.Sleep(time.Millisecond)
+		}
 	}
+	_, reads := src.counts()
 
 	r.Read(ctx, start.Add(ReadInterval-time.Second))
-	if reading() {
-		t.Error("Read() one second before ReadInterval started a read")
+	if n := settled(); n != reads {
+		t.Errorf("Read() one second before ReadInterval read %d disks, want none", n-reads)
 	}
 	r.Read(ctx, start.Add(ReadInterval))
-	if !reading() {
-		t.Error("Read() at ReadInterval did not start a read")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for reading() {
-		if time.Now().After(deadline) {
-			t.Fatal("the background read did not finish")
-		}
-		time.Sleep(time.Millisecond)
+	if n := settled(); n != reads+3 {
+		t.Errorf("Read() at ReadInterval read %d disks, want 3", n-reads)
 	}
 }
 

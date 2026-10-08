@@ -62,6 +62,9 @@ type Disk struct {
 	// SMARTOff is set for a SATA disk that has SMART switched off or does
 	// not have it, which has no values either.
 	SMARTOff bool
+	// refused is set with SMARTOff when the disk did not tell whether SMART
+	// is on and refused to send its values, rather than telling it is off.
+	refused bool
 }
 
 // device is a disk to read.
@@ -82,6 +85,13 @@ type device struct {
 
 // errAsleep is returned for a disk that sleeps, which is not woken.
 var errAsleep = errors.New("the disk sleeps")
+
+// errRefusedAfterValues is the error of a disk that does not tell whether
+// SMART is on and refuses to send its values, after the same disk was read
+// with them. Such a refusal, which otherwise shows SMART off, can also be
+// another error of a failing disk, such as one that cannot read its SMART
+// data, so it then shows that it cannot be read.
+var errRefusedAfterValues = errors.New("the disk refused its SMART data after it was read with them")
 
 // source lists and reads the disks of one operating system.
 type source interface {
@@ -127,6 +137,10 @@ type Reader struct {
 	// found asleep, and asleepLogged the ones that was logged for.
 	asleepSince  map[string]time.Time
 	asleepLogged map[string]bool
+	// withValues holds the serial number of each disk last read with its
+	// values or check, kept while it sleeps, is not used or cannot be read,
+	// and dropped once it says SMART is off or is gone.
+	withValues map[string]string
 }
 
 // NewReader returns a Reader of this machine's disks, or nil where the
@@ -181,7 +195,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 	scan := r.scannedAt.IsZero() || now.Sub(r.scannedAt) >= ScanInterval
 	// Only refresh changes these maps, and it replaces them, so they can be
 	// read without the lock.
-	last, lastIOCounts := r.disks, r.ioCounts
+	last, lastIOCounts, lastWithValues := r.disks, r.ioCounts, r.withValues
 	r.mu.Unlock()
 
 	scanned := false
@@ -215,8 +229,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			}
 		}
 		disk, err := r.src.read(d)
-		switch {
-		case err == nil:
+		if err == nil {
 			disk.Name = d.name
 			if disk.Model == "" {
 				disk.Model = d.model
@@ -224,6 +237,12 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			if disk.Serial == "" {
 				disk.Serial = d.serial
 			}
+			if serial, ok := lastWithValues[d.path]; ok && disk.refused && disk.Serial != "" && serial == disk.Serial {
+				err = errRefusedAfterValues
+			}
+		}
+		switch {
+		case err == nil:
 			read[d.path] = disk
 			if counted {
 				ioCounts[d.path] = ioCount{count: count, at: now}
@@ -261,11 +280,18 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 	// in place of its values, rather than still showing a check it passed
 	// before, and one that is gone is dropped.
 	disks := map[string]Disk{}
+	withValues := map[string]string{}
 	for _, d := range devices {
 		disk, ok := read[d.path]
+		if serial, kept := r.withValues[d.path]; kept && !ok {
+			withValues[d.path] = serial
+		}
 		switch err := failed[d.path]; {
 		case ok:
 			disks[d.path] = disk
+			if !disk.SMARTOff {
+				withValues[d.path] = disk.Serial
+			}
 			delete(r.warned, d.path)
 			delete(r.asleepSince, d.path)
 			delete(r.asleepLogged, d.path)
@@ -293,6 +319,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 	}
 	r.disks = disks
 	r.ioCounts = ioCounts
+	r.withValues = withValues
 	r.readAt = now
 	r.reading = false
 }
