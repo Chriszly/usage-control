@@ -12,7 +12,7 @@ export const de: Messages = {
   'dashboard.deviceUnreachable':
     '{device} hat in letzter Zeit nicht geantwortet. Läuft usage-control darauf?',
   'dashboard.deviceRefused':
-    '{device} hat eine Adresse des Hubs selbst, zu der sich der Hub bei einem auf der Seite hinzugefügten Gerät nicht verbindet. Entferne es mit „Verlauf behalten“ und trage es unter demselben Namen in HUB_DEVICES ein.',
+    '{device} hat eine Adresse des Hubs selbst, zu der sich der Hub bei einem auf der Seite hinzugefügten Gerät nicht verbindet. Entferne es mit angehaktem „Verlauf behalten“ und trage es unter demselben Namen in HUB_DEVICES ein.',
   'dashboard.deviceNotInUse':
     '{device} ist ausgeschaltet oder im Ruhezustand, also nicht in Benutzung. Angezeigt werden die zuletzt bekannten Werte.',
   'dashboard.cpu': 'CPU',

@@ -299,7 +299,8 @@ const ownAddressesFor = 5 * time.Second
 // ownAddresses lists the hub's addresses besides those of its network
 // interfaces: the host's in a container (see hostAddrs) and those of the
 // network cards in its usage, which in a container are the machine's. They
-// are read at most every ownAddressesFor.
+// are read at most every ownAddressesFor, or sooner while its own usage
+// cannot be read.
 func (h *Hub) ownAddresses() []netip.Addr {
 	h.ownMu.Lock()
 	defer h.ownMu.Unlock()

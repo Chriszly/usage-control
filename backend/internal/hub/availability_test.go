@@ -110,6 +110,10 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 		}
 		return nil
 	})
+	// Every reading connects anew, which the hub checks. With keep-alives,
+	// a connection can go back to the idle pool after its answer was read,
+	// on another goroutine, and the next reading would reuse it unchecked.
+	agent.client.Transport.(*http.Transport).DisableKeepAlives = true
 	began := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	if err := watch(ctx, store.DB(), "pi", began); err != nil {
 		t.Fatalf("watch() error = %v", err)
@@ -120,13 +124,11 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	var logged bytes.Buffer
 	defer slog.SetDefault(slog.Default())
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
-	// collect reads once more, 5 s later, over a new connection, which the
-	// hub checks.
-	// collect reads once and expects an error: want, or any error when nil.
+	// collect reads once more, 5 s later, and expects an error: want, or any
+	// error when nil.
 	collect := func(want error) {
 		t.Helper()
 		now = now.Add(5 * time.Second)
-		agent.client.CloseIdleConnections()
 		_, err := watched.Collect(ctx)
 		if want != nil && !errors.Is(err, want) || want == nil && err == nil {
 			t.Fatalf("Collect() error = %v, want %v", err, want)

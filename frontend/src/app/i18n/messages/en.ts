@@ -13,7 +13,7 @@ export const en = {
   'dashboard.deviceUnreachable':
     '{device} has not answered recently. Is usage-control running on it?',
   'dashboard.deviceRefused':
-    '{device} is at an address of the hub itself, which the hub does not connect to for a device added on the page. Remove it with “Keep its history” and list it in HUB_DEVICES under the same name.',
+    '{device} is at an address of the hub itself, which the hub does not connect to for a device added on the page. Remove it with “Keep its history” ticked and list it in HUB_DEVICES under the same name.',
   'dashboard.deviceNotInUse':
     '{device} is switched off or asleep, so it is not in use. Showing the last known values.',
   'dashboard.cpu': 'CPU',
