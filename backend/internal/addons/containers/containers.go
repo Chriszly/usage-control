@@ -89,10 +89,12 @@ type Reader struct {
 	podmanLists map[string]podmanList
 	// reads counts the reads since the last walk, for walkEvery, tree is
 	// the tree's signature then, and parents are the folders that held
-	// containers.
+	// containers. dirents are the two buffers signature reads folders
+	// into, the root's and that of one of its folders.
 	reads   int
-	tree    string
+	tree    uint64
 	parents []string
+	dirents [2][]byte
 	// noCgroupV2, noDockerDir and shortDockerID are set once that was
 	// logged, so it is logged once and not at every read.
 	noCgroupV2, noDockerDir, shortDockerID bool
@@ -274,8 +276,8 @@ func podmanNames(path string) (map[string]string, bool) {
 // walk.
 func (r *Reader) find() map[string]string {
 	found := map[string]string{}
-	tree := signature(r.cgroups)
-	if tree == "" || tree != r.tree || r.reads%walkEvery == 0 {
+	tree, ok := r.signature()
+	if !ok || tree != r.tree || r.reads%walkEvery == 0 {
 		findContainers(r.cgroups, 0, found)
 		r.parents = r.parents[:0]
 		for _, dir := range found {
@@ -298,33 +300,44 @@ func (r *Reader) find() map[string]string {
 // and the names of the cgroups in the root and in each of its folders,
 // where most containers start, as in system.slice, machine.slice or docker.
 // So a container that starts there while another cgroup goes is noticed
-// too, which the number alone misses. It is "" when the number cannot be
-// read.
-func signature(root string) string {
+// too, which the number alone misses. The names are folded into a sum of
+// their 64-bit FNV-1a hashes, so their order does not matter and no string
+// is built at every read. ok is false when the number cannot be read.
+func (r *Reader) signature() (tree uint64, ok bool) {
+	root := r.cgroups
 	count, ok := statValue(filepath.Join(root, "cgroup.stat"), "nr_descendants")
 	if !ok {
-		return ""
+		return 0, false
 	}
-	var tree strings.Builder
-	tree.WriteString(strconv.FormatUint(count, 10))
-	entries, _ := os.ReadDir(root)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		tree.WriteByte('\n')
-		tree.WriteString(entry.Name())
-		children, _ := os.ReadDir(filepath.Join(root, entry.Name()))
-		for _, child := range children {
-			if child.IsDir() {
-				tree.WriteByte('\n')
-				tree.WriteString(entry.Name())
-				tree.WriteByte('/')
-				tree.WriteString(child.Name())
-			}
-		}
+	if r.dirents[0] == nil && direntSize > 0 {
+		r.dirents = [2][]byte{make([]byte, direntSize), make([]byte, direntSize)}
 	}
-	return tree.String()
+	tree = fnv64a(fnvOffset64, strconv.AppendUint(r.dirents[1][:0], count, 10))
+	subfolders(root, r.dirents[0], func(name []byte) {
+		folder := fnv64a(fnvOffset64, name)
+		tree += folder
+		folder = fnv64a(folder, []byte{'/'})
+		subfolders(filepath.Join(root, string(name)), r.dirents[1], func(child []byte) {
+			tree += fnv64a(folder, child)
+		})
+	})
+	return tree, true
+}
+
+// The 64-bit FNV-1a hash's start and prime, as in package hash/fnv.
+const (
+	fnvOffset64 = 14695981039346656037
+	fnvPrime64  = 1099511628211
+)
+
+// fnv64a continues the 64-bit FNV-1a hash h with b; it is hash/fnv's
+// without its allocation.
+func fnv64a(h uint64, b []byte) uint64 {
+	for _, c := range b {
+		h ^= uint64(c)
+		h *= fnvPrime64
+	}
+	return h
 }
 
 var (
