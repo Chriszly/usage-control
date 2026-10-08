@@ -58,17 +58,40 @@ if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/f
   # A container of usage-control itself, from the archive, so nothing is
   # pulled from a registry.
   tar -C "$folder" -c usage-control | docker import --change 'ENTRYPOINT ["/usage-control"]' - usage-control-check > /dev/null
-  docker run -d --rm --name usage-control-check --network none -e UPDATE_CHECK=false usage-control-check > /dev/null
+  # Without --rm, so a container that exited early is still there to show.
+  docker run -d --name usage-control-check --network none -e UPDATE_CHECK=false usage-control-check > /dev/null
   # Kept before the container goes: a report written after that no longer
   # has it.
   reported=false
-  for _ in $(seq 1 15); do
+  for _ in $(seq 1 30); do
     if grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null; then
       reported=true
       break
     fi
     sleep 1
   done
+  if [[ "$reported" != true ]]; then
+    # What the add-on had to go on, shown before the container goes.
+    {
+      echo "--- the container"
+      docker ps -a --no-trunc --filter name=usage-control-check || true
+      docker inspect -f 'id={{.Id}} status={{.State.Status}} exit={{.State.ExitCode}} pid={{.State.Pid}}' usage-control-check || true
+      docker logs --tail 20 usage-control-check 2>&1 || true
+      pid="$(docker inspect -f '{{.State.Pid}}' usage-control-check 2> /dev/null || true)"
+      if [[ -n "$pid" && "$pid" != 0 ]]; then
+        echo "--- its cgroup"
+        cat "/proc/$pid/cgroup" || true
+      fi
+      echo "--- Docker"
+      docker info -f 'DockerRootDir={{.DockerRootDir}} CgroupDriver={{.CgroupDriver}} CgroupVersion={{.CgroupVersion}}' || true
+      echo "--- containers.json"
+      cat /run/usage-control-addons/containers.json || true
+      echo
+      echo "--- the containers add-on"
+      systemctl status --no-pager usage-control-containers || true
+      journalctl -u usage-control-containers --no-pager | tail -20 || true
+    } >&2
+  fi
   docker rm -f usage-control-check > /dev/null
   docker rmi usage-control-check > /dev/null
   [[ "$reported" == true ]] || { echo "the containers add-on did not report the running container" >&2; exit 1; }
