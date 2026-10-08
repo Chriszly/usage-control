@@ -142,7 +142,7 @@ export const en = {
   'devices.problem.unreachable':
     'No usage-control answers at this address. Is it running, and is the address on the local network?',
   'devices.problem.hostUnknown':
-    "The device doesn't answer to this name, as in Docker to the machine's bare hostname. Write its .local name, such as raspberrypi.local:9393, or add the name to ALLOWED_HOSTS on the device.",
+    "The device doesn't answer to this name. In Docker, that includes the machine's hostname on its own. Write its IP address or its .local name, such as raspberrypi.local:9393, or add the name to ALLOWED_HOSTS on the device.",
   'devices.problem.fixed': "This device is set in the hub's .env file. Remove it there.",
   'devices.problem.notFound': 'This device has been removed already.',
   'devices.problem.removing':

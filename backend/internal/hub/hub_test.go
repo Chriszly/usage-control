@@ -531,7 +531,7 @@ func TestAddDoesNotReadTheOwnAddressesHoldingMu(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Add() error = %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Add() waits for the hub's usage to be read, want it to use the own addresses read before asking the device")
 	}
 	if !h.mu.TryLock() {

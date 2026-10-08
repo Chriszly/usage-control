@@ -258,7 +258,7 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 		var status *statusError
 		if errors.As(err, &status) && status.Code == http.StatusMisdirectedRequest {
 			slog.Info("could not add a device, as it does not answer to the name it was asked by", "name", device.Name, "address", device.Address, "error", err)
-			return Device{}, &InputError{Problem: ProblemHostUnknown, Message: "the device does not answer to the name in " + device.Address + "; give its .local name or add the name to ALLOWED_HOSTS on the device"}
+			return Device{}, &InputError{Problem: ProblemHostUnknown, Message: "the device does not answer to the name in " + device.Address + "; give its IP address or its .local name, or add the name to ALLOWED_HOSTS on the device"}
 		}
 		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
 		return Device{}, &InputError{Problem: ProblemUnreachable, Message: "no usage-control answers at " + device.Address}

@@ -222,10 +222,15 @@ func TestAgentDoesNotReuseAConnectionOpenedBeforeTheOwnAddressesGainedOne(t *tes
 func TestAgentReusesItsConnectionForALargeAnswer(t *testing.T) {
 	var opened atomic.Int32
 	// Some 100 KB, more than the device's write buffer, so the answer is
-	// chunked, and ending in a newline, as the device's API writes it.
-	answer := `{"disks":[{"path":"` + strings.Repeat("x", 100<<10) + `"}],"cpu":{"usagePercent":12.5,"cores":4}}` + "\n"
+	// chunked, and ending in a newline, as the device's API writes it. The
+	// newline and the end of the answer come a moment after the JSON, so
+	// the decoder never reads them along with it.
+	answer := `{"disks":[{"path":"` + strings.Repeat("x", 100<<10) + `"}],"cpu":{"usagePercent":12.5,"cores":4}}`
 	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(answer))
+		w.(http.Flusher).Flush()
+		time.Sleep(20 * time.Millisecond)
+		_, _ = w.Write([]byte("\n"))
 	}))
 	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
 		if state == http.StateNew {
