@@ -46,6 +46,9 @@ type diskAnswer struct {
 	err       error
 	device    deviceNumber
 	hasDevice bool
+	// late is whether the answer took r.timeout or longer, so the path is
+	// paused and the answer is not used.
+	late bool
 }
 
 // diskReader asks the filesystems behind the disk paths for their usage, all
@@ -103,9 +106,15 @@ func (r *diskReader) ask(ctx context.Context, paths []string) map[string]diskAns
 	got := make(map[string]diskAnswer, len(asked))
 	timeout := time.NewTimer(r.timeout)
 	defer timeout.Stop()
-	for len(got) < len(asked) {
+	for received := 0; received < len(asked); {
 		select {
 		case a := <-answers:
+			received++
+			if a.late {
+				// It came after the time limit, just before the timer.
+				r.notAnswering(a.path)
+				continue
+			}
 			got[a.path] = a
 		case <-ctx.Done():
 			return got
@@ -132,12 +141,16 @@ func (r *diskReader) question(ctx context.Context, path string) diskAnswer {
 
 	r.mu.Lock()
 	delete(r.asking, path)
-	if time.Since(start) >= r.timeout {
+	a.late = time.Since(start) >= r.timeout
+	if a.late {
 		r.pausedUntil[path] = time.Now().Add(r.pause)
 	} else {
 		delete(r.pausedUntil, path)
 	}
-	again := r.hanging[path] && a.err == nil
+	// A late answer, even a good one, does not count as answering again:
+	// the path is paused, and a slow share would otherwise be logged as
+	// back and gone again every pause.
+	again := r.hanging[path] && a.err == nil && !a.late
 	if again {
 		delete(r.hanging, path)
 	}

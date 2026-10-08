@@ -11,8 +11,8 @@ import (
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
-// fakeDisks answers statfs for each path at once, except for /mnt/nas and
-// /mnt/nas2, which wait until release is closed, as a hard NFS mount whose
+// fakeDisks answers statfs for each path at once, except for /mnt/nas,
+// /mnt/nas2 and /mnt/nas3, which wait until release is closed, as a hard NFS mount whose
 // server is away does, and /mnt/gone, which does not exist.
 type fakeDisks struct {
 	release chan struct{}
@@ -27,7 +27,7 @@ func (f *fakeDisks) free() { f.freed.Do(func() { close(f.release) }) }
 
 func (f *fakeDisks) usage(_ context.Context, path string) (*disk.UsageStat, error) {
 	switch path {
-	case "/mnt/nas", "/mnt/nas2":
+	case "/mnt/nas", "/mnt/nas2", "/mnt/nas3":
 		f.asked.Add(1)
 		<-f.release
 		if f.lateErr != nil {
@@ -92,9 +92,11 @@ func TestDiskReaderWaitsForTheDisksTogether(t *testing.T) {
 	r, _ := newFakeDiskReader(t)
 	r.timeout = 200 * time.Millisecond
 	start := time.Now()
-	disks, _ := r.read(context.Background(), []string{"/mnt/nas", "/", "/mnt/nas2"})
-	if waited := time.Since(start); waited > r.timeout*3/2 {
-		t.Errorf("read() of two hanging disks took %v, want about %v", waited, r.timeout)
+	disks, _ := r.read(context.Background(), []string{"/mnt/nas", "/", "/mnt/nas2", "/mnt/nas3"})
+	// One after another, the three hanging disks would take three times
+	// the limit.
+	if waited := time.Since(start); waited >= r.timeout*5/2 {
+		t.Errorf("read() of three hanging disks took %v, want about %v", waited, r.timeout)
 	}
 	if got := diskPathsOf(disks); len(got) != 1 || got[0] != "/" {
 		t.Errorf("read() = %v, want only /", got)
@@ -102,35 +104,37 @@ func TestDiskReaderWaitsForTheDisksTogether(t *testing.T) {
 }
 
 func TestDiskReaderPausesADiskThatAnsweredLate(t *testing.T) {
-	r, fake := newFakeDiskReader(t)
-	r.pause = time.Hour
-	fake.lateErr = errors.New("host is down")
-	ctx := context.Background()
+	for _, lateErr := range []error{errors.New("host is down"), nil} {
+		r, fake := newFakeDiskReader(t)
+		r.pause = time.Hour
+		fake.lateErr = lateErr
+		ctx := context.Background()
 
-	r.read(ctx, []string{"/mnt/nas"})
-	fake.free()
-	// Wait for the late answer to arrive.
-	deadline := time.Now().Add(time.Second)
-	for {
-		r.mu.Lock()
-		paused := !r.pausedUntil["/mnt/nas"].IsZero()
-		hanging := r.hanging["/mnt/nas"]
-		r.mu.Unlock()
-		if paused {
-			// An error is no sign that the disk answers again.
-			if !hanging {
-				t.Error("a late error marked the disk as answering again")
+		r.read(ctx, []string{"/mnt/nas"})
+		fake.free()
+		// Wait for the late answer to arrive.
+		deadline := time.Now().Add(time.Second)
+		for {
+			r.mu.Lock()
+			paused := !r.pausedUntil["/mnt/nas"].IsZero()
+			hanging := r.hanging["/mnt/nas"]
+			r.mu.Unlock()
+			if paused {
+				// A late answer, good or not, is no sign that the disk
+				// answers again.
+				if !hanging {
+					t.Errorf("a late answer (error %v) marked the disk as answering again", lateErr)
+				}
+				break
 			}
-			break
+			if time.Now().After(deadline) {
+				t.Fatalf("a late answer (error %v) did not pause the disk", lateErr)
+			}
+			time.Sleep(time.Millisecond)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("a late answer did not pause the disk")
+		if disks, _ := r.read(ctx, []string{"/mnt/nas"}); len(disks) != 0 || fake.asked.Load() != 1 {
+			t.Errorf("read() of the paused disk = %v after asking %d times, want nothing after 1", diskPathsOf(disks), fake.asked.Load())
 		}
-		time.Sleep(time.Millisecond)
-	}
-	r.read(ctx, []string{"/mnt/nas"})
-	if got := fake.asked.Load(); got != 1 {
-		t.Errorf("statfs of the paused disk asked %d times, want 1", got)
 	}
 }
 
