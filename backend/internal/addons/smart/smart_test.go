@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -229,7 +230,10 @@ type fakeATA struct {
 	// attributes, timeout makes it not answer, and badChecksum spoils their
 	// checksum.
 	smartOff, unknown, refuse, timeout, badChecksum bool
-	sent                                            []byte
+	// ioctlErr is the error with which a Windows disk driver fails the IOCTL
+	// that asks for the attributes.
+	ioctlErr error
+	sent     []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
@@ -251,6 +255,8 @@ func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
 		return ataResult{}, sector, nil
 	case c == ataSMARTReadData && f.refuse:
 		return ataResult{}, nil, fmt.Errorf("%w 0xb0 (error 0x4)", errRefused)
+	case c == ataSMARTReadData && f.ioctlErr != nil:
+		return ataResult{}, nil, sendCmdError(c, f.ioctlErr)
 	case c == ataSMARTReadData && f.timeout:
 		return ataResult{}, nil, errors.New("SG_IO driver status 0x6")
 	case c == ataSMARTReadData:
@@ -328,6 +334,36 @@ func TestReadATAReadsSMARTOfADiskThatDoesNotTell(t *testing.T) {
 
 	// One with SMART on that refuses is an error, not SMART off.
 	disk = &fakeATA{t: t, power: 0xFF, refuse: true}
+	if got, err := readATA(disk.send); err == nil {
+		t.Errorf("readATA() = %+v, want an error", got)
+	}
+}
+
+// A Windows disk driver that fails the IOCTL itself, instead of returning the
+// disk's registers, says with ERROR_IO_DEVICE that the disk refused SMART
+// READ DATA; any other error code does not say that.
+func TestReadATAReadsTheErrorOfADriverThatFailsTheIOCTL(t *testing.T) {
+	want := Disk{Model: "WDC WD40EFRX-68N32N0", Serial: "WD-WCC7K0000000", SMARTOff: true}
+	disk := &fakeATA{t: t, power: 0xFF, unknown: true, ioctlErr: syscall.Errno(1117)}
+	if got, err := readATA(disk.send); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("readATA() = %+v, %v, want %+v after ERROR_IO_DEVICE", got, err, want)
+	}
+
+	for _, code := range []syscall.Errno{
+		1,   // ERROR_INVALID_FUNCTION
+		31,  // ERROR_GEN_FAILURE
+		50,  // ERROR_NOT_SUPPORTED
+		121, // ERROR_SEM_TIMEOUT
+	} {
+		disk := &fakeATA{t: t, power: 0xFF, unknown: true, ioctlErr: code}
+		if got, err := readATA(disk.send); err == nil || errors.Is(err, errRefused) {
+			t.Errorf("readATA() = %+v, %v, want an error after error %d", got, err, uint(code))
+		}
+	}
+
+	// A disk whose IDENTIFY DEVICE says SMART is on and that refuses is an
+	// error, not SMART off.
+	disk = &fakeATA{t: t, power: 0xFF, ioctlErr: syscall.Errno(1117)}
 	if got, err := readATA(disk.send); err == nil {
 		t.Errorf("readATA() = %+v, want an error", got)
 	}

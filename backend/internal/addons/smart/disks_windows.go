@@ -154,7 +154,7 @@ func sendATA(h windows.Handle, c ataCommand) (ataResult, []byte, error) {
 	}
 	out, err := ioctl(h, code, sendCmdIn(c), make([]byte, sendCmdOutSize(c)))
 	if err != nil {
-		return ataResult{}, nil, err
+		return ataResult{}, nil, sendCmdError(c, err)
 	}
 	return parseSendCmdOut(c, out)
 }
