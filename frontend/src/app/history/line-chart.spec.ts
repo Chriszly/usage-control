@@ -5,9 +5,13 @@ import { ChartLine, LineChart, niceCeiling } from './line-chart';
 describe('LineChart', () => {
   let fixture: ComponentFixture<LineChart>;
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function render(lines: ChartLine[]): HTMLElement {
     fixture = TestBed.createComponent(LineChart);
-    fixture.componentRef.setInput('title', 'CPU and memory');
+    fixture.componentRef.setInput('chartTitle', 'CPU and memory');
     fixture.componentRef.setInput('lines', lines);
     fixture.componentRef.setInput('from', 0);
     fixture.componentRef.setInput('to', 600);
@@ -78,15 +82,23 @@ describe('LineChart', () => {
     expect(element.querySelector('.tooltip')?.textContent).toContain('30 %');
   });
 
-  it('tells screen readers what the chart shows', () => {
+  it('tells screen readers what the chart shows and the latest values', () => {
     const element = render([
-      { label: 'CPU', points: [] },
+      {
+        label: 'CPU',
+        points: [
+          { time: 60, value: 80 },
+          { time: 120, value: 12.5 },
+        ],
+      },
       { label: 'Memory', points: [] },
     ]);
 
     const label = element.querySelector('svg')?.getAttribute('aria-label') ?? '';
     expect(element.querySelector('svg')?.getAttribute('role')).toBe('img');
-    expect(label).toMatch(/^Chart of CPU and memory from .+ to .+: CPU and Memory$/);
+    expect(label).toMatch(
+      /^Chart of “CPU and memory” from .+ to .+: CPU \(latest 12\.5 %\) and Memory \(no data\)$/,
+    );
   });
 
   it('dashes the lines after the eighth and keeps lines of the same name apart', () => {
