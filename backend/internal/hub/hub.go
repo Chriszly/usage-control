@@ -374,7 +374,8 @@ func (h *Hub) ownAddresses() []netip.Addr {
 
 // ownGenerationNow reads the hub's own addresses (see ownAddresses) and
 // returns how often they gained one, which an agent of a device added on
-// the page asks before and after each request; see Agent.get.
+// the page asks before each request, when it would use a connection kept
+// open and when it opens one; see Agent.get.
 func (h *Hub) ownGenerationNow() uint64 {
 	h.ownAddresses()
 	h.ownMu.Lock()
@@ -387,7 +388,7 @@ func (h *Hub) ownGenerationNow() uint64 {
 // does not use a connection it kept open from before they gained one.
 func (h *Hub) pageAgent(address string) *Agent {
 	agent := newAgent(address, h.refuseOwn(h.ownAddresses))
-	agent.ownGeneration = h.ownGenerationNow
+	agent.checkOwnGeneration(h.ownGenerationNow)
 	return agent
 }
 

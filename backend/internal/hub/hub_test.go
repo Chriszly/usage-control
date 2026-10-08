@@ -399,15 +399,16 @@ func TestOwnAddressesGoOnWithTheHostsWhileTheUsageCannotBeRead(t *testing.T) {
 	atOnce(second, "after the first reading failed")
 	// ...but once it failed, the usage is not read again for a second...
 	usage.release = make(chan struct{})
-	t.Cleanup(func() { close(usage.release) })
 	atOnce(ask(), "right after the first reading failed")
 	// ...and then by one caller, while the others go on without it.
 	h.ownMu.Lock()
 	h.cardsFailed = h.cardsFailed.Add(-ownRetryAfter)
 	h.ownMu.Unlock()
-	ask()
+	retry := ask()
 	<-usage.reading
 	atOnce(ask(), "while it is read again")
+	close(usage.release)
+	atOnce(retry, "after reading it again failed")
 }
 
 // countingDevice is a usage-control that counts the connections opened to

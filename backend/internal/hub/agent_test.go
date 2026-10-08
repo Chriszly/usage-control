@@ -150,7 +150,7 @@ func TestAgentClosesItsConnectionsOnceWhenTheOwnAddressesGainOneDuringARequest(t
 	device.Start()
 	t.Cleanup(device.Close)
 	agent := newAgent(strings.TrimPrefix(device.URL, "http://"), func(string, string, syscall.RawConn) error { return nil })
-	agent.ownGeneration = generation.Load
+	agent.checkOwnGeneration(generation.Load)
 	transport := &closeCountingTransport{Transport: agent.client.Transport.(*http.Transport)}
 	agent.client.Transport = transport
 	collect := func() {
@@ -162,15 +162,58 @@ func TestAgentClosesItsConnectionsOnceWhenTheOwnAddressesGainOneDuringARequest(t
 
 	collect()
 	// The hub's own addresses gain one while the device answers: the
-	// connection is closed after the request, and not once more before the
-	// next one, whose new connection is kept.
+	// connection is closed before the next request, and not once more
+	// before the one after it, whose new connection is kept.
 	bump.Store(true)
 	collect()
 	collect()
 	collect()
 	if n := transport.closes.Load(); n != 1 {
-		t.Errorf("idle connections closed %d times, want once, after the request the addresses gained one during", n)
+		t.Errorf("idle connections closed %d times, want once, before the request after the one the addresses gained one during", n)
 	}
+	if n := opened.Load(); n != 2 {
+		t.Errorf("connections opened = %d, want 2: one more after the addresses gained one, kept open then", n)
+	}
+}
+
+func TestAgentDoesNotReuseAConnectionOpenedBeforeTheOwnAddressesGainedOne(t *testing.T) {
+	var generation atomic.Uint64
+	var opened atomic.Int32
+	var last atomic.Value
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		last.Store(r.RemoteAddr)
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	agent := newAgent(strings.TrimPrefix(device.URL, "http://"), func(string, string, syscall.RawConn) error { return nil })
+	agent.checkOwnGeneration(generation.Load)
+	collect := func() string {
+		t.Helper()
+		if _, err := agent.Collect(context.Background()); err != nil {
+			t.Fatalf("Collect() error = %v", err)
+		}
+		remote, _ := last.Load().(string)
+		return remote
+	}
+
+	first := collect()
+	// The hub's own addresses gained one while the connection was in use by
+	// another request, after a third one closed the idle connections for
+	// it: the connection is kept again, but not used.
+	generation.Add(1)
+	agent.mu.Lock()
+	agent.seenGeneration = generation.Load()
+	agent.mu.Unlock()
+	if second := collect(); second == first {
+		t.Fatalf("the request went over %s, opened before the hub gained an address, want a new connection", second)
+	}
+	collect()
 	if n := opened.Load(); n != 2 {
 		t.Errorf("connections opened = %d, want 2: one more after the addresses gained one, kept open then", n)
 	}
