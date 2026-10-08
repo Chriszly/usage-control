@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -187,10 +188,19 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 
 // countingUsage is the hub's own usage, with a network card at addresses,
 // and counts how often it was read. While failing is set, reading it fails.
+// mu guards addresses.
 type countingUsage struct {
+	mu        sync.Mutex
 	addresses []string
 	reads     atomic.Int32
 	failing   atomic.Bool
+}
+
+// setAddresses gives the network card other addresses.
+func (u *countingUsage) setAddresses(addresses ...string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.addresses = addresses
 }
 
 func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
@@ -198,6 +208,8 @@ func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
 	if u.failing.Load() {
 		return metrics.Snapshot{}, errors.New("cannot read the usage")
 	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: u.addresses}}}, nil
 }
 
@@ -337,72 +349,151 @@ func TestOwnAddressesAreReadByOneCallerAtATime(t *testing.T) {
 	}
 }
 
-// startCountingDevice runs a usage-control and returns its address, with how
-// many connections it was opened and how many were closed.
-func startCountingDevice(t *testing.T) (address string, opened, closed *atomic.Int32) {
+// countingDevice is a usage-control that counts the connections opened to
+// it and tells the connection, by its address, that the newest reading came
+// over. A request for its minutes is sent on held and waits until the
+// channel it comes with is closed.
+type countingDevice struct {
+	address string
+	opened  atomic.Int32
+	last    atomic.Value
+	held    chan heldRequest
+}
+
+// heldRequest is a request for a countingDevice's minutes, over the
+// connection from remote, which waits until release is closed.
+type heldRequest struct {
+	remote  string
+	release chan struct{}
+}
+
+func startCountingDevice(t *testing.T) *countingDevice {
 	t.Helper()
-	opened, closed = &atomic.Int32{}, &atomic.Int32{}
-	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	d := &countingDevice{held: make(chan heldRequest)}
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == MinutesPath {
+			release := make(chan struct{})
+			d.held <- heldRequest{remote: r.RemoteAddr, release: release}
+			<-release
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		d.last.Store(r.RemoteAddr)
 		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
 	}))
 	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-		switch state {
-		case http.StateNew:
-			opened.Add(1)
-		case http.StateClosed:
-			closed.Add(1)
+		if state == http.StateNew {
+			d.opened.Add(1)
 		}
 	}
 	device.Start()
 	t.Cleanup(device.Close)
-	return strings.TrimPrefix(device.URL, "http://"), opened, closed
+	d.address = strings.TrimPrefix(device.URL, "http://")
+	return d
 }
 
-func TestNewOwnAddressesCloseTheConnectionsKeptToDevicesAddedOnThePage(t *testing.T) {
-	ctx := context.Background()
+// openOwnAddressesHub opens a hub whose usage lists a network card at
+// 192.168.1.20.
+func openOwnAddressesHub(t *testing.T) (*Hub, *countingUsage) {
+	t.Helper()
 	h := openTestHub(t, openTestStore(t), nil)
 	h.hostAddrs = func() []netip.Addr { return nil }
 	usage := &countingUsage{addresses: []string{"192.168.1.20"}}
 	h.local = usage
-	allow := func(string, string, syscall.RawConn) error { return nil }
-	addedAddress, addedOpened, addedClosed := startCountingDevice(t)
-	fixedAddress, fixedOpened, _ := startCountingDevice(t)
-	added, fixed := newAgent(addedAddress, allow), newAgent(fixedAddress, allow)
-	h.mu.Lock()
-	h.remotes = append(h.remotes, &Remote{Agent: added}, &Remote{Agent: fixed, Fixed: true})
-	h.mu.Unlock()
+	return h, usage
+}
 
-	h.ownAddresses()
-	for range 2 {
-		for _, agent := range []*Agent{added, fixed} {
+func TestCollectingFromADeviceAddedOnThePageNoticesNewOwnAddresses(t *testing.T) {
+	ctx := context.Background()
+	h, usage := openOwnAddressesHub(t)
+	added, fixed := startCountingDevice(t), startCountingDevice(t)
+	addedAgent := h.pageAgent(added.address)
+	fixedAgent := newAgent(fixed.address, func(string, string, syscall.RawConn) error { return nil })
+	collect := func() {
+		t.Helper()
+		for _, agent := range []*Agent{addedAgent, fixedAgent} {
 			if _, err := agent.Collect(ctx); err != nil {
 				t.Fatalf("Collect() error = %v", err)
 			}
 		}
 	}
-	if addedOpened.Load() != 1 || fixedOpened.Load() != 1 {
-		t.Fatalf("connections opened = %d and %d, want one each, kept open between readings", addedOpened.Load(), fixedOpened.Load())
+
+	collect()
+	collect()
+	if added.opened.Load() != 1 || fixed.opened.Load() != 1 {
+		t.Fatalf("connections opened = %d and %d, want one each, kept open between readings", added.opened.Load(), fixed.opened.Load())
 	}
 
-	// The hub has an address it did not have before: the connection kept to
-	// the device added on the page is closed, so its next reading connects
-	// anew and is checked; the one to the device from HUB_DEVICES is kept.
-	usage.addresses = []string{"192.168.1.20", "192.168.1.21"}
+	// The hub gains an address while the device answers every reading: the
+	// next reading of the device added on the page reads the hub's own
+	// addresses and connects anew, so it is checked; the one from
+	// HUB_DEVICES keeps its connection.
+	usage.setAddresses("192.168.1.20", "192.168.1.21")
 	ageOwnAddresses(h)
-	h.ownAddresses()
-	for deadline := time.Now().Add(5 * time.Second); addedClosed.Load() == 0; {
-		if time.Now().After(deadline) {
-			t.Fatal("the connection kept to the device added on the page is still open, want it closed")
-		}
-		time.Sleep(10 * time.Millisecond)
+	collect()
+	if n := usage.reads.Load(); n != 2 {
+		t.Errorf("usage read %d times, want once more once the hub's addresses are old", n)
 	}
-	for _, agent := range []*Agent{added, fixed} {
-		if _, err := agent.Collect(ctx); err != nil {
-			t.Fatalf("Collect() error = %v", err)
-		}
+	if added.opened.Load() != 2 || fixed.opened.Load() != 1 {
+		t.Errorf("connections opened = %d and %d, want a new one to the device added on the page only", added.opened.Load(), fixed.opened.Load())
 	}
-	if addedOpened.Load() != 2 || fixedOpened.Load() != 1 {
-		t.Errorf("connections opened = %d and %d, want a new one to the device added on the page only", addedOpened.Load(), fixedOpened.Load())
+	collect()
+	if added.opened.Load() != 2 {
+		t.Errorf("connections opened = %d, want the new one kept open", added.opened.Load())
+	}
+}
+
+func TestAConnectionInUseWhenTheOwnAddressesChangeIsNotUsedAgain(t *testing.T) {
+	ctx := context.Background()
+	h, usage := openOwnAddressesHub(t)
+	device := startCountingDevice(t)
+	agent := h.pageAgent(device.address)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	fetch := func() chan error {
+		done := make(chan error, 1)
+		go func() {
+			var answer any
+			done <- agent.get(ctx, agent.minutesURL, 1<<10, &answer)
+		}()
+		return done
+	}
+
+	// The minutes are fetched over the connection kept open...
+	firstDone := fetch()
+	first := <-device.held
+	// ...when the hub gains an address, and the next request connects anew.
+	usage.setAddresses("192.168.1.20", "192.168.1.21")
+	ageOwnAddresses(h)
+	secondDone := fetch()
+	second := <-device.held
+	if second.remote == first.remote {
+		t.Fatal("the second request went over the first one's connection, want a new one")
+	}
+	// The first connection is free again first, the second one after it.
+	close(first.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+	close(second.release)
+	if err := <-secondDone; err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if last, _ := device.last.Load().(string); last == first.remote {
+		t.Errorf("the reading went over %s, the connection opened before the hub gained an address, want another", last)
+	}
+}
+
+func TestSuggestLeavesOutTheHubsOwnAddresses(t *testing.T) {
+	h, _ := openOwnAddressesHub(t)
+	h.suggester = testSuggester("Office PC")
+	if got, ok := h.Suggest(context.Background(), netip.MustParseAddr("192.168.1.20")); ok {
+		t.Errorf("Suggest(192.168.1.20) = %+v, want no suggestion for the address of the hub's network card", got)
 	}
 }
 

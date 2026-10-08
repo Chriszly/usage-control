@@ -26,10 +26,9 @@ type Hub interface {
 	// SetKind changes what a device is used as.
 	SetKind(ctx context.Context, id string, kind hub.Kind) error
 	// Suggest returns the device at from, the address of a visitor, to offer
-	// adding it; false when there is none to offer.
-	// own lists the machine's addresses from its usage reading, which are the
-	// host's in a container.
-	Suggest(ctx context.Context, from netip.Addr, own []netip.Addr) (hub.Suggestion, bool)
+	// adding it; false when there is none to offer, as for the machine's own
+	// addresses.
+	Suggest(ctx context.Context, from netip.Addr) (hub.Suggestion, bool)
 }
 
 // Password guards adding and removing devices. It is chosen with the first
@@ -61,9 +60,6 @@ type problemResponse struct {
 type deviceChanges struct {
 	hub      Hub
 	password Password
-	// local reads the usage of the machine the site runs on, whose network
-	// addresses are never suggested.
-	local Collector
 
 	// mu makes changes happen one at a time, so two first changes cannot
 	// both choose the password. The password is checked before, so the wait
@@ -137,25 +133,13 @@ func (c *deviceChanges) suggest(w http.ResponseWriter, r *http.Request) {
 	// localNetworkOnly has already read the sender's address.
 	sender, _ := netip.ParseAddrPort(r.RemoteAddr)
 	from := sender.Addr().Unmap()
-	suggestion, ok := c.hub.Suggest(r.Context(), from, c.ownAddresses(r.Context()))
+	suggestion, ok := c.hub.Suggest(r.Context(), from)
 	if !ok {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	writeJSON(w, http.StatusOK, suggestion)
-}
-
-// ownAddresses lists the addresses of the machine's network cards from its
-// usage. In a container, the machine's own addresses are not the container's,
-// but the usage lists them: a browser on the machine itself can show up with
-// one of them.
-func (c *deviceChanges) ownAddresses(ctx context.Context) []netip.Addr {
-	snapshot, err := c.local.Collect(ctx)
-	if err != nil {
-		return nil
-	}
-	return hub.NetworkAddresses(snapshot)
 }
 
 // change makes a change once the password is right. Without a password yet,

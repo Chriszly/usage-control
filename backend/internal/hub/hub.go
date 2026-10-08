@@ -74,15 +74,17 @@ type Hub struct {
 	// (see ownAddresses): host, the host's, read at hostRead, and cards, the
 	// network cards' in its usage, as last read at cardsRead. reading is
 	// set while the usage is read, and closed once it is. own is the list
-	// given out last, and owned is set once one was.
-	ownMu     sync.Mutex
-	host      []netip.Addr
-	hostRead  time.Time
-	cards     []netip.Addr
-	cardsRead time.Time
-	reading   chan struct{}
-	own       []netip.Addr
-	owned     bool
+	// given out last, and owned is set once one was; ownGeneration counts
+	// how often the list gained an address since.
+	ownMu         sync.Mutex
+	host          []netip.Addr
+	hostRead      time.Time
+	cards         []netip.Addr
+	cardsRead     time.Time
+	reading       chan struct{}
+	own           []netip.Addr
+	owned         bool
+	ownGeneration uint64
 
 	// mu guards remotes and removing.
 	mu      sync.Mutex
@@ -299,8 +301,9 @@ func (h *Hub) refuseOwn(own func() []netip.Addr) func(network, address string, c
 }
 
 // ownAddressesFor is how long the hub's own addresses are used again before
-// they are read anew. A device that does not answer is connected to every
-// few seconds, and each time its address is checked against them.
+// they are read anew. A device added on the page is asked every few
+// seconds, and each time its agent asks for them (see Agent.get), as does
+// the check of each connection to it.
 const ownAddressesFor = 5 * time.Second
 
 // ownAddresses lists the hub's addresses besides those of its network
@@ -311,8 +314,8 @@ const ownAddressesFor = 5 * time.Second
 // usage, which can take seconds, is read by one caller at a time without
 // holding ownMu; the others go on with the network cards read last, or
 // wait for them when there are none yet. When the list has an address it
-// did not have before, the connections kept open to devices added on the
-// page are closed, so the next reading connects anew and is checked.
+// did not have before, ownGeneration counts up, so the agents of devices
+// added on the page stop using the connections they kept open.
 func (h *Hub) ownAddresses() []netip.Addr {
 	h.ownMu.Lock()
 	if h.hostRead.IsZero() || time.Since(h.hostRead) >= ownAddressesFor {
@@ -352,24 +355,29 @@ func (h *Hub) ownAddresses() []netip.Addr {
 	defer h.ownMu.Unlock()
 	own := slices.Concat(h.host, h.cards)
 	if h.owned && slices.ContainsFunc(own, func(addr netip.Addr) bool { return !slices.Contains(h.own, addr) }) {
-		// On its own goroutine, as the caller may hold mu.
-		go h.closeIdle()
+		h.ownGeneration++
 	}
 	h.own, h.owned = own, true
 	return own
 }
 
-// closeIdle closes the connections that the agents of devices added on the
-// page keep open between readings, so that the next reading connects anew
-// and its address is checked against the hub's own again.
-func (h *Hub) closeIdle() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, remote := range h.remotes {
-		if !remote.Fixed {
-			remote.Agent.client.CloseIdleConnections()
-		}
-	}
+// ownGenerationNow reads the hub's own addresses (see ownAddresses) and
+// returns how often they gained one, which an agent of a device added on
+// the page asks before and after each request; see Agent.get.
+func (h *Hub) ownGenerationNow() uint64 {
+	h.ownAddresses()
+	h.ownMu.Lock()
+	defer h.ownMu.Unlock()
+	return h.ownGeneration
+}
+
+// pageAgent returns the Agent of a device added on the page, which checks
+// every address it connects to against the hub's own (see refuseOwn) and
+// does not use a connection it kept open from before they gained one.
+func (h *Hub) pageAgent(address string) *Agent {
+	agent := newAgent(address, h.refuseOwn(h.ownAddresses))
+	agent.ownGeneration = h.ownGenerationNow
+	return agent
 }
 
 // NetworkAddresses lists the addresses of the network cards in a machine's
@@ -727,7 +735,7 @@ func (h *Hub) start(device Device, fixed bool) {
 	// its host name resolves to the hub only later.
 	agent := NewAgent(device.Address)
 	if !fixed {
-		agent = newAgent(device.Address, h.refuseOwn(h.ownAddresses))
+		agent = h.pageAgent(device.Address)
 	}
 	agent.pagePort = h.pagePort
 	agent.hubID = h.id

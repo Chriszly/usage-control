@@ -61,19 +61,19 @@ func defaultSuggester() suggester {
 }
 
 // Suggest returns the device at from, the address of a visitor of the page,
-// for the page to offer adding it. own lists more addresses of this machine
-// besides its network interfaces' own: in a container, those of the host,
-// which its usage reading lists. There is none when from is this machine,
-// one of its gateways or a device the hub already collects from at that
-// address and the default port. Behind
-// Docker's port publishing, a visitor can show up with the address of the
-// Docker network's gateway instead of its own, which is not suggested either.
-func (h *Hub) Suggest(ctx context.Context, from netip.Addr, own []netip.Addr) (Suggestion, bool) {
+// for the page to offer adding it. There is none when from is this machine
+// (with the addresses of ownAddresses: in a container, those of the host
+// and of the network cards its usage lists), one of its gateways or a
+// device the hub already collects from at that address and the default
+// port. Behind Docker's port publishing, a visitor can show up with the
+// address of the Docker network's gateway instead of its own, which is not
+// suggested either.
+func (h *Hub) Suggest(ctx context.Context, from netip.Addr) (Suggestion, bool) {
 	var known []Device
 	for _, r := range h.Remotes() {
 		known = append(known, r.Device)
 	}
-	return h.suggester.suggest(ctx, from, known, own)
+	return h.suggester.suggest(ctx, from, known, h.ownAddresses())
 }
 
 func (s suggester) suggest(ctx context.Context, from netip.Addr, known []Device, own []netip.Addr) (Suggestion, bool) {

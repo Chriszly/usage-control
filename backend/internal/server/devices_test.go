@@ -8,12 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Chriszly/usage-control/backend/internal/hub"
-	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/password"
 )
 
@@ -26,8 +24,6 @@ type fakeHub struct {
 	// suggestFor answers Suggest for this address; any other has no suggestion.
 	suggestFor string
 	asked      []netip.Addr
-	// own is the machine's own addresses the last Suggest got.
-	own []netip.Addr
 }
 
 func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind) (hub.Device, error) {
@@ -55,9 +51,9 @@ func (f *fakeHub) SetKind(_ context.Context, id string, kind hub.Kind) error {
 	return nil
 }
 
-func (f *fakeHub) Suggest(_ context.Context, from netip.Addr, own []netip.Addr) (hub.Suggestion, bool) {
-	f.asked, f.own = append(f.asked, from), own
-	if from.String() != f.suggestFor || slices.Contains(own, from) {
+func (f *fakeHub) Suggest(_ context.Context, from netip.Addr) (hub.Suggestion, bool) {
+	f.asked = append(f.asked, from)
+	if from.String() != f.suggestFor {
 		return hub.Suggestion{}, false
 	}
 	return hub.Suggestion{Address: from.String() + ":9393", Name: "Office PC", Kind: hub.KindPC}, true
@@ -297,23 +293,6 @@ func TestSuggestsTheVisitorsDevice(t *testing.T) {
 	devices.suggestFor = ""
 	if rec := send(handler, http.MethodGet, "/api/devices/suggestion", ""); rec.Code != http.StatusNoContent {
 		t.Errorf("without a suggestion: status = %d, want 204", rec.Code)
-	}
-}
-
-func TestDoesNotSuggestTheHubItself(t *testing.T) {
-	devices := &fakeHub{suggestFor: "192.168.1.20"}
-	// In Docker, the hub's own addresses are not the container's; its usage
-	// lists them.
-	own := fakeCollector{snapshot: metrics.Snapshot{Network: []metrics.NetworkInterface{
-		{Name: "eth0", Addresses: []string{"192.168.1.20"}},
-	}}}
-	handler := New(Site{Devices: DeviceList(device(own, nil)), Hub: devices, Password: &fakePassword{}, Files: site})
-
-	if rec := send(handler, http.MethodGet, "/api/devices/suggestion", ""); rec.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", rec.Code)
-	}
-	if !slices.Contains(devices.own, netip.MustParseAddr("192.168.1.20")) {
-		t.Errorf("own addresses given to the hub = %v, want the ones from the usage", devices.own)
 	}
 }
 
