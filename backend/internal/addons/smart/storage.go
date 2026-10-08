@@ -183,8 +183,8 @@ const errorIODevice = syscall.Errno(1117)
 // aborts SMART READ DATA, which such a driver fails with ERROR_IO_DEVICE, so
 // that is taken as errRefused, although it can also be another error of the
 // disk: readATA only takes it as SMART off when IDENTIFY DEVICE did not
-// tell, and the Reader shows a disk read before with its values that then
-// comes back with SMART off as one that cannot be read. Any other code, such
+// tell, and the Reader shows the same disk read before with its values that
+// then refuses so as one that cannot be read. Any other code, such
 // as a timeout (ERROR_SEM_TIMEOUT) or a driver without the SMART IOCTLs
 // (ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED), stays an error.
 func sendCmdError(c ataCommand, err error) error {
