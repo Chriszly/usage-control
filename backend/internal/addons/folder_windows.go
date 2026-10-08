@@ -19,18 +19,23 @@ import (
 // its report files elsewhere. The check asks Windows for the path of the
 // folder it opened, which differs from dir when a junction or link was
 // followed on the way, and the add-on then writes only through the open
-// folder, so swapping a folder after the check has no effect either.
+// folder, so swapping a folder after the check has no effect either. Windows
+// also gives another path for a folder on a subst or network drive, or on a
+// volume without a drive letter, which cannot be told from a junction on the
+// way, so those are refused too; the installer's folder is on the system
+// drive.
 func openFolder(dir string) (*os.Root, error) {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 	// The long form, as the open folder's path has no short names such as
-	// RUNNER~1 in it.
+	// RUNNER~1 in it, and without a \\?\ in front, as it has none either.
 	want, err := longPath(dir)
 	if err != nil {
 		return nil, fmt.Errorf("check %s: %w", dir, err)
 	}
+	want = withoutPrefix(want)
 	folder, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
@@ -42,7 +47,7 @@ func openFolder(dir string) (*os.Root, error) {
 	}
 	if !strings.EqualFold(got, want) {
 		_ = folder.Close()
-		return nil, fmt.Errorf("%s is, or lies below, a junction or link, which add-ons do not write through; make it a plain folder", dir)
+		return nil, fmt.Errorf("%s is, or lies below, a junction or link, or is on a subst or network drive, which add-ons do not write through; make it a plain folder on a local drive", dir)
 	}
 	return folder, nil
 }
@@ -84,12 +89,17 @@ func openedPath(folder *os.Root) (string, error) {
 			return "", err
 		}
 		if n < size {
-			path := windows.UTF16ToString(buffer[:n])
-			if unc, ok := strings.CutPrefix(path, `\\?\UNC\`); ok {
-				return `\\` + unc, nil
-			}
-			return strings.TrimPrefix(path, `\\?\`), nil
+			return withoutPrefix(windows.UTF16ToString(buffer[:n])), nil
 		}
 		size = n
 	}
+}
+
+// withoutPrefix returns path without the \\?\ that lets a path be longer than
+// MAX_PATH, as in \\?\C:\ProgramData or \\?\UNC\server\share.
+func withoutPrefix(path string) string {
+	if unc, ok := strings.CutPrefix(path, `\\?\UNC\`); ok {
+		return `\\` + unc
+	}
+	return strings.TrimPrefix(path, `\\?\`)
 }

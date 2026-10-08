@@ -59,13 +59,19 @@ if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/f
   # pulled from a registry.
   tar -C "$folder" -c usage-control | docker import --change 'ENTRYPOINT ["/usage-control"]' - usage-control-check > /dev/null
   docker run -d --rm --name usage-control-check --network none -e UPDATE_CHECK=false usage-control-check > /dev/null
+  # Kept before the container goes: a report written after that no longer
+  # has it.
+  reported=false
   for _ in $(seq 1 15); do
-    grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null && break
+    if grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json 2> /dev/null; then
+      reported=true
+      break
+    fi
     sleep 1
   done
   docker rm -f usage-control-check > /dev/null
   docker rmi usage-control-check > /dev/null
-  grep -q '"label":"usage-control-check"' /run/usage-control-addons/containers.json || { echo "the containers add-on did not report the running container" >&2; exit 1; }
+  [[ "$reported" == true ]] || { echo "the containers add-on did not report the running container" >&2; exit 1; }
 else
   for _ in $(seq 1 10); do
     [[ -f /run/usage-control-addons/containers.json ]] && break

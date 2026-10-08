@@ -127,8 +127,9 @@ func run(ctx context.Context) error {
 	}
 
 	// Listening comes before the rest of the setup: while another program
-	// holds the port, the Windows service tries again every 10 seconds, and
-	// each try would otherwise open the database and the readers anew.
+	// holds the port, the Windows service tries again after 10 seconds, then
+	// less often, up to every 5 minutes, and each try would otherwise open the
+	// database and the readers anew.
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err

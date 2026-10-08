@@ -45,6 +45,32 @@ func TestWindowsOpenFolderRefusesJunctions(t *testing.T) {
 	}
 }
 
+func TestWindowsOpenFolderTakesALongPath(t *testing.T) {
+	target, link := junction(t)
+	folder, err := openFolder(`\\?\` + target)
+	if err != nil {
+		t.Fatalf(`openFolder(\\?\ and a plain folder) error = %v, want nil`, err)
+	}
+	_ = folder.Close()
+	if folder, err := openFolder(`\\?\` + link); err == nil {
+		_ = folder.Close()
+		t.Error(`openFolder(\\?\ and a junction) error = nil, want an error`)
+	}
+}
+
+func TestWithoutPrefix(t *testing.T) {
+	for path, want := range map[string]string{
+		`C:\ProgramData`:              `C:\ProgramData`,
+		`\\?\C:\ProgramData`:          `C:\ProgramData`,
+		`\\?\UNC\server\share\folder`: `\\server\share\folder`,
+		`\\server\share\folder`:       `\\server\share\folder`,
+	} {
+		if got := withoutPrefix(path); got != want {
+			t.Errorf("withoutPrefix(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
 // The folder is checked once it is open, and the add-on writes through it.
 // While it is open, Windows refuses to rename it (os.OpenRoot opens it
 // without FILE_SHARE_DELETE), so it cannot be swapped for a junction between

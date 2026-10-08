@@ -16,8 +16,14 @@ import (
 )
 
 // serveRetryDelay is how long the service waits before it serves again after
-// serving stopped on its own, such as while the port is still in use.
-const serveRetryDelay = 10 * time.Second
+// serving stopped on its own, such as while the port is still in use. Each
+// further failure in a row doubles the wait, up to maxServeRetryDelay, so a
+// failure that lasts, such as a deleted add-on folder, does not try and write
+// to the event log every few seconds for good.
+const (
+	serveRetryDelay    = 10 * time.Second
+	maxServeRetryDelay = 5 * time.Minute
+)
 
 // Run runs serve as the Windows service name, the name the installer
 // registers it under, when the service manager started the program, and
@@ -29,7 +35,10 @@ func Run(name string, serve func(context.Context) error) (bool, error) {
 		return false, err
 	}
 	logError := func(err error) { logTo(name, err) }
-	service := &windowsService{serve: serve, log: logError, retryDelay: serveRetryDelay}
+	service := &windowsService{
+		serve: serve, log: logError,
+		retryDelay: serveRetryDelay, maxRetryDelay: maxServeRetryDelay,
+	}
 	if err := svc.Run(name, service); err != nil {
 		service.err = fmt.Errorf("run as the Windows service %s: %w", name, err)
 	}
@@ -67,23 +76,35 @@ func logTo(source string, err error) {
 type windowsService struct {
 	serve func(context.Context) error
 	// log reports a failure of serve, and retryDelay is how long to wait
-	// before serving again after one.
-	log        func(error)
-	retryDelay time.Duration
-	err        error
+	// before serving again after one, doubling with each failure in a row up
+	// to maxRetryDelay.
+	log           func(error)
+	retryDelay    time.Duration
+	maxRetryDelay time.Duration
+	err           error
 }
 
 // Execute runs serve until the service manager asks the service to stop. When
 // serve fails, such as right after a reboot while another program still holds
 // the port, the service stays running and serves again after retryDelay, as
-// often as needed, so nobody has to start it by hand; each failure is written
-// to the event log.
+// often as needed, so nobody has to start it by hand. Each failure in a row
+// doubles the wait, up to maxRetryDelay, and is written to the event log
+// only when it differs from the one before; a serve that ran for
+// maxRetryDelay or longer before it failed starts over.
 func (s *windowsService) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stopped := make(chan error, 1)
-	start := func() { go func() { stopped <- s.serve(ctx) }() }
+	var started time.Time
+	start := func() {
+		started = time.Now()
+		go func() { stopped <- s.serve(ctx) }()
+	}
 	start()
+	maxDelay := max(s.maxRetryDelay, s.retryDelay)
+	// delay is the wait before the next try, and logged the failure last
+	// written to the event log, both kept while failures come in a row.
+	delay, logged := time.Duration(0), ""
 
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	// retry is set while serve is not running, between a failure and the next try.
@@ -94,8 +115,16 @@ func (s *windowsService) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 			if err == nil {
 				return false, 0
 			}
-			s.log(fmt.Errorf("%w; trying again in %s", err, s.retryDelay))
-			retry = time.After(s.retryDelay)
+			if delay == 0 || time.Since(started) >= maxDelay {
+				delay, logged = s.retryDelay, ""
+			} else {
+				delay = min(2*delay, maxDelay)
+			}
+			if err.Error() != logged {
+				logged = err.Error()
+				s.log(fmt.Errorf("%w; trying again in %s, then less often, up to every %s, until it works", err, delay, maxDelay))
+			}
+			retry = time.After(delay)
 		case <-retry:
 			retry = nil
 			start()
