@@ -70,7 +70,9 @@ func newNvidiaSMI() *nvidiaSMI {
 // nvidiaSMIWait for the answer, returning the last one if it takes longer.
 // While a call is stuck (see nvidiaSMIStuck), it returns none and starts no
 // other. While the GPUs sleep, it starts none either, which would wake them,
-// and returns the last answer as idle. A nil nvidiaSMI reads none.
+// and returns the last answer as idle; while one may sleep, it starts one at
+// most every few autosuspend delays (see NvidiaSleep.Due). A nil nvidiaSMI
+// reads none.
 func (n *nvidiaSMI) read(ctx context.Context) []GPU {
 	if n == nil || n.program == "" {
 		return nil
@@ -81,7 +83,7 @@ func (n *nvidiaSMI) read(ctx context.Context) []GPU {
 		return idleGPUs(n.gpus)
 	}
 	n.mu.Lock()
-	if n.running == nil && time.Since(n.at) >= nvidiaSMIInterval {
+	if n.running == nil && time.Since(n.at) >= nvidiaSMIInterval && n.sleep.Due() {
 		n.running, n.started = make(chan struct{}), time.Now()
 		go n.ask(context.WithoutCancel(ctx), n.running)
 	}

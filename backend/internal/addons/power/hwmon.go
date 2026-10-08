@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/Chriszly/usage-control/backend/internal/addons"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
@@ -14,7 +16,8 @@ import (
 // /sys/class/hwmon, such as an AMD GPU's: power*_average, else
 // power*_input, in microwatts. A device that sleeps, such as a laptop's
 // second GPU, is reported at 0 W without reading its sensor, which would wake
-// it (see metrics.HwmonAsleep).
+// it (see metrics.HwmonAsleep), and one that may sleep is read only every few
+// autosuspend delays, its last value shown in between (see metrics.HwmonRead).
 func readHwmon(dir string) []Reading {
 	files, _ := filepath.Glob(filepath.Join(dir, "hwmon*", "power*_average"))
 	inputs, _ := filepath.Glob(filepath.Join(dir, "hwmon*", "power*_input"))
@@ -30,8 +33,9 @@ func readHwmon(dir string) []Reading {
 		sensor := filepath.Dir(file)
 		microwatts := uint64(0)
 		if !metrics.HwmonAsleep(sensor) {
-			var ok bool
-			if microwatts, ok = readUint(file); !ok {
+			text, err := metrics.HwmonRead(sensor, file)
+			addons.WarnRead(file, err)
+			if microwatts, err = strconv.ParseUint(strings.TrimSpace(string(text)), 10, 64); err != nil {
 				continue
 			}
 		}

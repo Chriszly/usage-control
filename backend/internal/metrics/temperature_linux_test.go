@@ -55,6 +55,27 @@ func TestReadSensorsKeepsTheNamesWhileAGPUSleeps(t *testing.T) {
 	}
 }
 
+func TestReadSensorsNumbersASleepingSensorAsWhenItWasLastAwake(t *testing.T) {
+	sys := t.TempDir()
+	writeSysFile(t, sys, "class/hwmon/hwmon0/name", "amdgpu\n")
+	writeSysFile(t, sys, "class/hwmon/hwmon0/temp1_input", "45000\n")
+	writeSysFile(t, sys, "class/hwmon/hwmon0/temp1_label", "edge\n")
+	// A second GPU whose sensor reports no temperature while awake.
+	writeSysFile(t, sys, "class/hwmon/hwmon1/name", "amdgpu\n")
+	writeSysFile(t, sys, "class/hwmon/hwmon1/temp1_input", "0\n")
+	writeSysFile(t, sys, "class/hwmon/hwmon1/temp1_label", "edge\n")
+	t.Setenv("HOST_SYS", sys)
+	awake := readTemperatures(t.Context())
+	writeSysFile(t, sys, "class/hwmon/hwmon1/device/power/runtime_status", "suspended\n")
+
+	asleep := readTemperatures(t.Context())
+
+	want := []Temperature{{Sensor: "amdgpu_edge", Celsius: 45}}
+	if !reflect.DeepEqual(awake, want) || !reflect.DeepEqual(asleep, want) {
+		t.Errorf("readTemperatures() = %+v, then while the second GPU sleeps %+v, want %+v both times", awake, asleep, want)
+	}
+}
+
 func TestReadSensorsWithoutHwmonReadsTheThermalZones(t *testing.T) {
 	sys := t.TempDir()
 	writeSysFile(t, sys, "class/thermal/thermal_zone0/type", "cpu_thermal\n")

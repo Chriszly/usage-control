@@ -72,7 +72,8 @@ func (*gpuReader) temperatures(context.Context) []Temperature { return nil }
 // readCard reads one DRM card, and reports false for a card whose usage the
 // kernel does not report, such as a display controller. An AMD GPU the
 // kernel has put to sleep is reported idle without asking it for its usage
-// and temperature, which would wake it.
+// and temperature, which would wake it, and one that may sleep is asked only
+// every few autosuspend delays (see deviceReads).
 func (r *gpuReader) readCard(card string) (GPU, bool) {
 	device := filepath.Join(card, "device")
 	busyFile := filepath.Join(device, "gpu_busy_percent")
@@ -81,8 +82,10 @@ func (r *gpuReader) readCard(card string) (GPU, bool) {
 			return readAMDGPU(device, 0, false), true
 		}
 	}
-	if busy, ok := sysfile.Uint(busyFile); ok {
-		return readAMDGPU(device, busy, true), true
+	if text, err := sensorReads.read(busyFile, device); err == nil {
+		if busy, err := strconv.ParseUint(strings.TrimSpace(string(text)), 10, 64); err == nil {
+			return readAMDGPU(device, busy, true), true
+		}
 	}
 	stats, err := sysfile.Read(filepath.Join(device, "gpu_stats"))
 	if err != nil {
@@ -118,7 +121,7 @@ func readAMDGPU(device string, busy uint64, awake bool) GPU {
 	}
 	sensors, _ := filepath.Glob(filepath.Join(device, "hwmon", "hwmon*", "temp1_input"))
 	if len(sensors) > 0 {
-		if milli, ok := sysfile.Uint(sensors[0]); ok {
+		if milli, ok := hwmonUint(filepath.Dir(sensors[0]), sensors[0]); ok {
 			celsius := float64(milli) / 1000
 			gpu.Celsius = &celsius
 		}
