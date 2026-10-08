@@ -11,7 +11,7 @@ import { EvenColumns } from '../layout/even-columns';
 import { ExtraInfo, localized } from '../metrics/extras';
 import { History, MetricsService, Point, Series } from '../metrics/metrics';
 import { PageVisibility } from '../page-visibility';
-import { ChartLine, ChartUnit, LineChart } from './line-chart';
+import { ChartLine, ChartUnit, LineChart, dateTimeFormat, needsYear } from './line-chart';
 
 /** A time range a chart can show, always ending now. */
 export interface Range {
@@ -140,10 +140,12 @@ export class HistoryCharts {
       null,
   );
 
-  /** Short ranges show seconds too. */
-  protected readonly dateFormat = computed(() =>
-    this.i18n.t(this.span() <= 30 * 60 ? 'format.dateTimeSeconds' : 'format.dateTime'),
-  );
+  /** Short ranges show seconds too, and long ranges or ranges into another year the year. */
+  protected readonly dateFormat = computed(() => {
+    const history = this.history();
+    const year = history !== null && needsYear(history.from, history.to);
+    return this.i18n.t(dateTimeFormat(this.span() <= 30 * 60, year));
+  });
 
   /** For a device that is not answering, when the shown data ends, in the page's language. */
   protected readonly lastReading = computed(() => {

@@ -2,6 +2,7 @@ import { DatePipe, NgTemplateOutlet, formatDate } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 
 import { I18n } from '../i18n/i18n';
+import { MessageKey } from '../i18n/messages/en';
 import { ExtraUnit, formatExtra } from '../metrics/extras';
 import { Point } from '../metrics/metrics';
 
@@ -62,7 +63,13 @@ export class LineChart {
     this.lines().map((line) => this.path(line.points, this.top())),
   );
 
-  /** The date format of the time axis: the time of day, with the day for longer ranges. */
+  /** Whether the chart's dates need their year, so dates a year apart are told apart. */
+  private readonly withYear = computed(() => needsYear(this.from(), this.to()));
+
+  /**
+   * The date format of the time axis: the time of day, with the day for longer
+   * ranges and the year when it is needed.
+   */
   protected readonly timeFormat = computed(() => {
     const span = this.to() - this.from();
     if (span <= 30 * 60) {
@@ -71,13 +78,16 @@ export class LineChart {
     if (span <= 86400) {
       return this.i18n.t('format.time');
     }
-    return this.i18n.t(span <= 8 * 86400 ? 'format.weekdayTime' : 'format.dayMonth');
+    if (span <= 8 * 86400) {
+      return this.i18n.t('format.weekdayTime');
+    }
+    return this.i18n.t(this.withYear() ? 'format.dayMonthYear' : 'format.dayMonth');
   });
 
   /** For screen readers: what the chart shows, of which time, and each line's latest value. */
   protected readonly summary = computed(() => {
     const language = this.i18n.language();
-    const format = this.i18n.t('format.dateTime');
+    const format = this.i18n.t(dateTimeFormat(false, this.withYear()));
     const lines = this.lines().map((line) => {
       const latest = line.points.at(-1);
       return latest
@@ -100,7 +110,7 @@ export class LineChart {
 
   /** The date format of the tooltip, with seconds when a step is shorter than a minute. */
   protected readonly readoutFormat = computed(() =>
-    this.i18n.t(this.step() < 60 ? 'format.dateTimeSeconds' : 'format.dateTime'),
+    this.i18n.t(dateTimeFormat(this.step() < 60, this.withYear())),
   );
 
   protected readonly readout = computed(() => {
@@ -159,6 +169,25 @@ export class LineChart {
     }
     return path;
   }
+}
+
+/**
+ * Whether dates from `from` to `to` (Unix seconds) need their year: when they
+ * span most of a year, or the new year falls between them.
+ */
+export function needsYear(from: number, to: number): boolean {
+  return (
+    to - from > 300 * 86400 ||
+    new Date(from * 1000).getFullYear() !== new Date(to * 1000).getFullYear()
+  );
+}
+
+/** The key of the date and time format, with seconds and the year as asked. */
+export function dateTimeFormat(seconds: boolean, year: boolean): MessageKey {
+  if (year) {
+    return seconds ? 'format.dateTimeSecondsYear' : 'format.dateTimeYear';
+  }
+  return seconds ? 'format.dateTimeSeconds' : 'format.dateTime';
 }
 
 /**

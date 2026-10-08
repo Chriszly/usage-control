@@ -84,7 +84,8 @@ progress::-moz-progress-bar {
     font: var(--mat-sys-label-large);
     cursor: pointer;
 
-    &:hover {
+    // :where() adds nothing to the specificity, so the pressed fill below still wins on hover.
+    &:hover:where(:not(:disabled)) {
       background: color-mix(in srgb, var(--mat-sys-on-surface-variant) 8%, transparent);
     }
 
@@ -97,6 +98,12 @@ progress::-moz-progress-bar {
       border-color: transparent;
       background: var(--mat-sys-secondary-container);
       color: var(--mat-sys-on-secondary-container);
+      cursor: default;
+    }
+
+    // While a change is being saved, the buttons fade like Material's disabled ones.
+    &:disabled {
+      opacity: 0.38;
       cursor: default;
     }
   }

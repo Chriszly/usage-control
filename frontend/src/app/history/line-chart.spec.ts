@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { ChartLine, LineChart, niceCeiling } from './line-chart';
+import { ChartLine, LineChart, needsYear, niceCeiling } from './line-chart';
 
 describe('LineChart', () => {
   let fixture: ComponentFixture<LineChart>;
@@ -9,13 +9,13 @@ describe('LineChart', () => {
     vi.restoreAllMocks();
   });
 
-  function render(lines: ChartLine[]): HTMLElement {
+  function render(lines: ChartLine[], from = 0, to = 600, step = 60): HTMLElement {
     fixture = TestBed.createComponent(LineChart);
     fixture.componentRef.setInput('chartTitle', 'CPU and memory');
     fixture.componentRef.setInput('lines', lines);
-    fixture.componentRef.setInput('from', 0);
-    fixture.componentRef.setInput('to', 600);
-    fixture.componentRef.setInput('step', 60);
+    fixture.componentRef.setInput('from', from);
+    fixture.componentRef.setInput('to', to);
+    fixture.componentRef.setInput('step', step);
     fixture.componentRef.setInput('unit', 'percent');
     fixture.componentRef.setInput('max', 100);
     fixture.detectChanges();
@@ -101,6 +101,39 @@ describe('LineChart', () => {
     );
   });
 
+  it('writes the year on the axis, in the tooltip and for screen readers over long ranges', () => {
+    const from = new Date(2025, 0, 10).getTime() / 1000;
+    const to = from + 400 * 86400;
+    const element = render(
+      [{ label: 'CPU', points: [{ time: from, value: 30 }] }],
+      from,
+      to,
+      86400,
+    );
+    const plot = element.querySelector('.plot') as HTMLElement;
+    plot.getBoundingClientRect = () => ({ left: 0, width: 600 }) as DOMRect;
+
+    plot.dispatchEvent(new MouseEvent('pointermove', { clientX: 0 }));
+    fixture.detectChanges();
+
+    const axis = element.querySelector('.x-axis')?.textContent ?? '';
+    expect(axis).toContain('Jan 10, 2025');
+    expect(axis).toContain('2026');
+    expect(element.querySelector('.tooltip .time')?.textContent).toContain(', 2025,');
+    expect(element.querySelector('svg')?.getAttribute('aria-label')).toMatch(
+      /from Fri, Jan 10, 2025, .+ to .+, 2026, /,
+    );
+  });
+
+  it('leaves the year out of a month within one year', () => {
+    const from = new Date(2026, 4, 1).getTime() / 1000;
+    const element = render([{ label: 'CPU', points: [] }], from, from + 30 * 86400, 3600);
+
+    expect(element.querySelector('.x-axis')?.textContent).toContain('May 1');
+    expect(element.querySelector('.x-axis')?.textContent).not.toContain('2026');
+    expect(element.querySelector('svg')?.getAttribute('aria-label')).not.toContain('2026');
+  });
+
   it('dashes the lines after the eighth and keeps lines of the same name apart', () => {
     const lines = () => Array.from({ length: 9 }, () => ({ label: 'sda', points: [] }));
     const element = render(lines());
@@ -115,6 +148,20 @@ describe('LineChart', () => {
     expect(swatches[0].classList.contains('dashed')).toBe(false);
     expect([...swatches[8].classList].sort()).toEqual(['dashed', 'series-0', 'swatch']);
     expect(element.querySelectorAll('path.dashed').length).toBe(1);
+  });
+});
+
+describe('needsYear', () => {
+  const seconds = (date: Date) => date.getTime() / 1000;
+
+  it('is needed over most of a year or into another year', () => {
+    const may = seconds(new Date(2026, 4, 1));
+    expect(needsYear(may, may + 30 * 86400)).toBe(false);
+    expect(needsYear(seconds(new Date(2026, 0, 1)), seconds(new Date(2026, 6, 31)))).toBe(false);
+    expect(needsYear(may - 400 * 86400, may)).toBe(true);
+    expect(
+      needsYear(seconds(new Date(2025, 11, 31, 23, 50)), seconds(new Date(2026, 0, 1, 0, 20))),
+    ).toBe(true);
   });
 });
 
