@@ -89,8 +89,8 @@ type windowsService struct {
 // the port, the service stays running and serves again after retryDelay, as
 // often as needed, so nobody has to start it by hand. Each failure in a row
 // doubles the wait, up to maxRetryDelay, and is written to the event log
-// only when it differs from the one before or serve ran for at least the
-// last wait before it failed; a serve that ran for maxRetryDelay or longer
+// only when it differs from the one before or serve ran for at least
+// retryDelay before it failed; a serve that ran for maxRetryDelay or longer
 // before it failed starts over.
 func (s *windowsService) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,9 +120,9 @@ func (s *windowsService) Execute(_ []string, requests <-chan svc.ChangeRequest, 
 			if delay == 0 || ran >= maxDelay {
 				delay, logged = s.retryDelay, ""
 			} else {
-				if ran >= delay {
-					// Served for at least as long as it waited, so the
-					// failure came back rather than went on.
+				if ran >= s.retryDelay {
+					// Served for at least the first wait, so the failure
+					// came back rather than went on.
 					logged = ""
 				}
 				delay = min(2*delay, maxDelay)

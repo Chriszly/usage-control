@@ -79,6 +79,9 @@
                     release (default true); the installer refuses a value
                     the service cannot read: it takes true, false, 1, 0, t
                     and f, in the cases the service takes, without spaces
+                    around. To fix a bad remembered value of the installed
+                    version, repair it with its own installer:
+                      msiexec /i usage-control.msi REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true
     RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
                     devices when the service starts; only from an
                     administrator, and not remembered, so the next install,

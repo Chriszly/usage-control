@@ -42,17 +42,18 @@ function Get-InstalledVersions {
         ForEach-Object { $_.DisplayVersion }) -join ', '
 }
 
-# Runs the installer and checks it refuses with Message, as a launch
-# condition that is not met does, and changes nothing.
-function Assert-InstallerRefuses([string] $Arguments, [string] $Message) {
+# Runs the installer and checks it refuses with a message that holds each of
+# Messages, as a launch condition that is not met does, and changes nothing.
+function Assert-InstallerRefuses([string] $Arguments, [string[]] $Messages) {
     $before = Get-InstalledVersions
     $process = Start-Process msiexec.exe -ArgumentList "$Arguments /qn /l*v msiexec.log" -Wait -PassThru
     # 1603 is a failed install. Without the zeros the log reads the same
     # whether it was written as ANSI or as UTF-16.
     $log = (Get-Content msiexec.log -Raw) -replace "`0", ''
-    if ($process.ExitCode -ne 1603 -or -not $log.Contains($Message)) {
+    $missing = @($Messages | Where-Object { -not $log.Contains($_) })
+    if ($process.ExitCode -ne 1603 -or $missing.Count -gt 0) {
         Get-Content msiexec.log -Tail 80
-        throw "msiexec $Arguments exited with $($process.ExitCode); it should refuse with '$Message' and 1603"
+        throw "msiexec $Arguments exited with $($process.ExitCode); it should refuse with '$($Messages -join "' and '")' and 1603"
     }
     $after = Get-InstalledVersions
     if ($after -ne $before) { throw "msiexec $Arguments changed the installed version from '$before' to '$after'" }
@@ -235,8 +236,7 @@ function Assert-ProcessesAddOn {
 }
 
 Write-Host 'An UPDATE_CHECK other than true or false is refused, naming the option'
-Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.'
-Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" ".msi`" UPDATE_CHECK=true"
+Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.', ".msi`" UPDATE_CHECK=true"
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The refused install installed the service' }
 
 Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
@@ -323,6 +323,7 @@ Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
 Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
 Assert-ServiceSetting UPDATE_CHECK 'true'
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' UPDATE_CHECK) -ne 'true') { throw 'The repair did not rewrite the remembered UPDATE_CHECK' }
 Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
 
 Write-Host 'Uninstalling'
