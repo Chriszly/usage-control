@@ -214,11 +214,15 @@ func (d *deviceReads) amdgpuParams(now time.Time) (runpm, dc string) {
 }
 
 // kernelRelease returns the running kernel's release, such as "6.6.0", read
-// once, as it changes only with a restart; "" when it cannot be read. d.mu
-// is held.
+// once, as it changes only with a restart; "" when it cannot be read. A
+// container shares the host's kernel, so where the host's /proc does not
+// tell, the program's own does. d.mu is held.
 func (d *deviceReads) kernelRelease() string {
 	if !d.releaseRead {
 		d.release = sysfile.Text(filepath.Join(hostPath("HOST_PROC", "/proc"), "sys", "kernel", "osrelease"))
+		if d.release == "" {
+			d.release = sysfile.Text("/proc/sys/kernel/osrelease")
+		}
 		d.releaseRead = true
 	}
 	return d.release
@@ -261,7 +265,8 @@ func kernelAtLeast(release string, major, minor int) bool {
 // monitor is connected, blanked or not, unless its runpm is -2 (which Linux
 // 6.6 added), so there a connector whose status is "connected" is in use
 // too. With its older display code, which it uses when its dc is 0, it does
-// while any connector's dpms is "On", enabled or not, so there such a
+// since Linux 5.7 while any connector's dpms is "On", enabled or not
+// (before, it looked at the display pipes in use), so there such a
 // connector is in use too. The older display code it picks for some old
 // cards when dc is left to choose (-1) is not told from here: those cards
 // are read less often than the kernel keeps them awake, which never wakes
@@ -278,7 +283,7 @@ func (d *deviceReads) drivesDisplay(device string) bool {
 	if driver, err := filepath.EvalSymlinks(filepath.Join(device, "driver")); err == nil && filepath.Base(driver) == "amdgpu" {
 		runpm, dc := d.amdgpuParams(d.now())
 		awakeWhileConnected = runpm != "-2" && kernelAtLeast(d.kernelRelease(), 5, 18)
-		awakeWhileOn = dc == "0"
+		awakeWhileOn = dc == "0" && kernelAtLeast(d.kernelRelease(), 5, 7)
 	}
 	for _, connector := range connectors {
 		if awakeWhileConnected && sysfile.Text(filepath.Join(connector, "status")) == "connected" {

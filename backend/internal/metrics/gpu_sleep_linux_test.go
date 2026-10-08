@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
 
 // writeSysFile writes a file below dir, making its folders.
@@ -262,11 +264,12 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 		{name: "amdgpu, runpm -2, standby", driver: "amdgpu", runpm: "-2", dpms: "Standby", sleeps: true},
 		{name: "amdgpu, runpm -2, suspend", driver: "amdgpu", runpm: "-2", dpms: "Suspend", sleeps: true},
 		{name: "amdgpu, runpm -2, showing", driver: "amdgpu", runpm: "-2", dpms: "On", sleeps: false},
-		{name: "amdgpu, before Linux 5.18, blanked", driver: "amdgpu", runpm: "-1", release: "5.17.15", dpms: "Off", sleeps: true},
+		{name: "amdgpu, before Linux 5.18, blanked", driver: "amdgpu", runpm: "-1", release: "5.17.0", dpms: "Off", sleeps: true},
 		{name: "amdgpu, Linux 5.18, blanked", driver: "amdgpu", runpm: "-1", release: "5.18.0-1-amd64", dpms: "Off", sleeps: false},
 		{name: "amdgpu, unknown kernel, blanked", driver: "amdgpu", runpm: "-1", release: "unknown", dpms: "Off", sleeps: true},
 		{name: "amdgpu, dc 0, runpm -2, unused connector on", driver: "amdgpu", runpm: "-2", dc: "0", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: false},
 		{name: "amdgpu, dc 0, runpm -2, blanked", driver: "amdgpu", runpm: "-2", dc: "0", dpms: "Off", sleeps: true},
+		{name: "amdgpu, dc 0, before Linux 5.7, unused connector on", driver: "amdgpu", runpm: "-2", dc: "0", release: "5.4.0", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: true},
 		{name: "amdgpu, dc chosen, runpm -2, unused connector on", driver: "amdgpu", runpm: "-2", dc: "-1", dpms: "On", status: "disconnected", enabled: "disabled", sleeps: true},
 		{name: "other driver, off", driver: "radeon", runpm: "-1", dpms: "Off", sleeps: true},
 		{name: "other driver, standby", driver: "radeon", runpm: "-1", dpms: "Standby", sleeps: true},
@@ -341,6 +344,28 @@ func TestKernelAtLeast(t *testing.T) {
 		if got := kernelAtLeast(test.release, 5, 18); got != test.want {
 			t.Errorf("kernelAtLeast(%q, 5, 18) = %v, want %v", test.release, got, test.want)
 		}
+	}
+}
+
+func TestDeviceReadsKernelReleaseFallsBackToItsOwnProc(t *testing.T) {
+	own := sysfile.Text("/proc/sys/kernel/osrelease")
+	if own == "" {
+		t.Skip("no /proc/sys/kernel/osrelease here")
+	}
+	// The host's /proc without the file, as when it is mounted elsewhere.
+	t.Setenv("HOST_PROC", t.TempDir())
+	reads := newDeviceReads(time.Now)
+	if got := reads.kernelRelease(); got != own {
+		t.Errorf("kernelRelease() = %q, want the program's own, %q", got, own)
+	}
+
+	// The host's /proc is read first.
+	proc := t.TempDir()
+	t.Setenv("HOST_PROC", proc)
+	writeSysFile(t, proc, "sys/kernel/osrelease", "5.4.0\n")
+	reads = newDeviceReads(time.Now)
+	if got := reads.kernelRelease(); got != "5.4.0" {
+		t.Errorf("kernelRelease() = %q, want the host's, 5.4.0", got)
 	}
 }
 
