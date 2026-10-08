@@ -70,10 +70,19 @@ type Hub struct {
 	// cards' addresses are the hub's own, also in a container; nil in tests.
 	local Usage
 
-	// ownMu guards own and ownRead, the hub's own addresses as read last.
-	ownMu   sync.Mutex
-	own     []netip.Addr
-	ownRead time.Time
+	// ownMu guards the hub's own addresses besides its network interfaces'
+	// (see ownAddresses): host, the host's, read at hostRead, and cards, the
+	// network cards' in its usage, as last read at cardsRead. reading is
+	// set while the usage is read, and closed once it is. own is the list
+	// given out last, and owned is set once one was.
+	ownMu     sync.Mutex
+	host      []netip.Addr
+	hostRead  time.Time
+	cards     []netip.Addr
+	cardsRead time.Time
+	reading   chan struct{}
+	own       []netip.Addr
+	owned     bool
 
 	// mu guards remotes and removing.
 	mu      sync.Mutex
@@ -201,11 +210,9 @@ func (h *Hub) Remotes() []*Remote {
 // Add checks the device, asks it for its usage once to make sure a
 // usage-control answers at its address, keeps it in the database with its
 // kind and starts collecting from it. An address of the hub itself is
-// refused (see addable); own lists more of the machine's addresses besides
-// its network interfaces', as for Suggest, and so does ownAddresses, which
-// the hub refuses again whenever it connects to the device. Problems with
-// the device are InputErrors.
-func (h *Hub) Add(ctx context.Context, name, address string, kind Kind, own []netip.Addr) (Device, error) {
+// refused (see addable and ownAddresses), and again whenever the hub
+// connects to the device. Problems with the device are InputErrors.
+func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device, error) {
 	device, err := NewDevice(name, address)
 	if err != nil {
 		return Device{}, err
@@ -230,7 +237,7 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind, own []ne
 	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
-	if _, err := h.askNew(ctx, device.Address, own); err != nil {
+	if _, err := h.askNew(ctx, device.Address); err != nil {
 		if errors.Is(err, errOwnAddress) {
 			return Device{}, &InputError{Problem: ProblemAddressOwn, Message: "the address is the hub itself; give the device's address on the local network"}
 		}
@@ -265,8 +272,8 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // one when it connects, at once and whatever the port. How long the answer
 // took would otherwise tell which of the hub's own ports are open, including
 // ones only it can reach.
-func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (metrics.Snapshot, error) {
-	own = slices.Concat(own, h.ownAddresses())
+func (h *Hub) askNew(ctx context.Context, address string) (metrics.Snapshot, error) {
+	own := h.ownAddresses()
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
@@ -298,32 +305,71 @@ const ownAddressesFor = 5 * time.Second
 
 // ownAddresses lists the hub's addresses besides those of its network
 // interfaces: the host's in a container (see hostAddrs) and those of the
-// network cards in its usage, which in a container are the machine's. They
-// are read at most every ownAddressesFor, or sooner while its own usage
-// cannot be read.
+// network cards in its usage, which in a container are the machine's. Each
+// part is read at most every ownAddressesFor; the usage sooner while it
+// cannot be read, with the network cards read last kept meanwhile. The
+// usage, which can take seconds, is read by one caller at a time without
+// holding ownMu; the others go on with the network cards read last, or
+// wait for them when there are none yet. When the list has an address it
+// did not have before, the connections kept open to devices added on the
+// page are closed, so the next reading connects anew and is checked.
 func (h *Hub) ownAddresses() []netip.Addr {
 	h.ownMu.Lock()
-	defer h.ownMu.Unlock()
-	if !h.ownRead.IsZero() && time.Since(h.ownRead) < ownAddressesFor {
-		return h.own
-	}
-	var own []netip.Addr
-	if h.hostAddrs != nil {
-		own = h.hostAddrs()
-	} else {
-		own = metrics.HostAddresses()
-	}
-	if h.local != nil {
-		snapshot, err := h.local.Collect(h.ctx)
-		if err != nil {
-			// Not kept, so the next check reads the usage again instead of
-			// going without its network cards for a while.
-			return own
+	if h.hostRead.IsZero() || time.Since(h.hostRead) >= ownAddressesFor {
+		if h.hostAddrs != nil {
+			h.host = h.hostAddrs()
+		} else {
+			h.host = metrics.HostAddresses()
 		}
-		own = slices.Concat(own, NetworkAddresses(snapshot))
+		h.hostRead = time.Now()
 	}
-	h.own, h.ownRead = own, time.Now()
+	read := false
+	var wait chan struct{}
+	if h.local != nil && (h.cardsRead.IsZero() || time.Since(h.cardsRead) >= ownAddressesFor) {
+		switch {
+		case h.reading == nil:
+			h.reading, read = make(chan struct{}), true
+		case h.cardsRead.IsZero():
+			wait = h.reading
+		}
+	}
+	h.ownMu.Unlock()
+	switch {
+	case read:
+		snapshot, err := h.local.Collect(h.ctx)
+		h.ownMu.Lock()
+		if err == nil {
+			h.cards, h.cardsRead = NetworkAddresses(snapshot), time.Now()
+		}
+		close(h.reading)
+		h.reading = nil
+		h.ownMu.Unlock()
+	case wait != nil:
+		<-wait
+	}
+
+	h.ownMu.Lock()
+	defer h.ownMu.Unlock()
+	own := slices.Concat(h.host, h.cards)
+	if h.owned && slices.ContainsFunc(own, func(addr netip.Addr) bool { return !slices.Contains(h.own, addr) }) {
+		// On its own goroutine, as the caller may hold mu.
+		go h.closeIdle()
+	}
+	h.own, h.owned = own, true
 	return own
+}
+
+// closeIdle closes the connections that the agents of devices added on the
+// page keep open between readings, so that the next reading connects anew
+// and its address is checked against the hub's own again.
+func (h *Hub) closeIdle() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, remote := range h.remotes {
+		if !remote.Fixed {
+			remote.Agent.client.CloseIdleConnections()
+		}
+	}
 }
 
 // NetworkAddresses lists the addresses of the network cards in a machine's
@@ -638,9 +684,11 @@ func (r *Remote) Unreachable() (since time.Time, unreachable bool) {
 }
 
 // Refused reports whether the hub did not connect to the device the last
-// time it tried, as its address is the hub's own; see watchedAgent.Collect.
+// time it tried, as its address is the hub's own (see watchedAgent.Collect),
+// and only while the device does not answer (see Unreachable): a reading
+// refused right after one that was answered does not count yet.
 func (r *Remote) Refused() bool {
-	return r.watched.isRefused()
+	return !r.Agent.answers() && r.watched.isRefused()
 }
 
 // Kind tells what the device is used as.

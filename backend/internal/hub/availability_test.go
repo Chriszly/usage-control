@@ -178,13 +178,30 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	}
 }
 
+// The device listing sets refused only for a device that does not answer.
+func TestRemoteIsRefusedOnlyWhileUnreachable(t *testing.T) {
+	agent := NewAgent("192.168.1.30:9393")
+	remote := &Remote{Agent: agent, watched: &watchedAgent{agent: agent, refused: true}}
+
+	// Refused right after a reading that was answered.
+	agent.latestAt = time.Now()
+	if _, unreachable := remote.Unreachable(); unreachable || remote.Refused() {
+		t.Errorf("Unreachable() = %v, Refused() = %v for a device that answered just before, want neither", unreachable, remote.Refused())
+	}
+
+	agent.latestAt = time.Now().Add(-2 * staleAfter)
+	if _, unreachable := remote.Unreachable(); !unreachable || !remote.Refused() {
+		t.Errorf("Unreachable() = %v, Refused() = %v once its answer is old, want both", unreachable, remote.Refused())
+	}
+}
+
 func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
 	before := time.Now().Add(-time.Second)
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, startDevice(t), KindServer, nil); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t), KindServer); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}
