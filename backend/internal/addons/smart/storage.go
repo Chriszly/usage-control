@@ -3,6 +3,7 @@ package smart
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -165,13 +166,21 @@ var errShortAnswer = errors.New("the disk driver answered too little")
 
 var errDriver = errors.New("the disk driver refused the command")
 
+// smartIDEError is the DRIVERSTATUS.bDriverError SMART_IDE_ERROR, with which
+// the driver says that the disk answered with the ERR bit, its error
+// register in bIDEError.
+const smartIDEError = 1
+
 // parseSendCmdOut reads SENDCMDOUTPARAMS: the sector, or the registers the
-// disk answered with.
+// disk answered with. A command the disk refused is errRefused.
 func parseSendCmdOut(c ataCommand, out []byte) (ataResult, []byte, error) {
 	if len(out) < sendCmdOutSize(c) {
 		return ataResult{}, nil, errShortAnswer
 	}
-	// DRIVERSTATUS.bDriverError
+	// DRIVERSTATUS.bDriverError and bIDEError
+	if out[4] == smartIDEError {
+		return ataResult{}, nil, fmt.Errorf("%w %#x (error %#x)", errRefused, c.command, out[5])
+	}
 	if out[4] != 0 {
 		return ataResult{}, nil, errDriver
 	}

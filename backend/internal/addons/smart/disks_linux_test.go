@@ -1,6 +1,7 @@
 package smart
 
 import (
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -166,6 +167,27 @@ func TestSGAnswerChecksWhatCameBack(t *testing.T) {
 			t.Errorf("%s: sgAnswer() = %d bytes, want the sector", test.name, len(data))
 		case err == nil && !test.command.dataIn && (smartPassed(result) == nil || !*smartPassed(result)):
 			t.Errorf("%s: sgAnswer() = %+v, want the registers of a passed check", test.name, result)
+		}
+	}
+}
+
+func TestSGAnswerTellsARefusalFromOtherErrors(t *testing.T) {
+	// The registers of an aborted command: ERR in the status, ABRT in the
+	// error register.
+	aborted := []byte{
+		0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14,
+		0x09, 0x0C, 0, 0x04, 0, 0x00, 0, 0x00, 0, 0x00, 0, 0x00, 0xA0, 0x51,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	}
+	sense := make([]byte, 32)
+	copy(sense, aborted)
+	hdr := sgIOHdr{status: scsiCheckCondition, driverStatus: sgDriverSense, sbLenWr: 22}
+	if _, _, err := sgAnswer(ataSMARTReadData, &hdr, sense, make([]byte, 512)); !errors.Is(err, errRefused) {
+		t.Errorf("sgAnswer() = %v, want errRefused for the ERR bit", err)
+	}
+	for _, hdr := range []sgIOHdr{{driverStatus: 0x06}, {resid: 512}, {hostStatus: 0x07}} {
+		if _, _, err := sgAnswer(ataSMARTReadData, &hdr, make([]byte, 32), make([]byte, 512)); err == nil || errors.Is(err, errRefused) {
+			t.Errorf("sgAnswer(%+v) = %v, want an error that is not a refusal", hdr, err)
 		}
 	}
 }
