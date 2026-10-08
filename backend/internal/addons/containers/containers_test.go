@@ -404,13 +404,19 @@ func TestReadWalksTheCgroupTreeWhenCgroupsComeOrGo(t *testing.T) {
 
 func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
 	root := t.TempDir()
+	otherPodID, nextID, otherDockerID := strings.Repeat("e", 64), strings.Repeat("f", 64), strings.Repeat("0", 64)
 	writeFiles(t, root, map[string]string{
 		// Podman with the cgroupfs driver: no ".scope", and conmon apart.
 		"libpod_parent/libpod-" + podmanID + "/cpu.stat":        "usage_usec 1",
 		"libpod_parent/libpod-conmon-" + podmanID + "/cpu.stat": "usage_usec 1",
 		"libpod_parent/conmon/cpu.stat":                         "usage_usec 1",
-		// A pod's containers are in a folder named by the pod's id.
-		"libpod_parent/" + podID + "/libpod-" + dbID + "/cpu.stat": "usage_usec 1",
+		// A pod's containers are in a folder named by the pod's id, also
+		// below a cgroup parent of the pod's own.
+		"libpod_parent/" + podID + "/libpod-" + dbID + "/cpu.stat":   "usage_usec 1",
+		"mypods/" + otherPodID + "/libpod-" + nextID + "/cpu.stat":   "usage_usec 1",
+		"mypods/" + otherPodID + "/conmon/cpu.stat":                  "usage_usec 1",
+		"docker/" + otherDockerID + "/cpu.stat":                      "usage_usec 1",
+		"docker/" + otherDockerID + "/libpod_parent/conmon/cpu.stat": "usage_usec 1",
 		// CRI-O with the cgroupfs driver.
 		"kubepods/besteffort/pod1/crio-" + webID + "/cpu.stat": "usage_usec 1",
 	})
@@ -422,6 +428,9 @@ func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
 		podmanID: filepath.Join(root, "libpod_parent", "libpod-"+podmanID),
 		webID:    filepath.Join(root, "kubepods", "besteffort", "pod1", "crio-"+webID),
 		dbID:     filepath.Join(root, "libpod_parent", podID, "libpod-"+dbID),
+		nextID:   filepath.Join(root, "mypods", otherPodID, "libpod-"+nextID),
+		// A Docker container whose cgroup holds other folders stays one.
+		otherDockerID: filepath.Join(root, "docker", otherDockerID),
 	}
 	if !maps.Equal(found, want) {
 		t.Errorf("found = %v, want %v", found, want)
