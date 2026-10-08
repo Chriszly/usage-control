@@ -30,7 +30,7 @@ type fakeHub struct {
 	own []netip.Addr
 }
 
-func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind) (hub.Device, error) {
+func (f *fakeHub) Add(_ context.Context, name, address string, kind hub.Kind, _ []netip.Addr) (hub.Device, error) {
 	if f.err != nil {
 		return hub.Device{}, f.err
 	}

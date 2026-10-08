@@ -133,6 +133,8 @@ export const de: Messages = {
     'Ein Gerät mit dieser Adresse und diesem Port ist bereits in der Liste. Ein Gerät auf einem anderen Port kann hinzugefügt werden.',
   'devices.problem.address':
     'Schreibe die Adresse als IP-Adresse und Port, zum Beispiel 192.168.1.20:9393.',
+  'devices.problem.addressOwn':
+    'Diese Adresse ist der Hub selbst. Schreibe die Adresse des Geräts im lokalen Netzwerk, zum Beispiel 192.168.1.20:9393.',
   'devices.problem.kind':
     'Wähle, ob das Gerät ein Server oder IoT-Gerät oder ein PC oder Laptop ist.',
   'devices.problem.unreachable':

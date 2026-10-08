@@ -35,8 +35,14 @@ type Availability struct {
 	// Kind tells whether the times the device did not answer are outages of
 	// a server or times a PC was not in use.
 	Kind Kind `json:"kind"`
-	// Since is when the device was added.
+	// Since is when the device was added, or the start of its first outage
+	// when that is earlier: the time the outages are counted since.
 	Since time.Time `json:"since"`
+	// CountedSince is when the device would have been added had it been
+	// watched all the time: Since, moved on by the time it was removed with
+	// its history kept (see continueKept). The share of time it answered is
+	// worked out from it.
+	CountedSince time.Time `json:"countedSince"`
 	// OfflineSeconds adds up every outage. Time the hub itself was not
 	// running is not known, so it is not counted.
 	OfflineSeconds int64 `json:"offlineSeconds"`
@@ -112,17 +118,24 @@ func readAvailability(ctx context.Context, db *sql.DB, device string) (Availabil
 	var since int64
 	err := db.QueryRowContext(ctx, `SELECT since FROM hub_watched WHERE device = ?`, device).Scan(&since)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Availability{Since: time.Now().UTC()}, nil
+		now := time.Now().UTC()
+		return Availability{Since: now, CountedSince: now}, nil
 	}
 	if err != nil {
 		return Availability{}, err
 	}
-	availability := Availability{Since: time.Unix(since, 0).UTC()}
+	availability := Availability{Since: time.Unix(since, 0).UTC(), CountedSince: time.Unix(since, 0).UTC()}
 
-	err = db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(ended - started), 0) / 1000 FROM hub_outages WHERE device = ?`, device).
-		Scan(&availability.Outages, &availability.OfflineSeconds)
+	var first int64
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(ended - started), 0) / 1000, COALESCE(MIN(started), 0) FROM hub_outages WHERE device = ?`, device).
+		Scan(&availability.Outages, &availability.OfflineSeconds, &first)
 	if err != nil || availability.Outages == 0 {
 		return availability, err
+	}
+	// A device added again continues its outages from before it was removed,
+	// while since moved on: the page counts them since the first one.
+	if start := time.UnixMilli(first).UTC().Truncate(time.Second); start.Before(availability.Since) {
+		availability.Since = start
 	}
 	var started, ended int64
 	err = db.QueryRowContext(ctx, `SELECT started, ended FROM hub_outages WHERE device = ? ORDER BY started DESC LIMIT 1`, device).

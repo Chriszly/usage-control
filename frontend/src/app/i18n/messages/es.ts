@@ -133,6 +133,8 @@ export const es: Messages = {
     'Ya hay un dispositivo con esta dirección y este puerto en la lista. Se puede añadir un dispositivo en otro puerto.',
   'devices.problem.address':
     'Escribe la dirección como dirección IP y puerto, por ejemplo 192.168.1.20:9393.',
+  'devices.problem.addressOwn':
+    'Esta dirección es el propio hub. Escribe la dirección del dispositivo en la red local, por ejemplo 192.168.1.20:9393.',
   'devices.problem.kind':
     'Elige si el dispositivo es un servidor o dispositivo IoT, o un PC o portátil.',
   'devices.problem.unreachable':

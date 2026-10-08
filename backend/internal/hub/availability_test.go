@@ -101,7 +101,7 @@ func TestAvailabilityIsKeptAndRemovedWithTheDevice(t *testing.T) {
 	h := openTestHub(t, store, nil)
 	before := time.Now().Add(-time.Second)
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, startDevice(t), KindServer); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t), KindServer, nil); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}

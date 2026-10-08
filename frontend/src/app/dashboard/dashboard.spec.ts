@@ -479,6 +479,7 @@ describe('Dashboard', () => {
     http.expectOne('/api/availability?device=living-room-pi').flush({
       kind: 'server',
       since: '2026-10-01T12:00:00Z',
+      countedSince: '2026-10-01T12:00:00Z',
       offlineSeconds: 864,
       outages: 1,
       lastOutage: { start: '2026-10-02T11:00:00Z', end: '2026-10-02T11:14:24Z' },
@@ -509,7 +510,10 @@ describe('Dashboard', () => {
       .flush('down', { status: 503, statusText: 'Service Unavailable' });
     http.expectOne('/api/availability?device=laptop').flush({
       kind: 'pc',
-      since: '2026-10-01T12:00:00Z',
+      // Removed with its history kept for a while and added again: its off times are counted
+      // since the first, its share over the time it was watched.
+      since: '2026-09-20T08:00:00Z',
+      countedSince: '2026-10-01T12:00:00Z',
       offlineSeconds: 43200,
       outages: 2,
       lastOutage: { start: '2026-10-02T11:00:00Z', end: '2026-10-02T12:00:00Z' },

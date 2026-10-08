@@ -140,10 +140,13 @@ const (
 	// already; the same address with another port is another device.
 	ProblemAddressTaken Problem = "addressTaken"
 	ProblemAddress      Problem = "address"
-	ProblemUnreachable  Problem = "unreachable"
-	ProblemNotFound     Problem = "notFound"
-	ProblemFixed        Problem = "fixed"
-	ProblemKind         Problem = "kind"
+	// ProblemAddressOwn is an address of the hub itself: loopback,
+	// unspecified, link-local or one of its own.
+	ProblemAddressOwn  Problem = "addressOwn"
+	ProblemUnreachable Problem = "unreachable"
+	ProblemNotFound    Problem = "notFound"
+	ProblemFixed       Problem = "fixed"
+	ProblemKind        Problem = "kind"
 	// ProblemRemoving is a device with the same name whose data is still
 	// being deleted after it was removed.
 	ProblemRemoving Problem = "removing"

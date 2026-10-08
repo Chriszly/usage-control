@@ -20,7 +20,9 @@ const maxChangeBytes = 4096
 // Hub adds and removes the other devices the site collects from. Problems
 // with the device asked for are hub.InputErrors.
 type Hub interface {
-	Add(ctx context.Context, name, address string, kind hub.Kind) (hub.Device, error)
+	// Add adds a device; own lists the machine's addresses from its usage
+	// reading, as for Suggest, which cannot be added.
+	Add(ctx context.Context, name, address string, kind hub.Kind, own []netip.Addr) (hub.Device, error)
 	Remove(ctx context.Context, id string, keepHistory bool) error
 	// SetKind changes what a device is used as.
 	SetKind(ctx context.Context, id string, kind hub.Kind) error
@@ -99,7 +101,7 @@ func (c *deviceChanges) add(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		device, err := c.hub.Add(r.Context(), request.Name, request.Address, kind)
+		device, err := c.hub.Add(r.Context(), request.Name, request.Address, kind, c.ownAddresses(r.Context()))
 		return Device{ID: device.ID, Name: device.Name, Address: device.Address, Kind: kind, Removable: true}, err
 	})
 }

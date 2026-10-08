@@ -132,6 +132,8 @@ export const fr: Messages = {
     'Un appareil à cette adresse et ce port est déjà dans la liste. Un appareil sur un autre port peut être ajouté.',
   'devices.problem.address':
     'Écrivez l’adresse sous la forme adresse IP et port, par exemple 192.168.1.20:9393.',
+  'devices.problem.addressOwn':
+    'Cette adresse est celle du hub lui-même. Écrivez l’adresse de l’appareil sur le réseau local, par exemple 192.168.1.20:9393.',
   'devices.problem.kind':
     'Indiquez si l’appareil est un serveur ou un objet connecté, ou un PC ou portable.',
   'devices.problem.unreachable':

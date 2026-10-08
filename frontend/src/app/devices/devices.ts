@@ -36,8 +36,14 @@ export interface Device {
 export interface Availability {
   /** Whether the times it did not answer are outages of a server or times a PC was not in use. */
   kind: DeviceKind;
-  /** When the device was added, as an ISO time. */
+  /**
+   * When the device was added, or the start of its first outage when that is earlier, as for a
+   * device added again with its history kept: the time the outages are counted since, as an ISO
+   * time.
+   */
   since: string;
+  /** When the device was added, moved on by the time it was removed: the share counts from it. */
+  countedSince: string;
   /** All outages added up; time the backend itself was not running is not counted. */
   offlineSeconds: number;
   outages: number;
@@ -159,6 +165,7 @@ const KNOWN_PROBLEMS = [
   'nameTaken',
   'addressTaken',
   'address',
+  'addressOwn',
   'kind',
   'unreachable',
   'fixed',
