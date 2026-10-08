@@ -892,26 +892,33 @@ func TestReaderHoldsTheReadInterval(t *testing.T) {
 	start := time.Now()
 	ctx := context.Background()
 	r.refresh(ctx, start)
-	reading := func() bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return r.reading
+	// The reads are counted on the source once the background read is done,
+	// as a fast one may be done before Read returns.
+	settled := func() int {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			r.mu.Lock()
+			reading := r.reading
+			r.mu.Unlock()
+			if !reading {
+				_, reads := src.counts()
+				return reads
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the background read did not finish")
+			}
+			time.Sleep(time.Millisecond)
+		}
 	}
+	_, reads := src.counts()
 
 	r.Read(ctx, start.Add(ReadInterval-time.Second))
-	if reading() {
-		t.Error("Read() one second before ReadInterval started a read")
+	if n := settled(); n != reads {
+		t.Errorf("Read() one second before ReadInterval read %d disks, want none", n-reads)
 	}
 	r.Read(ctx, start.Add(ReadInterval))
-	if !reading() {
-		t.Error("Read() at ReadInterval did not start a read")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for reading() {
-		if time.Now().After(deadline) {
-			t.Fatal("the background read did not finish")
-		}
-		time.Sleep(time.Millisecond)
+	if n := settled(); n != reads+3 {
+		t.Errorf("Read() at ReadInterval read %d disks, want 3", n-reads)
 	}
 }
 
