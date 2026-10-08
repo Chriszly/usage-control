@@ -124,10 +124,14 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 	}
 	// After a stall, as when storing took long or the timer fired late, the
 	// minute after last can be too close for untilStore, or past already.
-	// It is stored as soon as its time comes, while it is still due (see
-	// storedUnder), so it gets its point instead of being skipped.
+	// The oldest minute after last that is still due (see storedUnder), whose
+	// time came less than a minute ago, is stored as soon as its time comes,
+	// so it gets its point instead of being skipped.
 	if !last.IsZero() {
 		after := last.Add(SampleInterval)
+		if due := now.Add(-SampleInterval - storeAt - r.lag()).Truncate(SampleInterval).Add(SampleInterval); due.After(after) {
+			after = due
+		}
 		at := after.Add(storeAt + r.lag())
 		if due.After(after) && now.Sub(at) < SampleInterval {
 			return max(at.Sub(now), 0), after

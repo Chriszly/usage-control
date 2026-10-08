@@ -253,9 +253,25 @@ func TestRecorderStoresTheMinuteAfterAStall(t *testing.T) {
 		if wait, due := recorder.next(now, minute); !due.Equal(minute.Add(time.Minute)) || !now.Add(wait).Equal(at.Add(time.Minute)) {
 			t.Errorf("lag %v: next() after catching up = %v, %v; want %v at its storeAt", lag, wait, due, minute.Add(time.Minute))
 		}
-		// More than a minute late, it is no longer due: the next one is.
-		if _, due := recorder.next(at.Add(90*time.Second), last); !due.Equal(minute.Add(2 * time.Minute)) {
-			t.Errorf("lag %v: next() 90 s late = %v; want %v", lag, due, minute.Add(2*time.Minute))
+		// More than a minute late, it is no longer due, but the one after it
+		// still is: stored at once.
+		now = at.Add(90 * time.Second)
+		wait, due = recorder.next(now, last)
+		if !due.Equal(minute.Add(time.Minute)) || wait != 0 {
+			t.Errorf("lag %v: next() 90 s late = %v, %v; want %v at once", lag, wait, due, minute.Add(time.Minute))
+		}
+		if got, ok := recorder.storedUnder(now, due, last); !ok || !got.Equal(minute.Add(time.Minute)) {
+			t.Errorf("lag %v: storedUnder() 90 s late = %v, %v; want %v", lag, got, ok, minute.Add(time.Minute))
+		}
+		// Five and a half minutes late, the minute whose time came 30
+		// seconds ago is the oldest still due.
+		now = at.Add(330 * time.Second)
+		if wait, due := recorder.next(now, last); !due.Equal(minute.Add(5*time.Minute)) || wait != 0 {
+			t.Errorf("lag %v: next() 330 s late = %v, %v; want %v at once", lag, wait, due, minute.Add(5*time.Minute))
+		}
+		// After catching it up, the minute after it is waited for.
+		if wait, due := recorder.next(at.Add(50*time.Second), minute.Add(time.Minute)); !due.Equal(minute.Add(2*time.Minute)) || wait != 70*time.Second {
+			t.Errorf("lag %v: next() after the caught up minute = %v, %v; want %v in 70s", lag, wait, due, minute.Add(2*time.Minute))
 		}
 	}
 }
