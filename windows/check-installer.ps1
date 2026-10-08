@@ -9,12 +9,13 @@
 # RESET_PASSWORD=true and again without, as the docs say to, which restarts
 # the service and leaves the tray icon running, checks a repair refuses an
 # UPDATE_CHECK the service cannot read and takes one it can, switches the
-# website off and on again with repairs, checks a bad remembered
-# UPDATE_CHECK is refused with the repair that fixes it, which does, but does
-# not hold up the uninstall, uninstalls it, then installs it with the defaults
-# and checks it only serves the usage data, and last checks that an update
-# with WEBSITE=0 turns the website off and that one with a space clears
-# DISK_PATHS, UPDATE_CHECK and PORT.
+# website off and on again with repairs, removes the power add-on and adds
+# it again with repairs and checks a repair without options keeps the
+# add-ons, checks a bad remembered UPDATE_CHECK is refused with the repair
+# that fixes it, which does, but does not hold up the uninstall, uninstalls
+# it, then installs it with the defaults and checks it only serves the usage
+# data, and last checks that an update with WEBSITE=0 turns the website off
+# and that one with a space clears DISK_PATHS, UPDATE_CHECK and PORT.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
 param(
@@ -316,6 +317,31 @@ $status = Get-StatusCode 'http://127.0.0.1:8091/'
 if ($status -ne 404) { throw "The website answered $status after the repair with WEBSITE=0; it should be off" }
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
 Assert-ServiceSetting DATA_ONLY 'false'
+Assert-Website 8091
+
+Write-Host 'A repair with POWER=0 removes the power add-on and keeps the others, and one with POWER=1 adds it again'
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=0"
+if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The repair with POWER=0 left the power add-on installed' }
+if (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe") { throw 'The repair with POWER=0 left usage-control-power.exe' }
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '0') { throw 'The repair did not remember POWER=0' }
+Assert-GpuAddOn
+Assert-KernelAddOn
+Assert-PressureAddOn
+Assert-WifiAddOn
+Assert-MemoryAddOn
+Assert-PortsAddOn
+Assert-SmartAddOn
+Assert-ProcessesAddOn
+Assert-Website 8091
+# The report the add-on left behind, so the check below sees a new one.
+Remove-Item "$env:ProgramData\Usage Control\addons\power.json" -ErrorAction SilentlyContinue
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=1"
+Assert-PowerAddOn
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '1') { throw 'The repair did not remember POWER=1' }
+Write-Host 'A repair without add-on options keeps the add-ons'
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m"
+Assert-PowerAddOn
+Assert-GpuAddOn
 Assert-Website 8091
 
 Write-Host 'A bad remembered UPDATE_CHECK names the repair that fixes it, which does, and does not hold up an uninstall'
