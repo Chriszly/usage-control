@@ -44,7 +44,7 @@ cd frontend && npm ci && npm start
 
 ## Demo page
 
-`npm run build:demo` in `frontend/` builds the demo into `frontend/dist/demo/`. The Demo page workflow publishes two to the `gh-pages` branch, which GitHub Pages serves: the latest release at https://chriszly.github.io/usage-control/ and main at https://chriszly.github.io/usage-control/main/. A published release replaces only the root and a change to main only `main/`. It passes `--base-href` and, through `--define`, the release's version (`DEMO_RELEASE`) or main's commit (`DEMO_COMMIT`) for the notice above the page, which links to the other one, and for the version the sample devices report (`src/demo/demo-build.ts`). It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
+`npm run build:demo` in `frontend/` builds the demo into `frontend/dist/demo/`. The Demo page workflow publishes two to the `gh-pages` branch, which GitHub Pages serves: the latest release at https://chriszly.github.io/usage-control/ and main at https://chriszly.github.io/usage-control/main/. A release tag replaces only the root and a change to main only `main/`. It passes `--base-href` and, through `--define`, the release's version (`DEMO_RELEASE`) or main's commit (`DEMO_COMMIT`) for the notice above the page, which links to the other one, and for the version the sample devices report (`src/demo/demo-build.ts`). It is the real page, started from `src/demo/main.ts`, which answers the page's requests with made-up devices from `src/demo/fleet.ts` instead of a backend; devices cannot be added or removed there. The normal build does not contain any of it. When a new value is added to the API, give the sample devices that report it a value in `fleet.ts` too, so the demo shows it.
 
 ## Tray icon and theme colors
 
@@ -94,7 +94,7 @@ bash ci/check-no-secrets.sh
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
 | `vulnerabilities.yml` | every night, the updates that fix known vulnerabilities on main (`ci/fix-vulnerabilities.sh`), as one pull request; fails when a vulnerability has no fix yet |
-| `demo.yml` | publishes the demo of a release to the root of GitHub Pages when the release is published, and the demo of main to `main/` on every merge to main that changes the frontend |
+| `demo.yml` | publishes the demo of a release to the root of GitHub Pages on its release tag (not for a release marked as a pre-release, nor for a tag older than the newest release, such as a bugfix 1.0.5 after 1.1.0), and the demo of main to `main/` on every merge to main that changes the frontend; when a pre-release is later made a full release, run it by hand (*Run workflow*) on the tag |
 
 A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own. Pre-release tags, such as `1.0.4-rc1`, are not supported: the release workflows fail on them before they publish anything.
 
