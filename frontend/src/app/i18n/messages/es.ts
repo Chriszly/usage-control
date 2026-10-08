@@ -6,7 +6,7 @@ export const es: Messages = {
   'app.switchToDark': 'Cambiar al modo oscuro',
   'connection.lost': '{hub} no responde',
   'connection.notLive':
-    'Desde las {since}, nada en esta página está en directo, porque los valores de todos los dispositivos pasan por {hub}. La página sigue intentándolo y se actualiza en cuanto {hub} vuelva a responder.',
+    'Desde el {since}, nada en esta página está en directo, porque los valores de todos los dispositivos pasan por {hub}. La página sigue intentándolo y se actualiza en cuanto {hub} vuelva a responder.',
   'dashboard.unreachable':
     'No se puede conectar con el backend. Se muestran los últimos valores conocidos.',
   'dashboard.deviceUnreachable':
