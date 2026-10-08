@@ -173,3 +173,140 @@ func TestNvidiaSleepDueWaitsForAGPUThatMaySleep(t *testing.T) {
 		t.Error("Due() of a nil NvidiaSleep = false, want true")
 	}
 }
+
+func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
+	sys := t.TempDir()
+	// A desktop's second AMD GPU, driving a second monitor, though the
+	// display started on the first.
+	device := filepath.Join(sys, "devices", "0000:03:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-HDMI-A-1/enabled", "disabled\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "enabled\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	file := filepath.Join(device, "gpu_busy_percent")
+	read := func() string {
+		t.Helper()
+		data, err := reads.read(file, device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(data))
+	}
+
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "20" {
+		t.Errorf("read of a GPU driving a monitor 2 seconds later = %s, want 20", got)
+	}
+
+	// Once the monitor is no longer in use, it may sleep.
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "disabled\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "30\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("first read once the monitor is off = %s, want 30", got)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "40\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("read within twice the autosuspend delay once the monitor is off = %s, want the last value, 30", got)
+	}
+}
+
+func TestDeviceReadsForgetWhatIsNoLongerAsked(t *testing.T) {
+	// The devices are kept by their real folder.
+	sys, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"0000:03:00.0", "0000:04:00.0"} {
+		writeSysFile(t, sys, "devices/"+name+"/power/control", "auto\n")
+		writeSysFile(t, sys, "devices/"+name+"/power/autosuspend_delay_ms", "5000\n")
+		writeSysFile(t, sys, "devices/"+name+"/gpu_busy_percent", "10\n")
+	}
+	gone := filepath.Join(sys, "devices", "0000:03:00.0")
+	kept := filepath.Join(sys, "devices", "0000:04:00.0")
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	for _, device := range []string{gone, kept} {
+		if _, err := reads.read(filepath.Join(device, "gpu_busy_percent"), device); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// kept is asked about every minute, gone not again.
+	for range 2 * forgetTime / time.Minute {
+		now = now.Add(time.Minute)
+		if _, err := reads.read(filepath.Join(kept, "gpu_busy_percent"), kept); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := reads.devices[gone]; ok {
+		t.Error("a device not asked about for longer than forgetTime is still kept")
+	}
+	if _, ok := reads.values[filepath.Join(gone, "gpu_busy_percent")]; ok {
+		t.Error("a file not asked about for longer than forgetTime is still kept")
+	}
+	if _, ok := reads.links[gone]; ok {
+		t.Error("a folder not asked about for longer than forgetTime is still kept")
+	}
+	if _, ok := reads.devices[kept]; !ok {
+		t.Error("a device still asked about was dropped")
+	}
+	if _, ok := reads.values[filepath.Join(kept, "gpu_busy_percent")]; !ok {
+		t.Error("a file still asked about was dropped")
+	}
+}
+
+func TestSensorsReportedForgetSensorsThatAreGone(t *testing.T) {
+	reported := &sensorsReported{reported: map[string]bool{}}
+	reported.set("/sys/class/hwmon/hwmon1/temp1_input", false)
+	reported.set("/sys/class/hwmon/hwmon2/temp1_input", false)
+	reported.keep([]string{"/sys/class/hwmon/hwmon2/temp1_input", "/sys/class/hwmon/hwmon3/temp1_input"})
+	if _, ok := reported.reported["/sys/class/hwmon/hwmon1/temp1_input"]; ok {
+		t.Error("a sensor that is gone is still kept")
+	}
+	if reported.get("/sys/class/hwmon/hwmon2/temp1_input") {
+		t.Error("a sensor that is still listed was dropped")
+	}
+}
+
+func TestDeviceReadsFollowALinkToAnotherDevice(t *testing.T) {
+	sys, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(sys, "devices", "0000:03:00.0")
+	second := filepath.Join(sys, "devices", "0000:04:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "on\n")
+	writeSysFile(t, sys, "devices/0000:04:00.0/power/control", "on\n")
+	link := filepath.Join(sys, "hwmon3-device")
+	if err := os.Symlink(first, link); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	reads.due(link)
+	// The numbering changed: the same folder now leads to another device.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, link); err != nil {
+		t.Fatal(err)
+	}
+	// At the same moment, it is not looked up again.
+	now = now.Add(decisionTime / 2)
+	reads.due(link)
+	if got := reads.links[link].real; got != first {
+		t.Errorf("real folder at the same moment = %s, want %s", got, first)
+	}
+	now = now.Add(decisionTime)
+	reads.due(link)
+	if got := reads.links[link].real; got != second {
+		t.Errorf("real folder once the decision expired = %s, want %s", got, second)
+	}
+}
