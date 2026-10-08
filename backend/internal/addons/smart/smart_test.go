@@ -229,7 +229,7 @@ type fakeATA struct {
 	// attributes, timeout makes it not answer, and badChecksum spoils their
 	// checksum.
 	smartOff, unknown, refuse, timeout, badChecksum bool
-	sent                                   []byte
+	sent                                            []byte
 }
 
 func (f *fakeATA) send(c ataCommand) (ataResult, []byte, error) {
