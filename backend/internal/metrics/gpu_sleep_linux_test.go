@@ -204,6 +204,30 @@ func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
 		t.Errorf("read of a GPU driving a monitor 2 seconds later = %s, want 20", got)
 	}
 
+	// While the monitor is only blanked, the connector stays enabled but
+	// its dpms is off, so the GPU may sleep.
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "Off\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "21\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "21" {
+		t.Errorf("first read once the monitor is blanked = %s, want 21", got)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "22\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "21" {
+		t.Errorf("read within twice the autosuspend delay once the monitor is blanked = %s, want the last value, 21", got)
+	}
+
+	// Once it shows again, the GPU is read every time again.
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "On\n")
+	now = now.Add(10 * time.Second)
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "23\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "23" {
+		t.Errorf("read of a GPU driving an unblanked monitor 2 seconds later = %s, want 23", got)
+	}
+
 	// Once the monitor is no longer in use, it may sleep.
 	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "disabled\n")
 	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "30\n")

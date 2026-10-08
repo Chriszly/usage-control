@@ -191,16 +191,25 @@ func (d *deviceReads) prune(now time.Time) {
 // although desktop AMD GPUs allow it (power/control is "auto"): the GPU the
 // machine started its display on, whose boot_vga is 1, or one with a
 // connector in use, such as a second card driving a second monitor, whose
-// drm/card*/card*-*/enabled is "enabled". The kernel keeps both without
-// waking the GPU. A connector that is not in use, as for a monitor that is
-// plugged in but switched off in the display settings, lets the GPU sleep.
+// drm/card*/card*-*/enabled is "enabled" and whose dpms is "On". The kernel
+// keeps these files without waking the GPU. A connector that is not in use,
+// as for a monitor that is plugged in but switched off in the display
+// settings, or one that is only blanked (DPMS off), lets the GPU sleep:
+// blanking leaves enabled set, but turns dpms to "Off" in drivers that keep
+// the kernel's legacy display state up to date, as amdgpu does. A connector
+// without dpms counts by enabled alone.
 func drivesDisplay(device string) bool {
 	if sysfile.Text(filepath.Join(device, "boot_vga")) == "1" {
 		return true
 	}
-	connectors, _ := filepath.Glob(filepath.Join(device, "drm", "card*", "card*-*", "enabled"))
+	connectors, _ := filepath.Glob(filepath.Join(device, "drm", "card*", "card*-*"))
 	for _, connector := range connectors {
-		if sysfile.Text(connector) == "enabled" {
+		if sysfile.Text(filepath.Join(connector, "enabled")) != "enabled" {
+			continue
+		}
+		switch sysfile.Text(filepath.Join(connector, "dpms")) {
+		case "Off", "Standby", "Suspend":
+		default:
 			return true
 		}
 	}

@@ -126,7 +126,13 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 	// minute after last can be too close for untilStore, or past already.
 	// The oldest minute after last that is still due (see storedUnder), whose
 	// time came less than a minute ago, is stored as soon as its time comes,
-	// so it gets its point instead of being skipped.
+	// so it gets its point instead of being skipped. That fills a minute
+	// mainly for a hub's recorder of another device, whose minute is fetched
+	// from the device. This device's own recorder takes no readings while it
+	// stalls, so its caught-up minute has few or none and is often not
+	// stored: the chart shows a gap, as after a restart, for a time nothing
+	// was read. Keeping stored back to before the stall would fill it, but
+	// only with the readings of the minute before, which is stored already.
 	if !last.IsZero() {
 		after := last.Add(SampleInterval)
 		if oldest := now.Add(-SampleInterval - storeAt - r.lag()).Truncate(SampleInterval).Add(SampleInterval); oldest.After(after) {
