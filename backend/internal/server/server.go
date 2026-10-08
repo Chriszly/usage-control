@@ -198,6 +198,12 @@ func metricsHandler(d Device) http.HandlerFunc {
 			http.Error(w, "the device has not answered recently", http.StatusServiceUnavailable)
 			return
 		}
+		if err != nil && r.Context().Err() != nil {
+			// The page or the hub gave up on the request, such as while
+			// waiting for a reading of a disk that does not answer; nobody
+			// reads the answer.
+			return
+		}
 		if err != nil {
 			slog.Error("collect metrics", "device", d.ID, "error", err)
 			http.Error(w, "could not read the machine's usage", http.StatusInternalServerError)

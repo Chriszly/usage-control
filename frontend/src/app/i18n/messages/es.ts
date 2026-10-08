@@ -6,7 +6,7 @@ export const es: Messages = {
   'app.switchToDark': 'Cambiar al modo oscuro',
   'connection.lost': '{hub} no responde',
   'connection.notLive':
-    'Desde las {since}, nada en esta página está en directo, porque los valores de todos los dispositivos pasan por {hub}. La página sigue intentándolo y se actualiza en cuanto {hub} vuelva a responder.',
+    'Desde el {since}, nada en esta página está en directo, porque los valores de todos los dispositivos pasan por {hub}. La página sigue intentándolo y se actualiza en cuanto {hub} vuelva a responder.',
   'dashboard.unreachable':
     'No se puede conectar con el backend. Se muestran los últimos valores conocidos.',
   'dashboard.deviceUnreachable':
@@ -141,6 +141,8 @@ export const es: Messages = {
     'Elige si el dispositivo es un servidor o dispositivo IoT, o un PC o portátil.',
   'devices.problem.unreachable':
     'Ningún usage-control responde en esta dirección. ¿Está en marcha y la dirección está en la red local?',
+  'devices.problem.hostUnknown':
+    'El dispositivo no responde a este nombre. En Docker pasa también con el nombre de host del equipo a secas. Escribe su dirección IP o su nombre .local, por ejemplo raspberrypi.local:9393, o añade el nombre a ALLOWED_HOSTS en el dispositivo.',
   'devices.problem.fixed':
     'Este dispositivo está definido en el archivo .env del hub. Quítalo allí.',
   'devices.problem.notFound': 'Este dispositivo ya se ha quitado.',
@@ -224,4 +226,7 @@ export const es: Messages = {
   'format.dayMonth': 'd MMM',
   'format.dateTime': 'EEE d MMM, HH:mm',
   'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  'format.dayMonthYear': 'd MMM y',
+  'format.dateTimeYear': 'EEE d MMM y, HH:mm',
+  'format.dateTimeSecondsYear': 'EEE d MMM y, HH:mm:ss',
 };

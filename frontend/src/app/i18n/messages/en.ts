@@ -141,6 +141,8 @@ export const en = {
   'devices.problem.kind': 'Pick whether the device is a server or IoT device, or a PC or laptop.',
   'devices.problem.unreachable':
     'No usage-control answers at this address. Is it running, and is the address on the local network?',
+  'devices.problem.hostUnknown':
+    "The device doesn't answer to this name. In Docker, that includes the machine's hostname on its own. Write its IP address or its .local name, such as raspberrypi.local:9393, or add the name to ALLOWED_HOSTS on the device.",
   'devices.problem.fixed': "This device is set in the hub's .env file. Remove it there.",
   'devices.problem.notFound': 'This device has been removed already.',
   'devices.problem.removing':
@@ -222,6 +224,10 @@ export const en = {
   'format.dayMonth': 'd MMM',
   'format.dateTime': 'EEE d MMM, HH:mm',
   'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  // The same with the year, for charts over most of a year or into another year.
+  'format.dayMonthYear': 'd MMM y',
+  'format.dateTimeYear': 'EEE d MMM y, HH:mm',
+  'format.dateTimeSecondsYear': 'EEE d MMM y, HH:mm:ss',
 } as const;
 
 /** The key of one text on the website. */

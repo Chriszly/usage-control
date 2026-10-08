@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"slices"
 	"sync"
@@ -72,8 +73,9 @@ type Hub struct {
 
 	// ownMu guards the hub's own addresses besides its network interfaces'
 	// (see ownAddresses): host, the host's, read at hostRead, and cards, the
-	// network cards' in its usage, as last read at cardsRead. reading is
-	// set while the usage is read, and closed once it is. own is the list
+	// network cards' in its usage, as last read at cardsRead. cardsFailed is
+	// when reading the usage failed last, unless it was read since. reading
+	// is set while the usage is read, and closed once it is. own is the list
 	// given out last, and owned is set once one was; ownGeneration counts
 	// how often the list gained an address since.
 	ownMu         sync.Mutex
@@ -81,6 +83,7 @@ type Hub struct {
 	hostRead      time.Time
 	cards         []netip.Addr
 	cardsRead     time.Time
+	cardsFailed   time.Time
 	reading       chan struct{}
 	own           []netip.Addr
 	owned         bool
@@ -171,7 +174,11 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 		return nil, err
 	}
 	for _, device := range fixed {
-		h.start(device, true)
+		h.start(device, true, nil)
+	}
+	var own []netip.Addr
+	if len(saved) > 0 {
+		own = h.ownAddresses()
 	}
 	for _, device := range saved {
 		if h.find(device.ID) != nil {
@@ -183,7 +190,7 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 			slog.Warn("a device added on the page has the same address and port as another; collecting from it only once", "name", device.Name, "other", other.Name, "address", device.Address)
 			continue
 		}
-		h.start(device, false)
+		h.start(device, false, own)
 	}
 	h.recording.Go(func() {
 		ticker := time.NewTicker(history.PruneInterval)
@@ -239,12 +246,20 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	}
 
 	// Asked before taking mu, so the page is not held up while the device answers.
-	if _, err := h.askNew(ctx, device.Address); err != nil {
+	own, err := h.askNew(ctx, device.Address)
+	if err != nil {
 		if errors.Is(err, errOwnAddress) {
 			return Device{}, &InputError{Problem: ProblemAddressOwn, Message: "the address is the hub itself; give the device's address on the local network"}
 		}
-		// Only the log says why, so the answer does not tell which ports of
-		// the hub's network are open.
+		// A usage-control that does not know the name it was asked by
+		// answers 421, which tells no more than that something answers
+		// there. Otherwise only the log says why, so the answer does not
+		// tell which ports of the hub's network are open.
+		var status *statusError
+		if errors.As(err, &status) && status.Code == http.StatusMisdirectedRequest {
+			slog.Info("could not add a device, as it does not answer to the name it was asked by", "name", device.Name, "address", device.Address, "error", err)
+			return Device{}, &InputError{Problem: ProblemHostUnknown, Message: "the device does not answer to the name in " + device.Address + "; give its IP address or its .local name, or add the name to ALLOWED_HOSTS on the device"}
+		}
 		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
 		return Device{}, &InputError{Problem: ProblemUnreachable, Message: "no usage-control answers at " + device.Address}
 	}
@@ -262,7 +277,7 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 	if err := h.save(context.WithoutCancel(ctx), device, kind); err != nil {
 		return Device{}, err
 	}
-	h.start(device, false)
+	h.start(device, false, own)
 	return device, nil
 }
 
@@ -273,17 +288,19 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // refuses an address that is not addable, and a host name that resolves to
 // one when it connects, at once and whatever the port. How long the answer
 // took would otherwise tell which of the hub's own ports are open, including
-// ones only it can reach.
-func (h *Hub) askNew(ctx context.Context, address string) (metrics.Snapshot, error) {
+// ones only it can reach. It returns the hub's own addresses it checked
+// against, for start, which runs holding mu and so does not read them.
+func (h *Hub) askNew(ctx context.Context, address string) ([]netip.Addr, error) {
 	own := h.ownAddresses()
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
 		if ip, err := netip.ParseAddr(host); err == nil && !h.addable(ip, own) {
-			return metrics.Snapshot{}, errOwnAddress
+			return own, errOwnAddress
 		}
 	}
-	return askOnceWith(ctx, newAgent(address, h.refuseOwn(func() []netip.Addr { return own })))
+	_, err := askOnceWith(ctx, newAgent(address, h.refuseOwn(func() []netip.Addr { return own })))
+	return own, err
 }
 
 // refuseOwn returns the check of every address an agent of a device added on
@@ -306,16 +323,22 @@ func (h *Hub) refuseOwn(own func() []netip.Addr) func(network, address string, c
 // the check of each connection to it.
 const ownAddressesFor = 5 * time.Second
 
+// ownRetryAfter is how long after reading the hub's usage failed it is
+// read again, so a usage that keeps failing does not hold up every request.
+const ownRetryAfter = time.Second
+
 // ownAddresses lists the hub's addresses besides those of its network
 // interfaces: the host's in a container (see hostAddrs) and those of the
 // network cards in its usage, which in a container are the machine's. Each
 // part is read at most every ownAddressesFor; the usage sooner while it
-// cannot be read, with the network cards read last kept meanwhile. The
-// usage, which can take seconds, is read by one caller at a time without
-// holding ownMu; the others go on with the network cards read last, or
-// wait for them when there are none yet. When the list has an address it
-// did not have before, ownGeneration counts up, so the agents of devices
-// added on the page stop using the connections they kept open.
+// cannot be read, every ownRetryAfter, with the network cards read last
+// kept meanwhile. The usage, which can take seconds, is read by one caller
+// at a time without holding ownMu; the others go on with the network cards
+// read last, or wait for the first reading when there are none yet; once
+// that failed, they go on without them until they are read. When the list
+// has an address it did not have before, ownGeneration counts up, so the
+// agents of devices added on the page stop using the connections they kept
+// open.
 func (h *Hub) ownAddresses() []netip.Addr {
 	h.ownMu.Lock()
 	if h.hostRead.IsZero() || time.Since(h.hostRead) >= ownAddressesFor {
@@ -328,11 +351,12 @@ func (h *Hub) ownAddresses() []netip.Addr {
 	}
 	read := false
 	var wait chan struct{}
-	if h.local != nil && (h.cardsRead.IsZero() || time.Since(h.cardsRead) >= ownAddressesFor) {
+	if h.local != nil && (h.cardsRead.IsZero() || time.Since(h.cardsRead) >= ownAddressesFor) &&
+		(h.cardsFailed.IsZero() || time.Since(h.cardsFailed) >= ownRetryAfter) {
 		switch {
 		case h.reading == nil:
 			h.reading, read = make(chan struct{}), true
-		case h.cardsRead.IsZero():
+		case h.cardsRead.IsZero() && h.cardsFailed.IsZero():
 			wait = h.reading
 		}
 	}
@@ -342,7 +366,9 @@ func (h *Hub) ownAddresses() []netip.Addr {
 		snapshot, err := h.local.Collect(h.ctx)
 		h.ownMu.Lock()
 		if err == nil {
-			h.cards, h.cardsRead = NetworkAddresses(snapshot), time.Now()
+			h.cards, h.cardsRead, h.cardsFailed = NetworkAddresses(snapshot), time.Now(), time.Time{}
+		} else {
+			h.cardsFailed = time.Now()
 		}
 		close(h.reading)
 		h.reading = nil
@@ -363,7 +389,8 @@ func (h *Hub) ownAddresses() []netip.Addr {
 
 // ownGenerationNow reads the hub's own addresses (see ownAddresses) and
 // returns how often they gained one, which an agent of a device added on
-// the page asks before and after each request; see Agent.get.
+// the page asks before each request, when it would use a connection kept
+// open and when it opens one; see Agent.get.
 func (h *Hub) ownGenerationNow() uint64 {
 	h.ownAddresses()
 	h.ownMu.Lock()
@@ -376,7 +403,7 @@ func (h *Hub) ownGenerationNow() uint64 {
 // does not use a connection it kept open from before they gained one.
 func (h *Hub) pageAgent(address string) *Agent {
 	agent := newAgent(address, h.refuseOwn(h.ownAddresses))
-	agent.ownGeneration = h.ownGenerationNow
+	agent.checkOwnGeneration(h.ownGenerationNow)
 	return agent
 }
 
@@ -411,15 +438,16 @@ func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
 }
 
 // addableAddress reports whether a device can be added at address
-// (host:port), as far as an IP address tells: a host name is checked only
-// when it is connected to.
-func (h *Hub) addableAddress(address string) bool {
+// (host:port), as far as an IP address tells, with own listing more of the
+// hub's addresses (see ownAddresses): a host name is checked only when it
+// is connected to.
+func (h *Hub) addableAddress(address string, own []netip.Addr) bool {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return true
 	}
 	ip, err := netip.ParseAddr(host)
-	return err != nil || h.addable(ip, h.ownAddresses())
+	return err != nil || h.addable(ip, own)
 }
 
 // save keeps an added device and its kind in the database, both or neither.
@@ -728,7 +756,10 @@ func (h *Hub) Wait() {
 }
 
 // start begins collecting from a device. The caller holds mu, or New runs.
-func (h *Hub) start(device Device, fixed bool) {
+// own lists more of the hub's addresses (see ownAddresses), read by the
+// caller before taking mu, as reading them can take seconds; it is unused
+// for a fixed device.
+func (h *Hub) start(device Device, fixed bool, own []netip.Addr) {
 	// A device from HUB_DEVICES is collected from at whatever address it is
 	// set to, as the hub's owner chose it, such as a VM behind port
 	// forwarding on the hub itself. One added on the page is not, even when
@@ -754,7 +785,7 @@ func (h *Hub) start(device Device, fixed bool) {
 	// refused, at one of them, such as a VM behind port forwarding on the
 	// hub, shows as not answering. The log says so here, by name, and not
 	// again when the hub refuses to connect.
-	if !fixed && !h.addableAddress(device.Address) {
+	if !fixed && !h.addableAddress(device.Address, own) {
 		slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
 		watched.refusedLogged = true
 	}

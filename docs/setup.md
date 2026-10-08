@@ -63,7 +63,7 @@ By default the page shows the disk Docker keeps its data on, usually the system 
 DISK_PATHS=/,/mnt/usb
 ```
 
-usage-control refuses to start when a path in `DISK_PATHS` cannot be read, and says which one.
+usage-control refuses to start when a path in `DISK_PATHS` cannot be read, and says which one. A path that does not answer within 2 seconds, such as a network share whose server is away, is left out of the readings until it answers again (and for 30 seconds after a late answer), and the log says so once; the rest of the page goes on.
 
 ### Open the page by name
 
@@ -175,7 +175,7 @@ msiexec /i usage-control-<version>-x64.msi PORT=8090 WEBSITE=1 RETENTION_DAYS=90
 | `HISTORY_MAX_ENTRIES` | with `WEBSITE=1`, how many disks, sensors, network cards and GPUs each the history keeps per device (default 64) |
 | `BUFFER_HOURS` | without `WEBSITE=1`, hours of usage kept for a hub that cannot reach this PC, from 1 to 168 (default 24) |
 | `ALLOWED_HOSTS` | other names this PC answers to, such as a name from the router's DNS the hub uses for it |
-| `DISK_PATHS` | drives or folders whose disks are shown, comma-separated, such as `C:\,D:\` (default: the system drive). Each must exist: while one cannot be read, the service does not start and names it in the event log, trying again after 10 seconds and then less often, up to every 5 minutes, until an update or repair with a corrected `DISK_PATHS` |
+| `DISK_PATHS` | drives or folders whose disks are shown, comma-separated, such as `C:\,D:\` (default: the system drive). Each must exist (a network drive that does not answer is left out until it does): while one cannot be read, the service does not start and names it in the event log, trying again after 10 seconds and then less often, up to every 5 minutes, until an update or repair with a corrected `DISK_PATHS` |
 | `UPDATE_CHECK` | with `WEBSITE=1`, `false` stops the daily check for a newer release (default `true`); the installer refuses a value the service cannot read (it takes `true`, `false`, `1`, `0`, `t`, `f` and their upper-case forms, without spaces around), in a repair too, and then names the command that fixes it: for the version that is installed a repair, `msiexec /i usage-control-<version>-x64.msi REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true`, as `msiexec /i` with only the option does nothing there |
 | `RESET_PASSWORD` | with `WEBSITE=1`, `true` deletes the password for changing devices when the service starts; only from an administrator, and the one option that is not remembered, see [the password](#4-add-the-devices-on-the-hub) |
 
@@ -223,7 +223,7 @@ Instead of the dialog, devices can be listed on the hub in `HUB_DEVICES`, each a
 HUB_DEVICES=Living room Pi=192.168.1.20:9393,Office PC=192.168.1.30:9393
 ```
 
-Give the devices fixed addresses, for example with an address reservation in the router, since the hub reaches them by the address it was given. A host name works too, as long as it resolves to an address on the local network. The device must then answer to that name: a `.local` name or its own hostname always works, any other name needs the device's `ALLOWED_HOSTS`.
+Give the devices fixed addresses, for example with an address reservation in the router, since the hub reaches them by the address it was given. A host name works too, as long as it resolves to an address on the local network. The device must then answer to that name: a `.local` name always works, and so does its hostname outside Docker; inside Docker the hostname is the container's, so the machine's bare hostname, like any other name, needs the device's `ALLOWED_HOSTS` (see [Open the page by name](#open-the-page-by-name)). Adding a device by a name it does not answer to says so in the dialog.
 
 Buttons above the dashboard switch between the devices. A dot on each shows whether it answers (green) or not (red, with the time it stopped answering on hover). `DEVICE_NAME` sets how the page names the hub itself (default *Host Hub*).
 

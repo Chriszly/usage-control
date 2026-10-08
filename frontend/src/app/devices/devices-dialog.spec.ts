@@ -256,6 +256,23 @@ describe('DevicesDialog', () => {
       .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
+  it('says when the device does not answer to the name it was added by', async () => {
+    await type('name', 'Pi');
+    await type('address', 'raspberrypi:9393');
+    button('Add').click();
+
+    http
+      .expectOne('/api/devices')
+      .flush({ problem: 'hostUnknown' }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(element().textContent).toContain("The device doesn't answer to this name");
+    expect(element().textContent).toContain('ALLOWED_HOSTS');
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
+  });
+
   it('changes nothing when the password dialog is cancelled', () => {
     answer = undefined;
 

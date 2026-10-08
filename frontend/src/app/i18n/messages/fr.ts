@@ -140,6 +140,8 @@ export const fr: Messages = {
     'Indiquez si l’appareil est un serveur ou un objet connecté, ou un PC ou portable.',
   'devices.problem.unreachable':
     'Aucun usage-control ne répond à cette adresse. Est-il lancé, et l’adresse est-elle sur le réseau local ?',
+  'devices.problem.hostUnknown':
+    'L’appareil ne répond pas à ce nom. Sous Docker, c’est aussi le cas du seul nom d’hôte de la machine. Écrivez son adresse IP ou son nom .local, par exemple raspberrypi.local:9393, ou ajoutez le nom à ALLOWED_HOSTS sur l’appareil.',
   'devices.problem.fixed':
     'Cet appareil est défini dans le fichier .env du hub. Retirez-le là-bas.',
   'devices.problem.notFound': 'Cet appareil a déjà été retiré.',
@@ -223,4 +225,7 @@ export const fr: Messages = {
   'format.dayMonth': 'd MMM',
   'format.dateTime': 'EEE d MMM, HH:mm',
   'format.dateTimeSeconds': 'EEE d MMM, HH:mm:ss',
+  'format.dayMonthYear': 'd MMM y',
+  'format.dateTimeYear': 'EEE d MMM y, HH:mm',
+  'format.dateTimeSecondsYear': 'EEE d MMM y, HH:mm:ss',
 };

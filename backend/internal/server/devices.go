@@ -229,7 +229,7 @@ func inputStatus(problem hub.Problem) int {
 		return http.StatusNotFound
 	case hub.ProblemNameTaken, hub.ProblemAddressTaken, hub.ProblemFixed, hub.ProblemRemoving:
 		return http.StatusConflict
-	case hub.ProblemUnreachable:
+	case hub.ProblemUnreachable, hub.ProblemHostUnknown:
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusBadRequest

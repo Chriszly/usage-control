@@ -173,6 +173,7 @@ const KNOWN_PROBLEMS = [
   'addressOwn',
   'kind',
   'unreachable',
+  'hostUnknown',
   'fixed',
   'notFound',
   'removing',

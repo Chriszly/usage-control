@@ -3,10 +3,13 @@ package hub
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,5 +118,152 @@ func TestAgentCleansTheExtrasOfTheAnswer(t *testing.T) {
 	}
 	if len(got.Extras) != 1 || got.Extras[0].ID != "pressure" || *got.Extras[0].Items[0].Value != 2 {
 		t.Errorf("Extras = %+v, want only the valid group", got.Extras)
+	}
+}
+
+// closeCountingTransport counts how often its idle connections are closed.
+type closeCountingTransport struct {
+	*http.Transport
+	closes atomic.Int32
+}
+
+func (t *closeCountingTransport) CloseIdleConnections() {
+	t.closes.Add(1)
+	t.Transport.CloseIdleConnections()
+}
+
+func TestAgentClosesItsConnectionsOnceWhenTheOwnAddressesGainOneDuringARequest(t *testing.T) {
+	var generation atomic.Uint64
+	var bump atomic.Bool
+	var opened atomic.Int32
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if bump.CompareAndSwap(true, false) {
+			generation.Add(1)
+		}
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	agent := newAgent(strings.TrimPrefix(device.URL, "http://"), func(string, string, syscall.RawConn) error { return nil })
+	agent.checkOwnGeneration(generation.Load)
+	transport := &closeCountingTransport{Transport: agent.client.Transport.(*http.Transport)}
+	agent.client.Transport = transport
+	collect := func() {
+		t.Helper()
+		if _, err := agent.Collect(context.Background()); err != nil {
+			t.Fatalf("Collect() error = %v", err)
+		}
+	}
+
+	collect()
+	// The hub's own addresses gain one while the device answers: the
+	// connection is closed before the next request, and not once more
+	// before the one after it, whose new connection is kept.
+	bump.Store(true)
+	collect()
+	collect()
+	collect()
+	if n := transport.closes.Load(); n != 1 {
+		t.Errorf("idle connections closed %d times, want once, before the request after the one the addresses gained one during", n)
+	}
+	if n := opened.Load(); n != 2 {
+		t.Errorf("connections opened = %d, want 2: one more after the addresses gained one, kept open then", n)
+	}
+}
+
+func TestAgentDoesNotReuseAConnectionOpenedBeforeTheOwnAddressesGainedOne(t *testing.T) {
+	var generation atomic.Uint64
+	var opened atomic.Int32
+	var last atomic.Value
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		last.Store(r.RemoteAddr)
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	agent := newAgent(strings.TrimPrefix(device.URL, "http://"), func(string, string, syscall.RawConn) error { return nil })
+	agent.checkOwnGeneration(generation.Load)
+	collect := func() string {
+		t.Helper()
+		if _, err := agent.Collect(context.Background()); err != nil {
+			t.Fatalf("Collect() error = %v", err)
+		}
+		remote, _ := last.Load().(string)
+		return remote
+	}
+
+	first := collect()
+	// The hub's own addresses gained one while the connection was in use by
+	// another request, after a third one closed the idle connections for
+	// it: the connection is kept again, but not used.
+	generation.Add(1)
+	agent.mu.Lock()
+	agent.seenGeneration = generation.Load()
+	agent.mu.Unlock()
+	if second := collect(); second == first {
+		t.Fatalf("the request went over %s, opened before the hub gained an address, want a new connection", second)
+	}
+	collect()
+	if n := opened.Load(); n != 2 {
+		t.Errorf("connections opened = %d, want 2: one more after the addresses gained one, kept open then", n)
+	}
+}
+
+func TestAgentReusesItsConnectionForALargeAnswer(t *testing.T) {
+	var opened atomic.Int32
+	// Some 100 KB, more than the device's write buffer, so the answer is
+	// chunked, and ending in a newline, as the device's API writes it. The
+	// newline and the end of the answer come a moment after the JSON, so
+	// the decoder never reads them along with it.
+	answer := `{"disks":[{"path":"` + strings.Repeat("x", 100<<10) + `"}],"cpu":{"usagePercent":12.5,"cores":4}}`
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(answer))
+		w.(http.Flusher).Flush()
+		time.Sleep(20 * time.Millisecond)
+		_, _ = w.Write([]byte("\n"))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	agent := NewAgent(strings.TrimPrefix(device.URL, "http://"))
+
+	for range 4 {
+		if _, err := agent.Collect(context.Background()); err != nil {
+			t.Fatalf("Collect() error = %v", err)
+		}
+	}
+	if n := opened.Load(); n != 1 {
+		t.Errorf("connections opened = %d, want 1, used again for each answer", n)
+	}
+}
+
+func TestAgentUsesANewConnectionOpenedWhileTheOwnAddressesGainOne(t *testing.T) {
+	var generation atomic.Uint64
+	device := startDevice(t)
+	// The own addresses gain one while the agent connects, after it read
+	// their generation: the new connection is behind, but was checked when
+	// opened, and closing it would fail the reading instead of retrying.
+	agent := newAgent(device, func(string, string, syscall.RawConn) error {
+		generation.Add(1)
+		return nil
+	})
+	agent.checkOwnGeneration(generation.Load)
+
+	if _, err := agent.Collect(context.Background()); err != nil {
+		t.Errorf("Collect() error = %v, want the reading over the new connection", err)
 	}
 }
