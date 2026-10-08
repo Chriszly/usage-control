@@ -38,12 +38,12 @@ const MaxContainers = 64
 const maxDepth = 6
 
 // walkEvery is how often the whole cgroup tree is walked for containers at
-// the latest, in reads. It is walked too whenever the number of cgroups
-// changes, as when a container starts in a new place, such as the first
-// container or the first of a Kubernetes pod; in between only the folders
-// that held containers at the last walk are looked at. Should cgroups come
-// and go in the same number between two reads, the walk every walkEvery
-// reads finds the new ones.
+// the latest, in reads. It is walked too whenever the tree's signature
+// changes (see signature), as when a container starts in a new place, such
+// as the first container or the first of a Kubernetes pod; in between only
+// the folders that held containers at the last walk are looked at. Should
+// cgroups more than two folders down come and go in the same number between
+// two reads, the walk every walkEvery reads finds the new ones.
 const walkEvery = 12
 
 // PodmanStorage is the storage folder of rootful Podman and CRI-O, which
@@ -87,12 +87,12 @@ type Reader struct {
 	// podmanLists what was read of its lists of containers, by path.
 	podman      string
 	podmanLists map[string]podmanList
-	// reads counts the reads since the last walk, for walkEvery,
-	// cgroupCount is the number of cgroups then, and parents are the folders
-	// that held containers.
-	reads       int
-	cgroupCount uint64
-	parents     []string
+	// reads counts the reads since the last walk, for walkEvery, tree is
+	// the tree's signature then, and parents are the folders that held
+	// containers.
+	reads   int
+	tree    string
+	parents []string
 	// noCgroupV2, noDockerDir and shortDockerID are set once that was
 	// logged, so it is logged once and not at every read.
 	noCgroupV2, noDockerDir, shortDockerID bool
@@ -269,14 +269,13 @@ func podmanNames(path string) (map[string]string, bool) {
 }
 
 // find returns the cgroup of each container, by container id: from the
-// whole cgroup tree when the number of cgroups changed since the last walk
-// or every walkEvery reads, else from the folders that held containers at
-// the last walk.
+// whole cgroup tree when its signature changed since the last walk or every
+// walkEvery reads, else from the folders that held containers at the last
+// walk.
 func (r *Reader) find() map[string]string {
 	found := map[string]string{}
-	// The root's cgroup.stat counts every cgroup below it, one small file.
-	count, counted := statValue(filepath.Join(r.cgroups, "cgroup.stat"), "nr_descendants")
-	if !counted || count != r.cgroupCount || r.reads%walkEvery == 0 {
+	tree := signature(r.cgroups)
+	if tree == "" || tree != r.tree || r.reads%walkEvery == 0 {
 		findContainers(r.cgroups, 0, found)
 		r.parents = r.parents[:0]
 		for _, dir := range found {
@@ -284,7 +283,7 @@ func (r *Reader) find() map[string]string {
 				r.parents = append(r.parents, parent)
 			}
 		}
-		r.cgroupCount, r.reads = count, 0
+		r.tree, r.reads = tree, 0
 	} else {
 		for _, dir := range r.parents {
 			findIn(dir, found)
@@ -292,6 +291,40 @@ func (r *Reader) find() map[string]string {
 	}
 	r.reads++
 	return found
+}
+
+// signature sums up the cgroup tree in root cheaply, to walk it again only
+// when it changed: the number of all cgroups, from the root's cgroup.stat,
+// and the names of the cgroups in the root and in each of its folders,
+// where most containers start, as in system.slice, machine.slice or docker.
+// So a container that starts there while another cgroup goes is noticed
+// too, which the number alone misses. It is "" when the number cannot be
+// read.
+func signature(root string) string {
+	count, ok := statValue(filepath.Join(root, "cgroup.stat"), "nr_descendants")
+	if !ok {
+		return ""
+	}
+	var tree strings.Builder
+	tree.WriteString(strconv.FormatUint(count, 10))
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		tree.WriteByte('\n')
+		tree.WriteString(entry.Name())
+		children, _ := os.ReadDir(filepath.Join(root, entry.Name()))
+		for _, child := range children {
+			if child.IsDir() {
+				tree.WriteByte('\n')
+				tree.WriteString(entry.Name())
+				tree.WriteByte('/')
+				tree.WriteString(child.Name())
+			}
+		}
+	}
+	return tree.String()
 }
 
 var (
