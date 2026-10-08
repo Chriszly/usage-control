@@ -30,6 +30,9 @@ const (
 	// Linux servers, each call starts the driver, which can take more than
 	// a second.
 	nvidiaTimeout = 3 * time.Second
+	// nvidiaGiveUp is how long a read waits for nvidia-smi, which a kill
+	// after nvidiaTimeout may not end (see addons.Program).
+	nvidiaGiveUp = nvidiaTimeout + 2*time.Second
 )
 
 // fields are the values of query after the index, the UUID and the name.
@@ -53,8 +56,12 @@ var fields = []struct {
 type Reader struct {
 	// program is where nvidia-smi is; empty when it is not installed.
 	program string
-	// sleep tells whether the GPUs sleep, when nvidia-smi would wake them.
-	sleep *metrics.NvidiaSleep
+	// sleep tells whether the GPUs sleep, when nvidia-smi would wake them,
+	// and asleep whether they did at the last read.
+	sleep  *metrics.NvidiaSleep
+	asleep bool
+	// calls runs nvidia-smi.
+	calls addons.Program
 	// failing is whether the last call failed, so a failure is logged once.
 	failing bool
 	// gpus is what the last call of nvidia-smi returned, and extras what
@@ -81,24 +88,35 @@ func NewReader() *Reader {
 // Read returns the GPUs' values as the group of extras the collector shows,
 // or nothing when nvidia-smi is missing or prints nothing. It gives up after
 // nvidiaTimeout, so a hanging driver does not hold up the next report.
-// nvidia-smi is asked only every addons.ProgramInterval (see addons.Due); in
-// between, its last answer is returned.
+// nvidia-smi is asked only every addons.ProgramInterval (see addons.Due), and
+// at once when the GPUs wake, so a GPU asleep since the add-on started shows
+// up then; in between, its last answer is returned. While a GPU may sleep,
+// nvidia-smi is asked at most every few autosuspend delays (see
+// metrics.NvidiaSleep.Due).
 func (r *Reader) Read(ctx context.Context, now time.Time) []metrics.Extra {
 	if r.program == "" {
 		return nil
 	}
-	if !addons.Due(r.at, now, addons.ProgramInterval) {
+	asleep := r.sleep.Asleep()
+	woke := r.asleep && !asleep
+	if !woke && !addons.Due(r.at, now, addons.ProgramInterval) {
 		return r.extras
 	}
-	r.extras, r.at = r.read(ctx), now
+	if !asleep && !r.sleep.Due() {
+		return r.extras
+	}
+	// Only a read takes note of the GPUs' sleep, so a wake the reads above
+	// pass over is still seen at the next one.
+	r.asleep = asleep
+	r.extras, r.at = r.read(ctx, asleep), now
 	return r.extras
 }
 
-func (r *Reader) read(ctx context.Context) []metrics.Extra {
-	if r.sleep.Asleep() {
+func (r *Reader) read(ctx context.Context, asleep bool) []metrics.Extra {
+	if asleep {
 		return Extras(sleeping(r.gpus))
 	}
-	out, err := run(ctx, r.program)
+	out, err := r.calls.Output(nvidiaGiveUp, func() (string, error) { return run(ctx, r.program) })
 	switch {
 	case err != nil && !r.failing:
 		slog.Warn("nvidia-smi failed", "error", err)

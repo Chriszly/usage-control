@@ -40,14 +40,15 @@ func fanSensors() []fanSensor {
 
 // readFans returns the speed of each fan that can be read. The fans of a
 // device that sleeps, such as a laptop's second GPU, are left out, as
-// reading them would wake it (see HwmonAsleep).
+// reading them would wake it (see HwmonAsleep), and those of one that may
+// sleep are read only every few autosuspend delays (see HwmonRead).
 func readFans(sensors []fanSensor) []Fan {
 	fans := make([]Fan, 0, len(sensors))
 	for _, s := range sensors {
 		if HwmonAsleep(filepath.Dir(s.file)) {
 			continue
 		}
-		rpm, ok := sysfile.Uint(s.file)
+		rpm, ok := hwmonUint(filepath.Dir(s.file), s.file)
 		if !ok {
 			continue
 		}

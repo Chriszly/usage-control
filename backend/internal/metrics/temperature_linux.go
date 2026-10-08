@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 	"github.com/shirou/gopsutil/v4/sensors"
@@ -14,8 +15,12 @@ import (
 // does, with the same names, but does not read those of a device that
 // sleeps, such as a laptop's second GPU, as that would wake it (see
 // HwmonAsleep): they come with their name only, and asleep tells which they
-// are, by their index. Without hwmon sensors, as on older Raspberry Pi
-// kernels, gopsutil reads the thermal zones.
+// are, by their index. Such a sensor is left out when it reported no
+// temperature when last read awake, so it counts in the numbering of
+// same-named sensors only when it did then. Sensors of a device that may
+// sleep are read only every few autosuspend delays (see HwmonRead). Without
+// hwmon sensors, as on older Raspberry Pi kernels, gopsutil reads the
+// thermal zones.
 func readSensors(ctx context.Context) ([]sensors.TemperatureStat, []bool) {
 	hwmon := filepath.Join(hostPath("HOST_SYS", "/sys"), "class", "hwmon")
 	files, _ := filepath.Glob(filepath.Join(hwmon, "hwmon*", "temp*_input"))
@@ -53,9 +58,16 @@ func readSensors(ctx context.Context) ([]sensors.TemperatureStat, []bool) {
 			name += "_" + strings.ReplaceAll(strings.ToLower(label), " ", "_")
 		}
 		reading := sensors.TemperatureStat{SensorKey: name}
-		if !sleeps {
-			milli, err := strconv.ParseFloat(sysfile.Text(file), 64)
-			if err != nil {
+		if sleeps {
+			if !reportedAwake.get(file) {
+				continue
+			}
+		} else {
+			text, err := HwmonRead(dir, file)
+			milli, parseErr := strconv.ParseFloat(strings.TrimSpace(string(text)), 64)
+			// temperaturesOf leaves out a temperature of 0 or less.
+			reportedAwake.set(file, err == nil && parseErr == nil && milli > 0)
+			if err != nil || parseErr != nil {
 				continue
 			}
 			reading.Temperature = milli / 1000
@@ -64,4 +76,30 @@ func readSensors(ctx context.Context) ([]sensors.TemperatureStat, []bool) {
 		asleep = append(asleep, sleeps)
 	}
 	return readings, asleep
+}
+
+// sensorsReported holds, by its file, whether each sensor reported a
+// temperature when it was last read awake.
+type sensorsReported struct {
+	mu       sync.Mutex
+	reported map[string]bool
+}
+
+// reportedAwake is what the sensors reported when last read awake.
+var reportedAwake = &sensorsReported{reported: map[string]bool{}}
+
+// get reports whether the sensor in file reported a temperature when it was
+// last read awake, or true when it was never read awake: its device has
+// slept since usage-control started.
+func (s *sensorsReported) get(file string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reported, ok := s.reported[file]
+	return reported || !ok
+}
+
+func (s *sensorsReported) set(file string, reported bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reported[file] = reported
 }
