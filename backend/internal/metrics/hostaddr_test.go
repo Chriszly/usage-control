@@ -1,10 +1,13 @@
 package metrics
 
 import (
+	"bytes"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -50,5 +53,24 @@ func TestHostAddressesListsTheHostsVirtualInterfacesToo(t *testing.T) {
 	t.Setenv("HOST_PROC", "")
 	if got := HostAddresses(); got != nil {
 		t.Errorf("HostAddresses() outside a container = %v, want none", got)
+	}
+}
+
+func TestHostAddressesSaysOnceThatTheyCannotBeRead(t *testing.T) {
+	// HOST_PROC without the host's routing files, as with hidepid.
+	t.Setenv("HOST_PROC", t.TempDir())
+	hostAddressesUnread.Store(false)
+	t.Cleanup(func() { hostAddressesUnread.Store(false) })
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	for range 3 {
+		if got := HostAddresses(); got != nil {
+			t.Errorf("HostAddresses() = %v, want none", got)
+		}
+	}
+	if n := strings.Count(logged.String(), "read the host's addresses"); n != 1 {
+		t.Errorf("logged %d times, want once:\n%s", n, logged.String())
 	}
 }

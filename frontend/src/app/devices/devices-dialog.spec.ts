@@ -215,6 +215,31 @@ describe('DevicesDialog', () => {
       .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
+  it('stops reading the list once the dialog is closed', async () => {
+    await suggest(null);
+    button('Remove').click();
+    http
+      .expectOne('/api/devices/office-pc')
+      .flush('down', { status: 504, statusText: 'Gateway Timeout' });
+    const reload = http.expectOne((r) => r.method === 'GET' && r.url === '/api/devices');
+
+    fixture.destroy();
+
+    expect(reload.cancelled).toBe(true);
+  });
+
+  it('finishes a change once the dialog is closed, without reading the list', async () => {
+    await suggest(null);
+    button('Remove').click();
+    const remove = http.expectOne('/api/devices/office-pc');
+
+    fixture.destroy();
+
+    expect(remove.cancelled).toBe(false);
+    remove.flush(null, { status: 204, statusText: 'No Content' });
+    http.expectNone((r) => r.method === 'GET' && r.url === '/api/devices');
+  });
+
   it("says when the address is the hub's own", async () => {
     await type('name', 'Laptop');
     await type('address', '127.0.0.1:9393');

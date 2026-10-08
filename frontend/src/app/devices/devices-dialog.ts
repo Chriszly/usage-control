@@ -1,4 +1,4 @@
-import { Component, Injector, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, Injector, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -61,6 +61,7 @@ export class DevicesDialog {
   protected readonly i18n = inject(I18n);
   private readonly devices = inject(DeviceService);
   private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Every device but the one the website runs on. */
   protected readonly others = computed(() => this.devices.devices().slice(1));
@@ -142,7 +143,9 @@ export class DevicesDialog {
    * have been made. The buttons work again right away rather than after that
    * read, which can take as long again when the hub is gone; a change started
    * meanwhile stops that read, so it neither frees the buttons too early nor
-   * overwrites the list the new change reads.
+   * overwrites the list the new change reads. A change still goes on once
+   * the dialog is closed, but its read of the list stops: the device picker
+   * reads the list again in a few seconds.
    */
   private change(
     ask: Omit<PasswordDialogData, 'passwordSet'>,
@@ -163,7 +166,12 @@ export class DevicesDialog {
         // the change: the device picker reads the list again in a few seconds.
         switchMap((result) =>
           makeChange(result).pipe(
-            switchMap(() => this.devices.load().pipe(catchError(() => of(null)))),
+            switchMap(() =>
+              this.devices.load().pipe(
+                takeUntilDestroyed(this.destroyRef),
+                catchError(() => of(null)),
+              ),
+            ),
           ),
         ),
         catchError((error: unknown) => {
@@ -171,6 +179,7 @@ export class DevicesDialog {
           this.busy.set(false);
           return this.devices.load().pipe(
             takeUntil(this.changeStarted),
+            takeUntilDestroyed(this.destroyRef),
             ignoreElements(),
             catchError(() => EMPTY),
           );

@@ -2,11 +2,13 @@ package metrics
 
 import (
 	"encoding/hex"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Chriszly/usage-control/backend/internal/sysfile"
 )
@@ -16,6 +18,8 @@ import (
 // its virtual interfaces too, such as Docker's bridges and a VPN, read from
 // the routing files of the host's first process. Outside a container it
 // returns nil, as the machine's own network interfaces are the host's.
+// When the host's IPv4 addresses cannot be read, as with hidepid or a missing
+// mount, it says so in the log once.
 func HostAddresses() []netip.Addr {
 	proc := os.Getenv("HOST_PROC")
 	if proc == "" {
@@ -25,6 +29,8 @@ func HostAddresses() []netip.Addr {
 	var addresses []netip.Addr
 	if trie, err := sysfile.Read(filepath.Join(netDir, "fib_trie")); err == nil {
 		addresses = parseLocalAddresses(string(trie))
+	} else if !hostAddressesUnread.Swap(true) {
+		slog.Warn("read the host's addresses; a device at one of them, such as Docker's bridge gateway, can be added on the page", "error", err)
 	}
 	if inet6, err := sysfile.Read(filepath.Join(netDir, "if_inet6")); err == nil {
 		for _, address := range parseIPv6Addresses(string(inet6)) {
@@ -35,6 +41,10 @@ func HostAddresses() []netip.Addr {
 	}
 	return addresses
 }
+
+// hostAddressesUnread is set once the log said that the host's addresses
+// cannot be read.
+var hostAddressesUnread atomic.Bool
 
 // parseIPv6Addresses reads the machine's IPv6 addresses from the text of
 // /proc/net/if_inet6, whose lines start with the address as 32 hex digits.

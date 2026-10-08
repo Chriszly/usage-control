@@ -1,8 +1,10 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -29,11 +31,10 @@ func startDevice(t *testing.T) string {
 func openTestHub(t *testing.T, store *history.Store, fixed []Device) *Hub {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	h, err := New(ctx, store, fixed, history.DefaultMaxEntries, 30*24*time.Hour, "9393")
+	h, err := newHub(ctx, store, fixed, history.DefaultMaxEntries, 30*24*time.Hour, "9393", true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	h.allowLoopback = true
 	t.Cleanup(func() {
 		cancel()
 		h.Wait()
@@ -156,12 +157,15 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 			t.Errorf("Add(%q) took %v, want an answer at once", address, took)
 		}
 	}
-	// Another address on the local network is asked as before: nothing
-	// answers there in the test, so it is unreachable rather than refused.
-	short, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-	defer cancel()
-	if _, err := h.Add(short, "Laptop", "192.168.1.30:9393", KindServer, own); problemOf(err) != ProblemUnreachable {
-		t.Errorf("Add(192.168.1.30:9393) error = %v, want problem %q", err, ProblemUnreachable)
+	// Another address on the local network is connected to as before, which
+	// is checked without connecting, so the test sends nothing to the
+	// network it runs in.
+	check := h.refuseOwn(func() []netip.Addr { return own })
+	if err := check("tcp4", "192.168.1.30:9393", nil); err != nil {
+		t.Errorf("connecting to 192.168.1.30:9393 error = %v, want none", err)
+	}
+	if err := check("tcp4", "192.168.1.10:9393", nil); !errors.Is(err, errOwnAddress) {
+		t.Errorf("connecting to 192.168.1.10:9393 error = %v, want errOwnAddress", err)
 	}
 	// A device cabled straight to the hub, with a link-local IPv4 address,
 	// can be added too.
@@ -172,6 +176,55 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 	}
 	if len(h.Remotes()) != 0 {
 		t.Errorf("devices = %q, want none added", ids(h.Remotes()))
+	}
+}
+
+func TestDevicesAddedOnThePageAreNotCollectedFromAtTheHubsOwnAddress(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	added, fixed := startDevice(t), startDevice(t)
+	openTestHub(t, store, nil) // creates the tables
+	// Added on the page while its host name resolved to another device, and
+	// now resolving to the hub itself, as loopback is here.
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES ('laptop', 'Laptop', ?, 0)`, added); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	running, stop := context.WithCancel(ctx)
+	h, err := newHub(running, store, []Device{{ID: "vm", Name: "VM", Address: fixed}}, history.DefaultMaxEntries, 30*24*time.Hour, "9393", false)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		stop()
+		h.Wait()
+	})
+
+	for _, remote := range h.Remotes() {
+		_, err := remote.Agent.Collect(ctx)
+		switch remote.ID {
+		case "laptop":
+			if !errors.Is(err, errOwnAddress) {
+				t.Errorf("Collect() from the device added on the page error = %v, want errOwnAddress", err)
+			}
+		case "vm":
+			// HUB_DEVICES may name the hub itself, as for a VM behind port
+			// forwarding on it.
+			if err != nil {
+				t.Errorf("Collect() from the device in HUB_DEVICES error = %v, want none", err)
+			}
+		}
+	}
+	if got := ids(h.Remotes()); len(got) != 2 {
+		t.Errorf("devices = %q, want vm and laptop", got)
+	}
+	// The log tells how to keep collecting from it.
+	stop()
+	h.Wait()
+	if text := logged.String(); strings.Count(text, "HUB_DEVICES under the same name") != 1 || !strings.Contains(text, "name=Laptop") {
+		t.Errorf("log = %q, want one warning about Laptop", text)
 	}
 }
 
@@ -317,11 +370,10 @@ func TestNoChangesOnceTheHubStops(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	running, stop := context.WithCancel(ctx)
-	h, err := New(running, store, nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393")
+	h, err := newHub(running, store, nil, history.DefaultMaxEntries, 30*24*time.Hour, "9393", true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	h.allowLoopback = true
 	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -345,11 +397,10 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
 	nas := Device{ID: "nas", Name: "NAS", Address: startDevice(t)}
 	first, cancel := context.WithCancel(ctx)
-	h, err := New(first, store, []Device{pi, nas}, 0, 30*24*time.Hour, "9393")
+	h, err := newHub(first, store, []Device{pi, nas}, 0, 30*24*time.Hour, "9393", true)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	h.allowLoopback = true
 	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer, nil); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}

@@ -59,8 +59,8 @@ type Hub struct {
 	// beforeDelete, when set, is called before a removed device's data is
 	// deleted, for tests.
 	beforeDelete func(id string)
-	// allowLoopback lets Add add a device at a loopback address, for tests,
-	// whose devices all run on the machine itself.
+	// allowLoopback lets Add add a device at a loopback address, and the hub
+	// collect from it, for tests, whose devices all run on the machine itself.
 	allowLoopback bool
 	// hostAddrs lists the host's addresses in a container, its virtual
 	// interfaces' too, such as Docker's bridge gateway; metrics.HostAddresses
@@ -101,7 +101,13 @@ type Remote struct {
 // retention. Every device is told pagePort, the port the hub's page is
 // reachable on.
 func New(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string) (*Hub, error) {
-	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx}
+	return newHub(ctx, store, fixed, historyEntries, retention, pagePort, false)
+}
+
+// newHub is New, with allowLoopback set before any device is collected from,
+// for tests.
+func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEntries int, retention time.Duration, pagePort string, allowLoopback bool) (*Hub, error) {
+	h := &Hub{store: store, historyEntries: historyEntries, retention: retention, pagePort: pagePort, suggester: defaultSuggester(), ctx: ctx, allowLoopback: allowLoopback}
 	for _, schema := range []string{savedSchema, availabilitySchema, kindSchema, idSchema} {
 		if _, err := store.DB().ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -245,11 +251,7 @@ var errOwnAddress = errors.New("the address is the hub's own")
 // took would otherwise tell which of the hub's own ports are open, including
 // ones only it can reach.
 func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (metrics.Snapshot, error) {
-	hostAddrs := h.hostAddrs
-	if hostAddrs == nil {
-		hostAddrs = metrics.HostAddresses
-	}
-	own = append(slices.Clone(own), hostAddrs()...)
+	own = append(slices.Clone(own), h.hostAddresses()...)
 	// An IP address is checked before connecting, which may fail before the
 	// check below, as with IPv6 on a machine without it.
 	if host, _, err := net.SplitHostPort(address); err == nil {
@@ -257,12 +259,29 @@ func (h *Hub) askNew(ctx context.Context, address string, own []netip.Addr) (met
 			return metrics.Snapshot{}, errOwnAddress
 		}
 	}
-	return askOnceWith(ctx, newAgent(address, func(network, address string, c syscall.RawConn) error {
-		if addrPort, err := netip.ParseAddrPort(address); err == nil && !h.addable(addrPort.Addr(), own) {
+	return askOnceWith(ctx, newAgent(address, h.refuseOwn(func() []netip.Addr { return own })))
+}
+
+// refuseOwn returns the check of every address an agent of a device added on
+// the page connects to: it refuses one that is not addable, with own listing
+// more of the hub's addresses, besides localNetworkOnly. A host name that
+// resolves to the hub itself only after the device was added is refused
+// too, so the hub does not tell which of its own ports are open.
+func (h *Hub) refuseOwn(own func() []netip.Addr) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if addrPort, err := netip.ParseAddrPort(address); err == nil && !h.addable(addrPort.Addr(), own()) {
 			return errOwnAddress
 		}
 		return localNetworkOnly(network, address, c)
-	}))
+	}
+}
+
+// hostAddresses lists the host's addresses in a container; see hostAddrs.
+func (h *Hub) hostAddresses() []netip.Addr {
+	if h.hostAddrs != nil {
+		return h.hostAddrs()
+	}
+	return metrics.HostAddresses()
 }
 
 // addable reports whether a device can be added at addr: not one of the
@@ -278,6 +297,18 @@ func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
 		return true
 	}
 	return !addr.IsLoopback() && !addr.IsUnspecified() && (addr.Is4() || !addr.IsLinkLocalUnicast()) && !h.suggester.isOwn(addr, own)
+}
+
+// addableAddress reports whether a device can be added at address
+// (host:port), as far as an IP address tells: a host name is checked only
+// when it is connected to.
+func (h *Hub) addableAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err != nil || h.addable(ip, h.hostAddresses())
 }
 
 // save keeps an added device and its kind in the database, both or neither.
@@ -579,7 +610,14 @@ func (h *Hub) Wait() {
 
 // start begins collecting from a device. The caller holds mu, or New runs.
 func (h *Hub) start(device Device, fixed bool) {
+	// A device from HUB_DEVICES is collected from at whatever address it is
+	// set to, as the hub's owner chose it, such as a VM behind port
+	// forwarding on the hub itself. One added on the page is not, even when
+	// its host name resolves to the hub only later.
 	agent := NewAgent(device.Address)
+	if !fixed {
+		agent = newAgent(device.Address, h.refuseOwn(h.hostAddresses))
+	}
 	agent.pagePort = h.pagePort
 	agent.hubID = h.id
 	agent.maxEntries = h.historyEntries
@@ -593,6 +631,14 @@ func (h *Hub) start(device Device, fixed bool) {
 	}
 	recent := &history.Recent{}
 	watched := &watchedAgent{agent: agent, db: h.store.DB(), device: device.ID}
+	// A device added on the page before the hub's own addresses were
+	// refused, at one of them, such as a VM behind port forwarding on the
+	// hub, shows as not answering. The log says so here, by name, and not
+	// again when the hub refuses to connect.
+	if !fixed && !h.addableAddress(device.Address) {
+		slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
+		watched.refusedLogged = true
+	}
 	ctx, stop := context.WithCancel(h.ctx)
 	remote := &Remote{
 		Device:   device,

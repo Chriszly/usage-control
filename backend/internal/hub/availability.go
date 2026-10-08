@@ -175,13 +175,19 @@ type watchedAgent struct {
 	// lastEnd is when the previous outage ended. A new one starts after it,
 	// so the two never share the start that keys them in the database.
 	lastEnd time.Time
+	// refusedLogged is set once the log said that the hub refuses the
+	// device's address as its own.
+	refusedLogged bool
 }
 
 // Collect asks the device for its usage and notes an outage when it does not
 // answer: in the database when it starts, every noteInterval while it lasts
 // and when it ends, and in memory at every failed reading. A single failed
 // reading, as on a flaky Wi-Fi, is no outage: one starts at the second failed
-// reading in a row, and then counts from the first.
+// reading in a row, and then counts from the first. A reading the hub
+// refuses, as the device's address is the hub's own, is no outage either:
+// the device shows as not answering, but the time is not counted, and an
+// outage that lasts ends at its last failed reading.
 func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := w.agent.Collect(ctx)
 	if ctx.Err() != nil {
@@ -191,6 +197,18 @@ func (w *watchedAgent) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	now := w.now()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if errors.Is(err, errOwnAddress) {
+		if !w.refusedLogged {
+			w.refusedLogged = true
+			slog.Warn("a device added on the page is at an address of the hub itself, which the hub does not connect to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "device", w.device)
+		}
+		w.firstFailed = time.Time{}
+		if !w.outageStart.IsZero() {
+			w.note(ctx, w.lastFailed)
+			w.outageStart, w.lastEnd = time.Time{}, w.lastFailed
+		}
+		return snapshot, err
+	}
 	switch {
 	case err == nil:
 		w.firstFailed = time.Time{}
