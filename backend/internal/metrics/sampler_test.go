@@ -22,7 +22,7 @@ func (c *countingSource) Collect(context.Context) (Snapshot, error) {
 func TestSamplerSharesOneReadingPerInterval(t *testing.T) {
 	ctx := context.Background()
 	src := &countingSource{}
-	sampler := &Sampler{source: src, interval: 50 * time.Millisecond}
+	sampler := newSampler(src, 50*time.Millisecond)
 
 	// The first request reads; the next one, right after it, gets the same snapshot.
 	first, err := sampler.Collect(ctx)
@@ -45,7 +45,7 @@ func TestSamplerSharesOneReadingPerInterval(t *testing.T) {
 }
 
 func TestSamplerReportsAFailedReading(t *testing.T) {
-	sampler := &Sampler{source: &countingSource{err: errors.New("no /proc")}, interval: time.Minute}
+	sampler := newSampler(&countingSource{err: errors.New("no /proc")}, time.Minute)
 	for range 2 {
 		if _, err := sampler.Collect(context.Background()); err == nil {
 			t.Error("Collect() error = nil, want the reading's error")
@@ -64,7 +64,7 @@ func (contextSource) Collect(ctx context.Context) (Snapshot, error) {
 }
 
 func TestSamplerReadingOutlivesTheRequest(t *testing.T) {
-	sampler := &Sampler{source: contextSource{}, interval: time.Minute}
+	sampler := newSampler(contextSource{}, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := sampler.Collect(ctx); err != nil {
@@ -74,7 +74,7 @@ func TestSamplerReadingOutlivesTheRequest(t *testing.T) {
 
 func TestReusingSamplerTakesAYoungEnoughReading(t *testing.T) {
 	src := &countingSource{}
-	sampler := &Sampler{source: src, interval: time.Millisecond}
+	sampler := newSampler(src, time.Millisecond)
 	ctx := context.Background()
 
 	if _, err := sampler.Collect(ctx); err != nil {
@@ -86,5 +86,31 @@ func TestReusingSamplerTakesAYoungEnoughReading(t *testing.T) {
 	}
 	if _, err := sampler.Reusing(time.Millisecond).Collect(ctx); err != nil || src.readings.Load() != 2 {
 		t.Errorf("Reusing(1 ms).Collect() read %d times, %v; want a new reading", src.readings.Load(), err)
+	}
+}
+
+// blockingSource reads until release is closed.
+type blockingSource struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b blockingSource) Collect(context.Context) (Snapshot, error) {
+	close(b.started)
+	<-b.release
+	return Snapshot{}, nil
+}
+
+func TestSamplerStopsWaitingWhenTheRequestEnds(t *testing.T) {
+	src := blockingSource{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(src.release)
+	sampler := newSampler(src, time.Minute)
+	go func() { _, _ = sampler.Collect(context.Background()) }()
+	<-src.started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := sampler.Collect(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Collect() while a reading hangs error = %v, want the request's deadline", err)
 	}
 }

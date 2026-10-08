@@ -92,6 +92,7 @@ type Collector struct {
 	AddOns *AddOns
 
 	diskPaths      []string
+	disks          *diskReader
 	gpus           *gpuReader
 	batteries      *batteryReader
 	clockFiles     []string
@@ -123,13 +124,16 @@ type Collector struct {
 
 // NewCollector returns a Collector for the machine the program runs on that
 // reports the disk usage of the filesystems holding diskPaths. It fails when
-// one of the paths cannot be read.
+// one of the paths cannot be read; one that does not answer in time, such as
+// a share whose server is away, is left out until it answers.
 func NewCollector(ctx context.Context, diskPaths []string) (*Collector, error) {
-	if err := checkDiskPaths(ctx, diskPaths); err != nil {
+	disks := newDiskReader()
+	if err := disks.check(ctx, diskPaths); err != nil {
 		return nil, err
 	}
 	return &Collector{
 		diskPaths:      diskPaths,
+		disks:          disks,
 		gpus:           newGPUReader(),
 		batteries:      newBatteryReader(),
 		clockFiles:     clockFiles(),
@@ -191,10 +195,14 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 }
 
 // readDisks returns the usage of each disk, with its activity measured since
-// the previous call.
+// the previous call. The activity is only read for the disks that answered.
 func (c *Collector) readDisks(ctx context.Context) []Disk {
-	disks := readDisks(ctx, c.diskPaths)
-	current := readDiskCounters(ctx, c.diskPaths)
+	disks, devices := c.disks.read(ctx, c.diskPaths)
+	answered := make([]string, len(disks))
+	for i, d := range disks {
+		answered[i] = d.Path
+	}
+	current := readDiskCounters(ctx, answered, devices)
 	now := time.Now()
 
 	c.mu.Lock()
