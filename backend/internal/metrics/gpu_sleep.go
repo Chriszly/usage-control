@@ -66,6 +66,9 @@ const (
 	// forgetTime is how long a device or file not asked about is kept, so
 	// those gone, as when hwmon or PCI numbering changed, are dropped.
 	forgetTime = 10 * time.Minute
+	// paramsTime is how long the amdgpu driver's settings once read are
+	// kept, so a driver loaded again with other settings is followed.
+	paramsTime = time.Minute
 )
 
 // deviceReads reads the sensor files of devices that may sleep at most every
@@ -85,9 +88,14 @@ type deviceReads struct {
 	links   map[string]deviceLink
 	values  map[string]fileContent
 	pruned  time.Time
-	// runpm is the amdgpu driver's runpm setting once read (see
-	// amdgpuRunpm).
-	runpm string
+	// runpm and dc are the amdgpu driver's runpm and dc settings, read at
+	// paramsRead (see amdgpuParams).
+	runpm, dc  string
+	paramsRead time.Time
+	// release is the running kernel's release, such as "6.6.0", once read
+	// (see kernelRelease).
+	release     string
+	releaseRead bool
 }
 
 // deviceLink is the real folder of a folder asked about, looked up at
@@ -190,14 +198,52 @@ func (d *deviceReads) prune(now time.Time) {
 	}
 }
 
-// amdgpuRunpm returns the amdgpu driver's runpm setting. It is fixed while
-// the driver is loaded, so once read it is kept; a failed read, as before
-// the driver is loaded, is tried again next time. d.mu is held.
-func (d *deviceReads) amdgpuRunpm() string {
-	if d.runpm == "" {
-		d.runpm = sysfile.Text(filepath.Join(hostPath("HOST_SYS", "/sys"), "module", "amdgpu", "parameters", "runpm"))
+// amdgpuParams returns the amdgpu driver's runpm and dc settings. They are
+// fixed while the driver is loaded, so they are kept for paramsTime and read
+// again then, as the driver may have been loaded again with others; a failed
+// read, as before the driver is loaded, is tried again next time. d.mu is
+// held.
+func (d *deviceReads) amdgpuParams(now time.Time) (runpm, dc string) {
+	if since := now.Sub(d.paramsRead); d.runpm == "" || since < 0 || since >= paramsTime {
+		params := filepath.Join(hostPath("HOST_SYS", "/sys"), "module", "amdgpu", "parameters")
+		d.runpm = sysfile.Text(filepath.Join(params, "runpm"))
+		d.dc = sysfile.Text(filepath.Join(params, "dc"))
+		d.paramsRead = now
 	}
-	return d.runpm
+	return d.runpm, d.dc
+}
+
+// kernelRelease returns the running kernel's release, such as "6.6.0", read
+// once, as it changes only with a restart; "" when it cannot be read. d.mu
+// is held.
+func (d *deviceReads) kernelRelease() string {
+	if !d.releaseRead {
+		d.release = sysfile.Text(filepath.Join(hostPath("HOST_PROC", "/proc"), "sys", "kernel", "osrelease"))
+		d.releaseRead = true
+	}
+	return d.release
+}
+
+// kernelAtLeast reports whether a kernel release, such as "6.6.0" or
+// "5.18.0-1-amd64", is major.minor or later; false when it cannot be told.
+func kernelAtLeast(release string, major, minor int) bool {
+	parts := strings.SplitN(release, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	gotMajor, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	digits := strings.IndexFunc(parts[1], func(r rune) bool { return r < '0' || r > '9' })
+	if digits < 0 {
+		digits = len(parts[1])
+	}
+	gotMinor, err := strconv.Atoi(parts[1][:digits])
+	if err != nil {
+		return false
+	}
+	return gotMajor > major || gotMajor == major && gotMinor >= minor
 }
 
 // drivesDisplay reports whether a GPU drives a display, so it does not sleep,
@@ -208,11 +254,18 @@ func (d *deviceReads) amdgpuRunpm() string {
 // use when its drm/card*/card*-*/enabled is "enabled" and its dpms is "On",
 // not when its monitor is switched off in the display settings or only
 // blanked (DPMS off), which leaves enabled set but turns dpms to "Off" in
-// drivers that keep it up to date, as amdgpu does. amdgpu, though, keeps its
-// GPU awake while any monitor is connected (since Linux 6.0), blanked or
-// not, unless its runpm is -2, so there a connector whose status is
-// "connected" is in use too. A connector without dpms counts by enabled
-// alone.
+// drivers that keep it up to date, as amdgpu does. A connector without dpms
+// counts by enabled alone.
+//
+// amdgpu keeps its GPU awake for more. Since Linux 5.18 it does while any
+// monitor is connected, blanked or not, unless its runpm is -2 (which Linux
+// 6.6 added), so there a connector whose status is "connected" is in use
+// too. With its older display code, which it uses when its dc is 0, it does
+// while any connector's dpms is "On", enabled or not, so there such a
+// connector is in use too. The older display code it picks for some old
+// cards when dc is left to choose (-1) is not told from here: those cards
+// are read less often than the kernel keeps them awake, which never wakes
+// them.
 func (d *deviceReads) drivesDisplay(device string) bool {
 	if sysfile.Text(filepath.Join(device, "boot_vga")) == "1" {
 		return true
@@ -221,18 +274,24 @@ func (d *deviceReads) drivesDisplay(device string) bool {
 	if len(connectors) == 0 {
 		return false
 	}
-	awakeWhileConnected := false
+	awakeWhileConnected, awakeWhileOn := false, false
 	if driver, err := filepath.EvalSymlinks(filepath.Join(device, "driver")); err == nil && filepath.Base(driver) == "amdgpu" {
-		awakeWhileConnected = d.amdgpuRunpm() != "-2"
+		runpm, dc := d.amdgpuParams(d.now())
+		awakeWhileConnected = runpm != "-2" && kernelAtLeast(d.kernelRelease(), 5, 18)
+		awakeWhileOn = dc == "0"
 	}
 	for _, connector := range connectors {
 		if awakeWhileConnected && sysfile.Text(filepath.Join(connector, "status")) == "connected" {
 			return true
 		}
+		dpms := sysfile.Text(filepath.Join(connector, "dpms"))
+		if awakeWhileOn && dpms == "On" {
+			return true
+		}
 		if sysfile.Text(filepath.Join(connector, "enabled")) != "enabled" {
 			continue
 		}
-		switch sysfile.Text(filepath.Join(connector, "dpms")) {
+		switch dpms {
 		case "Off", "Standby", "Suspend":
 		default:
 			return true
