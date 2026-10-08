@@ -76,8 +76,9 @@
                     (default: the system drive); the service does not start
                     while one cannot be read, and says which in the event log
     UPDATE_CHECK    with WEBSITE=1, false to stop the daily check for a newer
-                    release (default true); the installer refuses any value
-                    but true or false
+                    release (default true); the installer refuses a value
+                    the service cannot read: it takes true, false, 1, 0, t
+                    and f, in the cases the service takes, without spaces
     RESET_PASSWORD  with WEBSITE=1, true to delete the password for changing
                     devices when the service starts; only from an
                     administrator, and not remembered, so the next install,

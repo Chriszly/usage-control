@@ -46,12 +46,16 @@ func TestWindowsOpenFolderRefusesJunctions(t *testing.T) {
 }
 
 func TestWindowsOpenFolderTakesALongPath(t *testing.T) {
-	target, _ := junction(t)
+	target, link := junction(t)
 	folder, err := openFolder(`\\?\` + target)
 	if err != nil {
 		t.Fatalf(`openFolder(\\?\ and a plain folder) error = %v, want nil`, err)
 	}
 	_ = folder.Close()
+	if folder, err := openFolder(`\\?\` + link); err == nil {
+		_ = folder.Close()
+		t.Error(`openFolder(\\?\ and a junction) error = nil, want an error`)
+	}
 }
 
 func TestWithoutPrefix(t *testing.T) {
