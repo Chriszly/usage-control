@@ -13,7 +13,7 @@ import (
 	"hash/crc32"
 	"log/slog"
 	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -76,6 +76,11 @@ var containerFolders = []string{
 	"/var/lib/docker/",
 	"/var/lib/containerd/",
 	"/var/lib/containers/storage/",
+	// The containerd of k3s, RKE2, MicroK8s and k0s.
+	"/var/lib/rancher/k3s/agent/containerd/",
+	"/var/lib/rancher/rke2/agent/containerd/",
+	"/var/snap/microk8s/common/var/lib/containerd/",
+	"/var/lib/k0s/containerd/",
 }
 
 // rootlessPodman is rootless Podman's storage folder, below a user's home.
@@ -88,22 +93,35 @@ const rootlessPodman = "/.local/share/containers/storage/"
 //   - the folders of containerd's snapshots that can be disks of their own,
 //     one per container, as with its devmapper snapshotter: rootfs/ in
 //     Docker's folder (and in DOCKER_DIR) when Docker uses containerd's
-//     snapshotters, and tmpmounts/, where containerd unpacks images;
+//     snapshotters, and tmpmounts/, where containerd unpacks images, also
+//     that of the containerd in k3s, RKE2, MicroK8s and k0s;
 //   - the folders of containerd's running tasks, each with a container's
-//     root, also those of the containerd in k3s and RKE2;
+//     root, also those of the containerd in k3s and RKE2 (which share
+//     /run/k3s), MicroK8s and k0s;
 //   - kubelet's pods/ and plugins/, where pods' volumes are mounted, such as
 //     a Longhorn or other CSI volume, once for the node and again for each
-//     pod that uses it.
+//     pod that uses it, also in the kubelet folders of MicroK8s and k0s (k3s
+//     and RKE2 use /var/lib/kubelet).
 var instanceFolders = []string{
 	"/var/lib/lxd/devices/",
 	"/var/snap/lxd/common/lxd/devices/",
 	"/var/lib/incus/devices/",
 	"/var/lib/docker/rootfs/",
 	"/var/lib/containerd/tmpmounts/",
+	"/var/lib/rancher/k3s/agent/containerd/tmpmounts/",
+	"/var/lib/rancher/rke2/agent/containerd/tmpmounts/",
+	"/var/snap/microk8s/common/var/lib/containerd/tmpmounts/",
+	"/var/lib/k0s/containerd/tmpmounts/",
 	"/run/containerd/io.containerd.runtime.v2.task/",
 	"/run/k3s/containerd/io.containerd.runtime.v2.task/",
+	"/var/snap/microk8s/common/run/containerd/io.containerd.runtime.v2.task/",
+	"/run/k0s/containerd/io.containerd.runtime.v2.task/",
 	"/var/lib/kubelet/pods/",
 	"/var/lib/kubelet/plugins/",
+	"/var/snap/microk8s/common/var/lib/kubelet/pods/",
+	"/var/snap/microk8s/common/var/lib/kubelet/plugins/",
+	"/var/lib/k0s/kubelet/pods/",
+	"/var/lib/k0s/kubelet/plugins/",
 }
 
 // storagePools are the folders of LXD's and Incus's storage pools. Each pool
@@ -205,13 +223,15 @@ func ParseMounts(table, dockerDir string) []Mount {
 	})
 }
 
-// hidden reports whether a filesystem is mounted on a folder above path
-// later than the last one at path, by the lines of the table in last, which
-// hides what is mounted at path.
-func hidden(path string, last map[string]int) bool {
-	for above := path; above != "/"; {
-		above = filepath.Dir(above)
-		if last[above] > last[path] {
+// hidden reports whether a filesystem is mounted on a folder above
+// mountPath later than the last one at mountPath, by the lines of the table
+// in last, which hides what is mounted at mountPath. Mount paths use "/" on
+// every system, so the folders above are found with path.Dir, not
+// filepath.Dir.
+func hidden(mountPath string, last map[string]int) bool {
+	for above := mountPath; above != "/"; {
+		above = path.Dir(above)
+		if last[above] > last[mountPath] {
 			return true
 		}
 	}

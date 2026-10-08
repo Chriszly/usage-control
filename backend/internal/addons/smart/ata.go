@@ -34,6 +34,11 @@ type ataResult struct {
 // ataStatusError is the ERR bit of the status register.
 const ataStatusError = 0x01
 
+// errRefused is returned for a command the disk answered with the ERR bit,
+// such as one it does not support or that SMART switched off aborts, unlike
+// a timeout or an answer that did not come back in full.
+var errRefused = errors.New("the disk refused the command")
+
 // cdb returns the command as an ATA PASS-THROUGH (16) SCSI command (SAT,
 // SCSI / ATA Translation), as Linux passes it to SATA disks. A command
 // without data asks for the registers back (CK_COND), as they hold the
@@ -212,9 +217,9 @@ func parseSMARTData(sector []byte) (Disk, error) {
 // disk whose power mode cannot be read is not read either, as it might sleep.
 // A disk with SMART switched off or without it is returned with SMARTOff, as
 // is one whose IDENTIFY DEVICE does not tell and that then refuses to send
-// its attributes. One whose attributes have a wrong checksum, as some older
-// disks send, is returned with its check but without the attributes, which
-// may be garbled.
+// its attributes (errRefused); any other error reading them is an error.
+// One whose attributes have a wrong checksum, as some older disks send, is
+// returned with its check but without the attributes, which may be garbled.
 func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 	power, _, err := send(ataCheckPowerMode)
 	if err != nil {
@@ -235,7 +240,7 @@ func readATA(send func(ataCommand) (ataResult, []byte, error)) (Disk, error) {
 		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
 	}
 	_, sector, err = send(ataSMARTReadData)
-	if err != nil && smart == nil {
+	if errors.Is(err, errRefused) && smart == nil {
 		return Disk{Model: model, Serial: serial, SMARTOff: true}, nil
 	}
 	if err != nil {

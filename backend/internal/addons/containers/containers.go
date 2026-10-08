@@ -301,14 +301,37 @@ var (
 	// cgroupfs driver of Podman (libpod_parent/libpod-<id>) and CRI-O.
 	scope = regexp.MustCompile(`^(?:docker|libpod|cri-containerd|crio)-([0-9a-f]{64})(?:\.scope)?$`)
 	// bareID matches it with Docker's and containerd's cgroupfs driver, such
-	// as /docker/<id>. Below libpod_parent it is a Podman pod's folder
-	// instead, which holds the pod's containers.
+	// as /docker/<id>. It can be a Podman pod's folder instead, which holds
+	// the pod's containers (see podmanPod).
 	bareID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // podmanPods is the folder of Podman's cgroupfs driver, in which a folder
 // named by an id is a pod and not a container.
 const podmanPods = "libpod_parent"
+
+// podmanPod reports whether path, a folder in dir named by an id, is a
+// Podman pod's folder with the cgroupfs driver, and not a container's: one
+// in libpod_parent, or, for a pod given a cgroup parent of its own
+// (--cgroup-parent), one that holds a container's libpod-<id> folder. The
+// folders of Docker's and Kubernetes's containers, in a folder named docker
+// or below kubepods, are not looked into, as find looks at them at every
+// read.
+func podmanPod(dir, path string) bool {
+	switch {
+	case filepath.Base(dir) == podmanPods:
+		return true
+	case filepath.Base(dir) == "docker", strings.Contains(filepath.ToSlash(dir)+"/", "/kubepods/"):
+		return false
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(entry os.DirEntry) bool {
+		return entry.IsDir() && strings.HasPrefix(entry.Name(), "libpod-") && scope.MatchString(entry.Name())
+	})
+}
 
 // findContainers adds the cgroup of each container below dir to found, by
 // container id. It does not look inside a container's cgroup, which may hold
@@ -337,7 +360,7 @@ func findIn(dir string, found map[string]string) (others []string) {
 		path := filepath.Join(dir, name)
 		if m := scope.FindStringSubmatch(name); m != nil {
 			found[m[1]] = path
-		} else if bareID.MatchString(name) && filepath.Base(dir) != podmanPods {
+		} else if bareID.MatchString(name) && !podmanPod(dir, path) {
 			found[name] = path
 		} else {
 			others = append(others, path)
