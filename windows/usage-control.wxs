@@ -218,17 +218,27 @@
     <SetProperty Action="$(AddOn)FixInstalled" Id="$(AddOn)Fix" Value="REINSTALL=ALL REINSTALLMODE=m $(AddOn)=1" Before="LaunchConditions" Sequence="both" Condition="Installed" />
     <Launch Condition='REMOVE = "ALL" OR NOT $(AddOn) OR $(AddOn) = "0" OR $(AddOn) = "1"'
             Message='$(AddOn) must be 0 or 1. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" [$(AddOn)Fix], or with $(AddOn)=0 to remove the add-on' />
+    <!-- The remembered value once more, kept as it is, to tell whether a repair changes the add-on (AddOnFiles). -->
+    <Property Id="REMEMBERED_$(AddOn)">
+      <RegistrySearch Id="RememberedAgain$(AddOn)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(AddOn)" Type="raw" />
+    </Property>
     <?endforeach?>
 
     <!--
       A repair with REINSTALLMODE=m copies and deletes no file, also not the
-      program of an add-on it adds or removes. So a repair given an add-on
-      option, with no letter in REINSTALLMODE for the files, also reinstalls
-      missing or older files (o); the other files are the same, so it copies
-      none of them. It sets this before costing, which reads it.
+      program of an add-on it adds or removes. So a repair that changes an
+      add-on option from the remembered one, with no letter in REINSTALLMODE
+      for the files, also reinstalls missing or older files (o); the other
+      files are the same, so it copies none of them. It sets this before
+      costing, which reads it. It compares the values rather than asking
+      whether the option was given, as with a user interface the remembered
+      options reach the install as if given; a repair that gives the
+      remembered value, or one without the option, keeps REINSTALLMODE=m and
+      so the tray icons. Where nothing is remembered, as after an install
+      before the add-on existed, an option given as 1 or 0 counts as a change.
     -->
     <SetProperty Action="AddOnFiles" Id="REINSTALLMODE" Value="omus" Before="CostInitialize" Sequence="execute"
-                 Condition='REINSTALL AND NOT (REINSTALLMODE ~&gt;&lt; "p" OR REINSTALLMODE ~&gt;&lt; "o" OR REINSTALLMODE ~&gt;&lt; "e" OR REINSTALLMODE ~&gt;&lt; "d" OR REINSTALLMODE ~&gt;&lt; "c" OR REINSTALLMODE ~&gt;&lt; "a") AND (CMDLINE_POWER OR CMDLINE_GPU OR CMDLINE_PRESSURE OR CMDLINE_KERNEL OR CMDLINE_WIFI OR CMDLINE_MEMORY OR CMDLINE_PORTS OR CMDLINE_SMART OR CMDLINE_PROCESSES)' />
+                 Condition='REINSTALL AND NOT (REINSTALLMODE ~&gt;&lt; "p" OR REINSTALLMODE ~&gt;&lt; "o" OR REINSTALLMODE ~&gt;&lt; "e" OR REINSTALLMODE ~&gt;&lt; "d" OR REINSTALLMODE ~&gt;&lt; "c" OR REINSTALLMODE ~&gt;&lt; "a") AND (POWER &lt;&gt; REMEMBERED_POWER OR GPU &lt;&gt; REMEMBERED_GPU OR PRESSURE &lt;&gt; REMEMBERED_PRESSURE OR KERNEL &lt;&gt; REMEMBERED_KERNEL OR WIFI &lt;&gt; REMEMBERED_WIFI OR MEMORY &lt;&gt; REMEMBERED_MEMORY OR PORTS &lt;&gt; REMEMBERED_PORTS OR SMART &lt;&gt; REMEMBERED_SMART OR PROCESSES &lt;&gt; REMEMBERED_PROCESSES)' />
 
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
     <UIRef Id="SetupWizard" />
@@ -312,7 +322,7 @@
       Updating and uninstalling close the tray icons that run, so the file can
       be replaced. A repair that only rewrites the registry (REINSTALLMODE=m,
       as for RESET_PASSWORD) replaces no file, so it leaves them running;
-      one given an add-on option checks the files too (AddOnFiles), so it
+      one that changes an add-on checks the files too (AddOnFiles), so it
       closes them.
     -->
     <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no"
@@ -327,8 +337,8 @@
       the option reads the remembered one, which the service's component
       writes back, so it keeps the add-ons as they are. A repair that only
       rewrites the registry (REINSTALLMODE=m) would add or remove the
-      add-on's service but copy or delete no file, so a repair given an
-      add-on option also checks the files (AddOnFiles).
+      add-on's service but copy or delete no file, so a repair that changes
+      an add-on also checks the files (AddOnFiles).
     -->
     <Component Directory="INSTALLFOLDER" Condition='POWER = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-power.exe" Name="usage-control-power.exe" KeyPath="yes" />
