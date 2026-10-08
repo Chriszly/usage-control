@@ -145,6 +145,10 @@ const (
 	// container too.
 	ProblemAddressOwn  Problem = "addressOwn"
 	ProblemUnreachable Problem = "unreachable"
+	// ProblemHostUnknown is a device that answers that it does not know the
+	// host name it was asked by, as one in Docker, whose hostname is the
+	// container's, asked by the machine's.
+	ProblemHostUnknown Problem = "hostUnknown"
 	ProblemNotFound    Problem = "notFound"
 	ProblemFixed       Problem = "fixed"
 	ProblemKind        Problem = "kind"

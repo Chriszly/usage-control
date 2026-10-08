@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"slices"
 	"sync"
@@ -250,8 +251,15 @@ func (h *Hub) Add(ctx context.Context, name, address string, kind Kind) (Device,
 		if errors.Is(err, errOwnAddress) {
 			return Device{}, &InputError{Problem: ProblemAddressOwn, Message: "the address is the hub itself; give the device's address on the local network"}
 		}
-		// Only the log says why, so the answer does not tell which ports of
-		// the hub's network are open.
+		// A usage-control that does not know the name it was asked by
+		// answers 421, which tells no more than that something answers
+		// there. Otherwise only the log says why, so the answer does not
+		// tell which ports of the hub's network are open.
+		var status *statusError
+		if errors.As(err, &status) && status.Code == http.StatusMisdirectedRequest {
+			slog.Info("could not add a device, as it does not answer to the name it was asked by", "name", device.Name, "address", device.Address, "error", err)
+			return Device{}, &InputError{Problem: ProblemHostUnknown, Message: "the device does not answer to the name in " + device.Address + "; give its .local name or add the name to ALLOWED_HOSTS on the device"}
+		}
 		slog.Info("could not add a device, as no usage-control answers at its address", "name", device.Name, "address", device.Address, "error", err)
 		return Device{}, &InputError{Problem: ProblemUnreachable, Message: "no usage-control answers at " + device.Address}
 	}

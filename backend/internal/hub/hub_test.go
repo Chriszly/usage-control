@@ -111,6 +111,16 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 	ctx := context.Background()
 	address := startDevice(t)
 	h := openTestHub(t, openTestStore(t), []Device{{ID: "office-pc", Name: "Office PC", Address: address}})
+	// A usage-control asked by a name it does not know, as one in Docker by
+	// the machine's hostname, answers 421; any other answer than 200 OK
+	// tells nothing.
+	answering := func(status int) string {
+		device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, http.StatusText(status), status)
+		}))
+		t.Cleanup(device.Close)
+		return strings.TrimPrefix(device.URL, "http://")
+	}
 
 	tests := []struct {
 		name, address string
@@ -124,6 +134,9 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 		{"--", address, ProblemName},
 		{"Laptop", "127.0.0.1:1", ProblemUnreachable},
 		{"Laptop", "203.0.113.5:9393", ProblemUnreachable},
+		{"Laptop", answering(http.StatusMisdirectedRequest), ProblemHostUnknown},
+		{"Laptop", answering(http.StatusForbidden), ProblemUnreachable},
+		{"Laptop", answering(http.StatusNotFound), ProblemUnreachable},
 	}
 	for _, tt := range tests {
 		if _, err := h.Add(ctx, tt.name, tt.address, KindServer); problemOf(err) != tt.want {

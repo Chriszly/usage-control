@@ -141,6 +141,8 @@ export const es: Messages = {
     'Elige si el dispositivo es un servidor o dispositivo IoT, o un PC o portátil.',
   'devices.problem.unreachable':
     'Ningún usage-control responde en esta dirección. ¿Está en marcha y la dirección está en la red local?',
+  'devices.problem.hostUnknown':
+    'El dispositivo no responde a este nombre, como en Docker al nombre de host de la máquina sin más. Escribe su nombre .local, por ejemplo raspberrypi.local:9393, o añade el nombre a ALLOWED_HOSTS en el dispositivo.',
   'devices.problem.fixed':
     'Este dispositivo está definido en el archivo .env del hub. Quítalo allí.',
   'devices.problem.notFound': 'Este dispositivo ya se ha quitado.',
