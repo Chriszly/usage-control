@@ -56,6 +56,9 @@ type Agent struct {
 	// maxEntries is how many groups of extras, and values in each, are kept
 	// of an answer.
 	maxEntries int
+	// ownGeneration, when set, reads the hub's own addresses and returns how
+	// often they gained one; see get. Set for a device added on the page.
+	ownGeneration func() uint64
 
 	mu       sync.Mutex
 	latest   metrics.Snapshot
@@ -63,6 +66,8 @@ type Agent struct {
 	// offset is how far the hub's clock is ahead of the device's, as of the
 	// newest reading.
 	offset time.Duration
+	// seenGeneration is the newest ownGeneration a request started with.
+	seenGeneration uint64
 }
 
 // NewAgent returns an Agent for the device at address (host:port).
@@ -160,6 +165,27 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 	}
 	if a.hubID != "" {
 		request.Header.Set(HubIDHeader, a.hubID)
+	}
+	if a.ownGeneration != nil {
+		// A connection kept open is checked against the hub's own addresses
+		// only when it was opened. Once they gained one, the connections
+		// kept from before are closed: before a request, those kept idle,
+		// and after it, when they gained one meanwhile, the one it used too,
+		// which is idle again once its answer was read. So the next request
+		// connects anew and is checked.
+		generation := a.ownGeneration()
+		a.mu.Lock()
+		gained := generation > a.seenGeneration
+		a.seenGeneration = max(a.seenGeneration, generation)
+		a.mu.Unlock()
+		if gained {
+			a.client.CloseIdleConnections()
+		}
+		defer func() {
+			if a.ownGeneration() != generation {
+				a.client.CloseIdleConnections()
+			}
+		}()
 	}
 	response, err := a.client.Do(request)
 	if err != nil {

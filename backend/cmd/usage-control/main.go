@@ -344,7 +344,7 @@ func (d hubDevices) List() []server.Device {
 			Removable:        !remote.Fixed,
 			Unreachable:      unreachable,
 			UnreachableSince: unreachableSince,
-			Refused:          unreachable && remote.Refused(),
+			Refused:          remote.Refused(),
 			Metrics:          remote.Agent.Latest(),
 			History:          remote.Reader,
 			Availability:     remote,

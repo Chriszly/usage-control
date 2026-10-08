@@ -10,8 +10,11 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -76,7 +79,7 @@ func TestAddedDevicesAreKeptAcrossRestarts(t *testing.T) {
 	address := startDevice(t)
 	h := openTestHub(t, store, nil)
 
-	device, err := h.Add(ctx, "Office PC", address, KindServer, nil)
+	device, err := h.Add(ctx, "Office PC", address, KindServer)
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -123,7 +126,7 @@ func TestAddRefusesDevicesThatCannotBeAdded(t *testing.T) {
 		{"Laptop", "203.0.113.5:9393", ProblemUnreachable},
 	}
 	for _, tt := range tests {
-		if _, err := h.Add(ctx, tt.name, tt.address, KindServer, nil); problemOf(err) != tt.want {
+		if _, err := h.Add(ctx, tt.name, tt.address, KindServer); problemOf(err) != tt.want {
 			t.Errorf("Add(%q, %q) error = %v, want problem %q", tt.name, tt.address, err, tt.want)
 		}
 	}
@@ -138,6 +141,8 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 	h.suggester.ownAddrs = func() ([]net.Addr, error) {
 		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.1.9"), Mask: net.CIDRMask(24, 32)}}, nil
 	}
+	// The machine's network card, which its usage lists.
+	h.local = &countingUsage{addresses: []string{"192.168.1.10"}}
 	own := []netip.Addr{netip.MustParseAddr("192.168.1.10")}
 	// In a container on Docker's bridge network, the host is the bridge's
 	// gateway, and has more virtual interfaces, such as a VPN's.
@@ -152,7 +157,7 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 		"172.18.0.1:22", "10.8.0.2:9393",
 	} {
 		began := time.Now()
-		if _, err := h.Add(ctx, "Laptop", address, KindServer, own); problemOf(err) != ProblemAddressOwn {
+		if _, err := h.Add(ctx, "Laptop", address, KindServer); problemOf(err) != ProblemAddressOwn {
 			t.Errorf("Add(%q) error = %v, want problem %q", address, err, ProblemAddressOwn)
 		}
 		if took := time.Since(began); took > time.Second {
@@ -183,10 +188,19 @@ func TestAddRefusesTheHubsOwnAddresses(t *testing.T) {
 
 // countingUsage is the hub's own usage, with a network card at addresses,
 // and counts how often it was read. While failing is set, reading it fails.
+// mu guards addresses.
 type countingUsage struct {
+	mu        sync.Mutex
 	addresses []string
 	reads     atomic.Int32
 	failing   atomic.Bool
+}
+
+// setAddresses gives the network card other addresses.
+func (u *countingUsage) setAddresses(addresses ...string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.addresses = addresses
 }
 
 func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
@@ -194,6 +208,8 @@ func (u *countingUsage) Collect(context.Context) (metrics.Snapshot, error) {
 	if u.failing.Load() {
 		return metrics.Snapshot{}, errors.New("cannot read the usage")
 	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: u.addresses}}}, nil
 }
 
@@ -218,7 +234,7 @@ func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
 	}
 
 	// Adding refuses the address, also when the page's request gives none.
-	if _, err := h.Add(ctx, "Laptop", "192.168.1.20:9393", KindServer, nil); problemOf(err) != ProblemAddressOwn {
+	if _, err := h.Add(ctx, "Laptop", "192.168.1.20:9393", KindServer); problemOf(err) != ProblemAddressOwn {
 		t.Errorf("Add(192.168.1.20:9393) error = %v, want problem %q", err, ProblemAddressOwn)
 	}
 	// So does collecting, as for a host name that resolves to it later.
@@ -240,27 +256,244 @@ func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
 	if n := usage.reads.Load(); n != 1 || hostReads != 1 {
 		t.Errorf("own addresses read %d times from the usage and %d from the host, want once each", n, hostReads)
 	}
-	h.ownMu.Lock()
-	h.ownRead = h.ownRead.Add(-ownAddressesFor)
-	h.ownMu.Unlock()
+	ageOwnAddresses(h)
 	_ = check("tcp4", "192.168.1.30:9393", nil)
 	if n := usage.reads.Load(); n != 2 || hostReads != 2 {
 		t.Errorf("own addresses read %d times from the usage and %d from the host, want twice each once old", n, hostReads)
 	}
 
-	// When the usage cannot be read, the next check reads it again instead
-	// of going without the network cards' addresses for a few seconds.
-	h.ownMu.Lock()
-	h.ownRead = h.ownRead.Add(-ownAddressesFor)
-	h.ownMu.Unlock()
+	// When the usage cannot be read, the network cards read last are still
+	// refused, and the next check reads the usage again, but not the host's
+	// addresses, which are still new.
+	ageOwnAddresses(h)
 	usage.failing.Store(true)
-	_ = check("tcp4", "192.168.1.30:9393", nil)
+	if err := check("tcp4", "192.168.1.20:9393", nil); !errors.Is(err, errOwnAddress) {
+		t.Errorf("connecting to 192.168.1.20:9393 while the usage cannot be read error = %v, want errOwnAddress", err)
+	}
 	usage.failing.Store(false)
 	if err := check("tcp4", "192.168.1.20:9393", nil); !errors.Is(err, errOwnAddress) {
 		t.Errorf("connecting to 192.168.1.20:9393 after a failed reading error = %v, want errOwnAddress", err)
 	}
-	if n := usage.reads.Load(); n != 4 {
-		t.Errorf("usage read %d times, want once more after the failed reading", n)
+	if n := usage.reads.Load(); n != 4 || hostReads != 3 {
+		t.Errorf("own addresses read %d times from the usage and %d from the host, want the usage once more after the failed reading and the host not", n, hostReads)
+	}
+}
+
+// ageOwnAddresses makes the hub's own addresses old enough to be read again.
+func ageOwnAddresses(h *Hub) {
+	h.ownMu.Lock()
+	defer h.ownMu.Unlock()
+	h.hostRead = h.hostRead.Add(-ownAddressesFor)
+	if !h.cardsRead.IsZero() {
+		h.cardsRead = h.cardsRead.Add(-ownAddressesFor)
+	}
+}
+
+// blockingUsage is the hub's own usage, with a network card at
+// 192.168.1.20. Each reading is sent on reading and then waits for release
+// to be closed.
+type blockingUsage struct {
+	reading chan struct{}
+	release chan struct{}
+}
+
+func (u *blockingUsage) Collect(context.Context) (metrics.Snapshot, error) {
+	u.reading <- struct{}{}
+	<-u.release
+	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: []string{"192.168.1.20"}}}}, nil
+}
+
+func TestOwnAddressesAreReadByOneCallerAtATime(t *testing.T) {
+	h := openTestHub(t, openTestStore(t), nil)
+	h.hostAddrs = func() []netip.Addr { return nil }
+	usage := &blockingUsage{reading: make(chan struct{}), release: make(chan struct{})}
+	h.local = usage
+	want := []netip.Addr{netip.MustParseAddr("192.168.1.20")}
+	ask := func() chan []netip.Addr {
+		got := make(chan []netip.Addr, 1)
+		go func() { got <- h.ownAddresses() }()
+		return got
+	}
+
+	// Without a list yet, a second caller waits for the first one's reading,
+	// and does not read the usage itself.
+	first := ask()
+	<-usage.reading
+	second := ask()
+	select {
+	case got := <-second:
+		t.Fatalf("ownAddresses() = %v while the first reading is not done, want it to wait for it", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(usage.release)
+	for _, got := range []chan []netip.Addr{first, second} {
+		if own := <-got; !slices.Equal(own, want) {
+			t.Errorf("ownAddresses() = %v, want %v", own, want)
+		}
+	}
+
+	// Once the list is old, one caller reads it again, and the others go on
+	// with the list read last meanwhile.
+	usage.release = make(chan struct{})
+	t.Cleanup(func() { close(usage.release) })
+	ageOwnAddresses(h)
+	ask()
+	<-usage.reading
+	select {
+	case own := <-ask():
+		if !slices.Equal(own, want) {
+			t.Errorf("ownAddresses() = %v while the usage is read again, want %v read last", own, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ownAddresses() waits while the usage is read again, want the list read last at once")
+	}
+}
+
+// countingDevice is a usage-control that counts the connections opened to
+// it and tells the connection, by its address, that the newest reading came
+// over. A request for its minutes is sent on held and waits until the
+// channel it comes with is closed.
+type countingDevice struct {
+	address string
+	opened  atomic.Int32
+	last    atomic.Value
+	held    chan heldRequest
+}
+
+// heldRequest is a request for a countingDevice's minutes, over the
+// connection from remote, which waits until release is closed.
+type heldRequest struct {
+	remote  string
+	release chan struct{}
+}
+
+func startCountingDevice(t *testing.T) *countingDevice {
+	t.Helper()
+	d := &countingDevice{held: make(chan heldRequest)}
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == MinutesPath {
+			release := make(chan struct{})
+			d.held <- heldRequest{remote: r.RemoteAddr, release: release}
+			<-release
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		d.last.Store(r.RemoteAddr)
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			d.opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	d.address = strings.TrimPrefix(device.URL, "http://")
+	return d
+}
+
+// openOwnAddressesHub opens a hub whose usage lists a network card at
+// 192.168.1.20.
+func openOwnAddressesHub(t *testing.T) (*Hub, *countingUsage) {
+	t.Helper()
+	h := openTestHub(t, openTestStore(t), nil)
+	h.hostAddrs = func() []netip.Addr { return nil }
+	usage := &countingUsage{addresses: []string{"192.168.1.20"}}
+	h.local = usage
+	return h, usage
+}
+
+func TestCollectingFromADeviceAddedOnThePageNoticesNewOwnAddresses(t *testing.T) {
+	ctx := context.Background()
+	h, usage := openOwnAddressesHub(t)
+	added, fixed := startCountingDevice(t), startCountingDevice(t)
+	addedAgent := h.pageAgent(added.address)
+	fixedAgent := newAgent(fixed.address, func(string, string, syscall.RawConn) error { return nil })
+	collect := func() {
+		t.Helper()
+		for _, agent := range []*Agent{addedAgent, fixedAgent} {
+			if _, err := agent.Collect(ctx); err != nil {
+				t.Fatalf("Collect() error = %v", err)
+			}
+		}
+	}
+
+	collect()
+	collect()
+	if added.opened.Load() != 1 || fixed.opened.Load() != 1 {
+		t.Fatalf("connections opened = %d and %d, want one each, kept open between readings", added.opened.Load(), fixed.opened.Load())
+	}
+
+	// The hub gains an address while the device answers every reading: the
+	// next reading of the device added on the page reads the hub's own
+	// addresses and connects anew, so it is checked; the one from
+	// HUB_DEVICES keeps its connection.
+	usage.setAddresses("192.168.1.20", "192.168.1.21")
+	ageOwnAddresses(h)
+	collect()
+	if n := usage.reads.Load(); n != 2 {
+		t.Errorf("usage read %d times, want once more once the hub's addresses are old", n)
+	}
+	if added.opened.Load() != 2 || fixed.opened.Load() != 1 {
+		t.Errorf("connections opened = %d and %d, want a new one to the device added on the page only", added.opened.Load(), fixed.opened.Load())
+	}
+	collect()
+	if added.opened.Load() != 2 {
+		t.Errorf("connections opened = %d, want the new one kept open", added.opened.Load())
+	}
+}
+
+func TestAConnectionInUseWhenTheOwnAddressesChangeIsNotUsedAgain(t *testing.T) {
+	ctx := context.Background()
+	h, usage := openOwnAddressesHub(t)
+	device := startCountingDevice(t)
+	agent := h.pageAgent(device.address)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	fetch := func() chan error {
+		done := make(chan error, 1)
+		go func() {
+			var answer any
+			done <- agent.get(ctx, agent.minutesURL, 1<<10, &answer)
+		}()
+		return done
+	}
+
+	// The minutes are fetched over the connection kept open...
+	firstDone := fetch()
+	first := <-device.held
+	// ...when the hub gains an address, and the next request connects anew.
+	usage.setAddresses("192.168.1.20", "192.168.1.21")
+	ageOwnAddresses(h)
+	secondDone := fetch()
+	second := <-device.held
+	if second.remote == first.remote {
+		t.Fatal("the second request went over the first one's connection, want a new one")
+	}
+	// The first connection is free again first, the second one after it.
+	close(first.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+	close(second.release)
+	if err := <-secondDone; err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if last, _ := device.last.Load().(string); last == first.remote {
+		t.Errorf("the reading went over %s, the connection opened before the hub gained an address, want another", last)
+	}
+}
+
+func TestSuggestLeavesOutTheHubsOwnAddresses(t *testing.T) {
+	h, _ := openOwnAddressesHub(t)
+	h.suggester = testSuggester("Office PC")
+	if got, ok := h.Suggest(context.Background(), netip.MustParseAddr("192.168.1.20")); ok {
+		t.Errorf("Suggest(192.168.1.20) = %+v, want no suggestion for the address of the hub's network card", got)
 	}
 }
 
@@ -318,7 +551,7 @@ func TestRemoveForgetsTheDeviceAndItsHistory(t *testing.T) {
 	store := openTestStore(t)
 	h := openTestHub(t, store, []Device{{ID: "pi", Name: "Pi", Address: startDevice(t)}})
 	for _, name := range []string{"Office PC", "Laptop"} {
-		if _, err := h.Add(ctx, name, startDevice(t), KindServer, nil); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t), KindServer); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 	}
@@ -362,7 +595,7 @@ func TestRemoveFinishesWhenTheRequestIsCancelled(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -395,7 +628,7 @@ func TestRemoveDeletesTheDataWithoutHoldingUpThePage(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -418,13 +651,13 @@ func TestRemoveDeletesTheDataWithoutHoldingUpThePage(t *testing.T) {
 	if got := ids(h.Remotes()); len(got) != 0 {
 		t.Errorf("devices while deleting = %q, want none", got)
 	}
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); err != nil {
 		t.Errorf("Add(Laptop) while deleting error = %v", err)
 	}
 	// Adding it again waits a moment, then is refused rather than holding up
 	// the request until the delete is done.
 	started := time.Now()
-	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); problemOf(err) != ProblemRemoving {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); problemOf(err) != ProblemRemoving {
 		t.Errorf("Add(Office PC) while deleting error = %v, want problem %q", err, ProblemRemoving)
 	}
 	// It gives up after removingWait, not once the data is deleted; the room
@@ -446,7 +679,7 @@ func TestRemoveDeletesTheDataWithoutHoldingUpThePage(t *testing.T) {
 	if series, err := store.Range(ctx, "office-pc", now.Add(-time.Minute), now.Add(time.Minute), time.Minute); err != nil || len(series) != 0 {
 		t.Errorf("history = %+v, %v; want it deleted", series, err)
 	}
-	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
 		t.Errorf("Add(Office PC) after deleting error = %v", err)
 	}
 }
@@ -459,13 +692,13 @@ func TestNoChangesOnceTheHubStops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Office PC", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	stop()
 	h.Wait()
 
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer, nil); !errors.Is(err, ErrStopping) {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); !errors.Is(err, ErrStopping) {
 		t.Errorf("Add() once stopped error = %v, want ErrStopping", err)
 	}
 	if err := h.Remove(ctx, "office-pc", false); !errors.Is(err, ErrStopping) {
@@ -486,7 +719,7 @@ func TestNewForgetsTheAvailabilityOfDevicesNoLongerCollectedFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindServer); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -524,10 +757,10 @@ func TestKindIsKeptAndCanBeChanged(t *testing.T) {
 	store := openTestStore(t)
 	pi := Device{ID: "pi", Name: "Pi", Address: startDevice(t)}
 	h := openTestHub(t, store, []Device{pi})
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	if _, err := h.Add(ctx, "Tablet", startDevice(t), "phone", nil); problemOf(err) != ProblemKind {
+	if _, err := h.Add(ctx, "Tablet", startDevice(t), "phone"); problemOf(err) != ProblemKind {
 		t.Errorf("Add() with an unknown kind error = %v, want problem %q", err, ProblemKind)
 	}
 	if err := h.SetKind(ctx, "pi", KindPC); err != nil {
@@ -557,7 +790,7 @@ func TestRemoveForgetsTheKind(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	if err := h.Remove(ctx, "laptop", false); err != nil {
@@ -575,7 +808,7 @@ func TestKeepingTheHistoryKeepsAvailabilityAndKindAcrossRestarts(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	now := time.Now()
@@ -606,7 +839,7 @@ func TestKeepingTheHistoryKeepsAvailabilityAndKindAcrossRestarts(t *testing.T) {
 	if _, err := store.DB().Exec(`UPDATE hub_kept SET removed = removed - 86400`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := again.Add(ctx, "Laptop", startDevice(t), KindPC, nil); err != nil {
+	if _, err := again.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
 		t.Fatalf("Add() again error = %v", err)
 	}
 	if kept, err := again.keptHistory(ctx); err != nil || len(kept) != 0 {
@@ -634,7 +867,7 @@ func TestAKeptDeviceInHubDevicesIsCollectedFromAgain(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC, nil); err != nil {
+	if _, err := h.Add(ctx, "Laptop", startDevice(t), KindPC); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	if err := h.Remove(ctx, "laptop", true); err != nil {
@@ -677,7 +910,7 @@ func TestKeptDevicesAreForgottenAfterTheRetention(t *testing.T) {
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
 	for _, name := range []string{"Laptop", "Tablet"} {
-		if _, err := h.Add(ctx, name, startDevice(t), KindPC, nil); err != nil {
+		if _, err := h.Add(ctx, name, startDevice(t), KindPC); err != nil {
 			t.Fatalf("Add(%q) error = %v", name, err)
 		}
 		id := strings.ToLower(name)
@@ -710,7 +943,7 @@ func TestAnEmptyKindIsAServer(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	h := openTestHub(t, store, nil)
-	if _, err := h.Add(ctx, "NAS", startDevice(t), "", nil); err != nil {
+	if _, err := h.Add(ctx, "NAS", startDevice(t), ""); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 	if err := h.SetKind(ctx, "nas", ""); err != nil {
