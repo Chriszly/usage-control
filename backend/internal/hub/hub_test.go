@@ -247,7 +247,7 @@ func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
 	if err := check("tcp4", "192.168.1.30:9393", nil); err != nil {
 		t.Errorf("connecting to 192.168.1.30:9393 error = %v, want none", err)
 	}
-	if h.addableAddress("192.168.1.20:9393") {
+	if h.addableAddress("192.168.1.20:9393", h.ownAddresses()) {
 		t.Error("addableAddress(192.168.1.20:9393) = true, want the hub's own refused")
 	}
 
@@ -463,6 +463,69 @@ func openOwnAddressesHub(t *testing.T) (*Hub, *countingUsage) {
 	usage := &countingUsage{addresses: []string{"192.168.1.20"}}
 	h.local = usage
 	return h, usage
+}
+
+// gatedUsage is the hub's own usage, with a network card at 192.168.1.20.
+// Each reading is sent on reading and then waits for a send on release,
+// until done is closed.
+type gatedUsage struct {
+	reading chan struct{}
+	release chan struct{}
+	done    chan struct{}
+}
+
+func (u *gatedUsage) Collect(context.Context) (metrics.Snapshot, error) {
+	select {
+	case u.reading <- struct{}{}:
+	case <-u.done:
+		return metrics.Snapshot{}, errors.New("the test is over")
+	}
+	select {
+	case <-u.release:
+	case <-u.done:
+	}
+	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: []string{"192.168.1.20"}}}}, nil
+}
+
+func TestAddDoesNotReadTheOwnAddressesHoldingMu(t *testing.T) {
+	h := openTestHub(t, openTestStore(t), nil)
+	h.hostAddrs = func() []netip.Addr { return nil }
+	usage := &gatedUsage{reading: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
+	t.Cleanup(func() { close(usage.done) })
+	h.local = usage
+	// The device answers only once the own addresses read before asking it
+	// are old enough to be read again, as after a slow answer.
+	var aged sync.Once
+	device := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		aged.Do(func() { ageOwnAddresses(h) })
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	t.Cleanup(device.Close)
+
+	added := make(chan error, 1)
+	go func() {
+		_, err := h.Add(context.Background(), "Laptop", strings.TrimPrefix(device.URL, "http://"), KindServer)
+		added <- err
+	}()
+	// Adding reads them before asking the device.
+	<-usage.reading
+	usage.release <- struct{}{}
+	// They are read again only by the new device's recorder, which does
+	// not hold mu, so Add finishes meanwhile.
+	<-usage.reading
+	select {
+	case err := <-added:
+		if err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Add() waits for the hub's usage to be read, want it to use the own addresses read before asking the device")
+	}
+	if !h.mu.TryLock() {
+		t.Fatal("mu is held while the hub's usage is read")
+	}
+	h.mu.Unlock()
+	usage.release <- struct{}{}
 }
 
 func TestCollectingFromADeviceAddedOnThePageNoticesNewOwnAddresses(t *testing.T) {
