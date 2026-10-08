@@ -10,8 +10,8 @@
 # the service and leaves the tray icon running, checks a repair refuses an
 # UPDATE_CHECK the service cannot read and takes one it can, switches the
 # website off and on again with repairs, checks a bad remembered
-# UPDATE_CHECK is refused with the option that fixes it but does not hold up
-# the uninstall, uninstalls it, then installs it with the defaults
+# UPDATE_CHECK is refused with the repair that fixes it, which does, but does
+# not hold up the uninstall, uninstalls it, then installs it with the defaults
 # and checks it only serves the usage data, and last checks that an update
 # with WEBSITE=0 turns the website off and that one with a space clears
 # DISK_PATHS, UPDATE_CHECK and PORT.
@@ -234,8 +234,9 @@ function Assert-ProcessesAddOn {
     if ($memory.Count -ne 1 -or $memory[0].items.Count -ne 10) { throw "The processes add-on did not list ten processes by memory: $($groups | ConvertTo-Json -Depth 4)" }
 }
 
-Write-Host 'An UPDATE_CHECK other than true or false is refused'
+Write-Host 'An UPDATE_CHECK other than true or false is refused, naming the option'
 Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" 'UPDATE_CHECK must be true or false.'
+Assert-InstallerRefuses "/i `"$Msi`" UPDATE_CHECK=no" ".msi`" UPDATE_CHECK=true"
 if (Get-Service UsageControl -ErrorAction SilentlyContinue) { throw 'The refused install installed the service' }
 
 Write-Host 'Installing with the website and the power, gpu, kernel, pressure, Wi-Fi, memory, ports, smart and processes add-ons on'
@@ -317,9 +318,12 @@ Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
 Assert-ServiceSetting DATA_ONLY 'false'
 Assert-Website 8091
 
-Write-Host 'A bad remembered UPDATE_CHECK names the option that fixes it, and does not hold up an uninstall'
+Write-Host 'A bad remembered UPDATE_CHECK names the repair that fixes it, which does, and does not hold up an uninstall'
 Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
-Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" UPDATE_CHECK=true"
+Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" ".msi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m UPDATE_CHECK=true"
+Assert-ServiceSetting UPDATE_CHECK 'true'
+Set-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name UPDATE_CHECK -Value 'no'
 
 Write-Host 'Uninstalling'
 Invoke-Installer "/x `"$NewerMsi`""
