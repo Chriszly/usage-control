@@ -122,6 +122,7 @@ func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
 	// collect reads once more, 5 s later, over a new connection, which the
 	// hub checks.
+	// collect reads once and expects an error: want, or any error when nil.
 	collect := func(want error) {
 		t.Helper()
 		now = now.Add(5 * time.Second)
