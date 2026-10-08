@@ -9,7 +9,12 @@
 # RESET_PASSWORD=true and again without, as the docs say to, which restarts
 # the service and leaves the tray icon running, checks a repair refuses an
 # UPDATE_CHECK the service cannot read and takes one it can, switches the
-# website off and on again with repairs, checks a bad remembered
+# website off and on again with repairs, checks a repair refuses an add-on
+# option other than 0 or 1, removes the power add-on and adds it again with
+# repairs, the first with the reduced user interface, and checks a repair
+# without options keeps the add-ons, that repairs with RESET_PASSWORD and the
+# reduced user interface leave the tray icon running, and that a full repair
+# keeps the add-ons and closes the tray icon, checks a bad remembered
 # UPDATE_CHECK is refused with the repair that fixes it, which does, but does
 # not hold up the uninstall, uninstalls it, then installs it with the defaults
 # and checks it only serves the usage data, and last checks that an update
@@ -27,8 +32,10 @@ $ErrorActionPreference = 'Stop'
 $Msi = (Resolve-Path $Msi).Path
 $NewerMsi = (Resolve-Path $NewerMsi).Path
 
-function Invoke-Installer([string] $Arguments) {
-    $process = Start-Process msiexec.exe -ArgumentList "$Arguments /qn /l*v msiexec.log" -Wait -PassThru
+# Runs the installer silently, or with the user interface Ui, such as /qr,
+# the reduced one, which runs the wizard's actions without its pages.
+function Invoke-Installer([string] $Arguments, [string] $Ui = '/qn') {
+    $process = Start-Process msiexec.exe -ArgumentList "$Arguments $Ui /l*v msiexec.log" -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         Get-Content msiexec.log -Tail 80
         throw "msiexec $Arguments failed with exit code $($process.ExitCode)"
@@ -40,6 +47,13 @@ function Get-InstalledVersions {
     @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' |
         Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' } |
         ForEach-Object { $_.DisplayVersion }) -join ', '
+}
+
+# The lines of the last installer log that match Pattern, to tell why a
+# check after an install failed. Without the zeros the log reads the same
+# whether it was written as ANSI or as UTF-16.
+function Show-InstallerLog([string] $Pattern) {
+    ((Get-Content msiexec.log -Raw) -replace "`0", '') -split "`r?`n" | Where-Object { $_ -match $Pattern }
 }
 
 # Runs the installer and checks it refuses with a message that holds each of
@@ -316,6 +330,74 @@ $status = Get-StatusCode 'http://127.0.0.1:8091/'
 if ($status -ne 404) { throw "The website answered $status after the repair with WEBSITE=0; it should be off" }
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m WEBSITE=1"
 Assert-ServiceSetting DATA_ONLY 'false'
+Assert-Website 8091
+
+Write-Host 'A repair refuses an add-on option other than 0 or 1, naming the repair that gives it'
+Assert-InstallerRefuses "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=true" 'POWER must be 0 or 1.', ".msi`" REINSTALL=ALL REINSTALLMODE=m POWER=1"
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '1') { throw 'The refused repair changed the remembered POWER' }
+Assert-PowerAddOn
+
+Write-Host 'A repair with POWER=0 removes the power add-on and keeps the others, and one with POWER=1 adds it again'
+# The reports the add-ons left behind, so the checks below see new ones.
+Remove-Item "$env:ProgramData\Usage Control\addons\*.json" -ErrorAction SilentlyContinue
+# With the reduced user interface, as the wizard's actions bring the
+# remembered options along as if they were given.
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=0" '/qr'
+if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The repair with POWER=0 left the power add-on installed' }
+if (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe") {
+    Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|RemoveFiles|FileRemove|POWER|in use|reboot|REINSTALLMODE'
+    throw 'The repair with POWER=0 left usage-control-power.exe'
+}
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '0') { throw 'The repair did not remember POWER=0' }
+Assert-GpuAddOn
+Assert-KernelAddOn
+Assert-PressureAddOn
+Assert-WifiAddOn
+Assert-MemoryAddOn
+Assert-PortsAddOn
+Assert-SmartAddOn
+Assert-ProcessesAddOn
+Assert-Website 8091
+# The report the add-on left behind, so the check below sees a new one.
+Remove-Item "$env:ProgramData\Usage Control\addons\power.json" -ErrorAction SilentlyContinue
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=1"
+if (-not (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe")) {
+    Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|InstallFiles|FileCopy|POWER|in use|reboot|REINSTALLMODE'
+    throw 'The repair with POWER=1 did not install usage-control-power.exe'
+}
+Assert-PowerAddOn
+if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '1') { throw 'The repair did not remember POWER=1' }
+Write-Host 'A repair without add-on options keeps the add-ons'
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m"
+Assert-PowerAddOn
+Assert-GpuAddOn
+Assert-Website 8091
+
+Write-Host 'A repair with RESET_PASSWORD=true and the reduced user interface leaves the tray icon running'
+if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { Start-Tray }
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m RESET_PASSWORD=true" '/qr'
+Assert-ServiceSetting RESET_PASSWORD 'true'
+if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { throw 'The repair with the reduced user interface closed the tray icon' }
+Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m" '/qr'
+Assert-ServiceSetting RESET_PASSWORD ''
+if (-not (Get-Process usage-control-tray -ErrorAction SilentlyContinue)) { throw 'The repair with the reduced user interface closed the tray icon' }
+Assert-PowerAddOn
+Assert-Website 8091
+
+Write-Host 'A full repair, which replaces every file, keeps the add-ons and closes the tray icon'
+Start-Tray
+Remove-Item "$env:ProgramData\Usage Control\addons\*.json" -ErrorAction SilentlyContinue
+Invoke-Installer "/fa `"$NewerMsi`""
+if (Get-Process usage-control-tray -ErrorAction SilentlyContinue) { throw 'The full repair left the tray icon running' }
+Assert-PowerAddOn
+Assert-GpuAddOn
+Assert-KernelAddOn
+Assert-PressureAddOn
+Assert-WifiAddOn
+Assert-MemoryAddOn
+Assert-PortsAddOn
+Assert-SmartAddOn
+Assert-ProcessesAddOn
 Assert-Website 8091
 
 Write-Host 'A bad remembered UPDATE_CHECK names the repair that fixes it, which does, and does not hold up an uninstall'

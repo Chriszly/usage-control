@@ -43,8 +43,9 @@
 
   It also installs usage-control-tray.exe, the icon in the taskbar that shows
   whether the service runs and pauses, stops or opens it. It starts when
-  someone logs in, and at the end of the setup wizard. Logged-in users may
-  start and stop the service, so its menu needs no administrator.
+  someone logs in, and at the end of the setup wizard, also after a repair
+  from the wizard, which closes it. Logged-in users may start and stop the
+  service, so its menu needs no administrator.
 
   Built by .github/workflows/windows.yml with WiX Toolset 5:
     wix build windows/usage-control.wxs -arch x64 -d Version=1.2.3 -d Bugfix=0 -d Binary=usage-control.exe
@@ -89,17 +90,18 @@
                     the installed version, repair it with its own installer:
                       msiexec /i usage-control.msi REINSTALL=ALL REINSTALLMODE=m RESET_PASSWORD=true
                     and then once more the same way without RESET_PASSWORD
-    POWER           1 to install the power add-on, 0 to remove it in an update
+    POWER           1 to install the power add-on, 0 to remove it in an update or repair
                     (default: not installed)
-    GPU             1 to install the gpu add-on, 0 to remove it in an update
-    PRESSURE        1 to install the pressure add-on, 0 to remove it in an update
-    KERNEL          1 to install the kernel add-on, 0 to remove it in an update
-    WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update
-    MEMORY          1 to install the memory add-on, 0 to remove it in an update
-    PORTS           1 to install the ports add-on, 0 to remove it in an update
-    SMART           1 to install the smart add-on, 0 to remove it in an update
-    PROCESSES       1 to install the processes add-on, 0 to remove it in an update
-                    (default: not installed)
+    GPU             1 to install the gpu add-on, 0 to remove it in an update or repair
+    PRESSURE        1 to install the pressure add-on, 0 to remove it in an update or repair
+    KERNEL          1 to install the kernel add-on, 0 to remove it in an update or repair
+    WIFI            1 to install the Wi-Fi add-on, 0 to remove it in an update or repair
+    MEMORY          1 to install the memory add-on, 0 to remove it in an update or repair
+    PORTS           1 to install the ports add-on, 0 to remove it in an update or repair
+    SMART           1 to install the smart add-on, 0 to remove it in an update or repair
+    PROCESSES       1 to install the processes add-on, 0 to remove it in an update or repair
+                    (default: not installed); the installer refuses any
+                    other value for these
   An update keeps the options of the installed version, except RESET_PASSWORD;
   options given to the update replace them. An option given empty counts as
   not given, so to clear a remembered PORT, DEVICE_NAME, HUB_DEVICES,
@@ -202,10 +204,41 @@
       when the add-on is on. A cleared box leaves its property empty, which
       would let AppSearch bring back the remembered 1, so Next turns the box
       into 1 or 0 for the add-on's option (see AddOnsDlg).
+
+      Any other value than 1 counts as off, and as an update or repair checks
+      the add-on again (see the power add-on), a typo such as POWER=true would
+      remove it. So, like UPDATE_CHECK, each add-on option takes only 0 or 1,
+      also a remembered one, and the refusal names the command that gives it
+      ($(AddOn)Fix, a repair for the installed version). An uninstall is not
+      held up by it.
     -->
     <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
     <SetProperty Action="Box$(AddOn)" Id="$(AddOn)_BOX" Value="1" After="LaunchConditions" Sequence="ui" Condition='$(AddOn) = "1"' />
+    <Property Id="$(AddOn)Fix" Value="$(AddOn)=1" />
+    <SetProperty Action="$(AddOn)FixInstalled" Id="$(AddOn)Fix" Value="REINSTALL=ALL REINSTALLMODE=m $(AddOn)=1" Before="LaunchConditions" Sequence="both" Condition="Installed" />
+    <Launch Condition='REMOVE = "ALL" OR NOT $(AddOn) OR $(AddOn) = "0" OR $(AddOn) = "1"'
+            Message='$(AddOn) must be 0 or 1. To give it, run the installer from a command prompt run as administrator: msiexec /i "[OriginalDatabase]" [$(AddOn)Fix], or with $(AddOn)=0 to remove the add-on' />
+    <!-- The remembered value once more, kept as it is, to tell whether a repair changes the add-on (AddOnFiles). -->
+    <Property Id="REMEMBERED_$(AddOn)">
+      <RegistrySearch Id="RememberedAgain$(AddOn)" Root="HKLM" Key="SOFTWARE\Usage Control" Name="$(AddOn)" Type="raw" />
+    </Property>
     <?endforeach?>
+
+    <!--
+      A repair with REINSTALLMODE=m copies and deletes no file, also not the
+      program of an add-on it adds or removes. So a repair that changes an
+      add-on option from the remembered one, with no letter in REINSTALLMODE
+      for the files, also reinstalls missing or older files (o); the other
+      files are the same, so it copies none of them. It sets this before
+      costing, which reads it. It compares the values rather than asking
+      whether the option was given, as with a user interface the remembered
+      options reach the install as if given; a repair that gives the
+      remembered value, or one without the option, keeps REINSTALLMODE=m and
+      so the tray icons. Where nothing is remembered, as after an install
+      before the add-on existed, an option given as 1 or 0 counts as a change.
+    -->
+    <SetProperty Action="AddOnFiles" Id="REINSTALLMODE" Value="omus" Before="CostInitialize" Sequence="execute"
+                 Condition='REINSTALL AND NOT (REINSTALLMODE ~&gt;&lt; "p" OR REINSTALLMODE ~&gt;&lt; "o" OR REINSTALLMODE ~&gt;&lt; "e" OR REINSTALLMODE ~&gt;&lt; "d" OR REINSTALLMODE ~&gt;&lt; "c" OR REINSTALLMODE ~&gt;&lt; "a") AND (POWER &lt;&gt; REMEMBERED_POWER OR GPU &lt;&gt; REMEMBERED_GPU OR PRESSURE &lt;&gt; REMEMBERED_PRESSURE OR KERNEL &lt;&gt; REMEMBERED_KERNEL OR WIFI &lt;&gt; REMEMBERED_WIFI OR MEMORY &lt;&gt; REMEMBERED_MEMORY OR PORTS &lt;&gt; REMEMBERED_PORTS OR SMART &lt;&gt; REMEMBERED_SMART OR PROCESSES &lt;&gt; REMEMBERED_PROCESSES)' />
 
     <!-- The setup wizard: welcome, the Mode page, ready to install. -->
     <UIRef Id="SetupWizard" />
@@ -288,7 +321,9 @@
     <!--
       Updating and uninstalling close the tray icons that run, so the file can
       be replaced. A repair that only rewrites the registry (REINSTALLMODE=m,
-      as for RESET_PASSWORD) replaces no file, so it leaves them running.
+      as for RESET_PASSWORD) replaces no file, so it leaves them running;
+      one that changes an add-on checks the files too (AddOnFiles), so it
+      closes them.
     -->
     <util:CloseApplication Target="usage-control-tray.exe" CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no"
                            Condition='NOT (REINSTALL AND REINSTALLMODE = "m")' />
@@ -297,8 +332,15 @@
       The power add-on, with POWER=1: a service of its own, in the same
       low-privilege account, that writes to the add-on folder. An update
       checks the condition again, so it also adds or removes the add-on.
+      Each add-on is transitive, so a repair checks it again too (REINSTALL=ALL
+      REINSTALLMODE=m POWER=1 adds it, POWER=0 removes it). A repair without
+      the option reads the remembered one, which the service's component
+      writes back, so it keeps the add-ons as they are. A repair that only
+      rewrites the registry (REINSTALLMODE=m) would add or remove the
+      add-on's service but copy or delete no file, so a repair that changes
+      an add-on also checks the files (AddOnFiles).
     -->
-    <Component Directory="INSTALLFOLDER" Condition='POWER = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='POWER = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-power.exe" Name="usage-control-power.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlPower"
                       DisplayName="Usage Control power add-on"
@@ -326,7 +368,7 @@
     <!--
       The gpu add-on, with GPU=1, like the power add-on.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='GPU = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='GPU = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-gpu.exe" Name="usage-control-gpu.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlGPU"
                       DisplayName="Usage Control gpu add-on"
@@ -355,7 +397,7 @@
       The pressure add-on, with PRESSURE=1, like the power add-on. Any account
       may read the performance counters it reads.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='PRESSURE = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='PRESSURE = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-pressure.exe" Name="usage-control-pressure.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlPressure"
                       DisplayName="Usage Control pressure add-on"
@@ -385,7 +427,7 @@
       performance counters, GetPerformanceInfo and GetTcpStatisticsEx need
       no more than the Local Service account.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='KERNEL = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='KERNEL = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-kernel.exe" Name="usage-control-kernel.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlKernel"
                       DisplayName="Usage Control kernel add-on"
@@ -414,7 +456,7 @@
       The Wi-Fi add-on, with WIFI=1, in the same low-privilege account: the
       Native Wifi API lets any account read the signal of the connections.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='WIFI = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='WIFI = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-wifi.exe" Name="usage-control-wifi.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlWifi"
                       DisplayName="Usage Control Wi-Fi add-on"
@@ -440,7 +482,7 @@
     </Component>
 
     <!-- The memory add-on, with MEMORY=1, set up like the power add-on. -->
-    <Component Directory="INSTALLFOLDER" Condition='MEMORY = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='MEMORY = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-memory.exe" Name="usage-control-memory.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlMemory"
                       DisplayName="Usage Control memory add-on"
@@ -466,7 +508,7 @@
     </Component>
 
     <!-- The ports add-on, with PORTS=1, like the power add-on. -->
-    <Component Directory="INSTALLFOLDER" Condition='PORTS = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='PORTS = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-ports.exe" Name="usage-control-ports.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlPorts"
                       DisplayName="Usage Control ports add-on"
@@ -500,7 +542,7 @@
       Before reading a disk it asks Windows whether it has switched the disk
       off, and a SATA disk also whether it sleeps, and leaves it asleep.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='SMART = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='SMART = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-smart.exe" Name="usage-control-smart.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlSmart"
                       DisplayName="Usage Control smart add-on"
@@ -530,7 +572,7 @@
       Service sees every process: it asks Windows for all of them in one call
       instead of opening each one.
     -->
-    <Component Directory="INSTALLFOLDER" Condition='PROCESSES = "1"'>
+    <Component Directory="INSTALLFOLDER" Condition='PROCESSES = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-processes.exe" Name="usage-control-processes.exe" KeyPath="yes" />
       <ServiceInstall Name="UsageControlProcesses"
                       DisplayName="Usage Control processes add-on"
@@ -644,7 +686,14 @@
         </Control>
       </Dialog>
 
-      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartTray" Order="998" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <!--
+        After an install or update, Finish shows the tray icon when its box is
+        ticked. A repair from the wizard closes the icon (see
+        CloseApplication), and WiX's last page shows the box only for an
+        install, so Finish then shows the icon again without asking.
+      -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartTray" Order="998"
+               Condition='(WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed) OR WixUI_InstallMode = "Repair"' />
       <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
