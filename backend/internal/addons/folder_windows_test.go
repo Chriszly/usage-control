@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
@@ -52,9 +53,13 @@ func TestWindowsOpenFolderTakesALongPath(t *testing.T) {
 		t.Fatalf(`openFolder(\\?\ and a plain folder) error = %v, want nil`, err)
 	}
 	_ = folder.Close()
-	if folder, err := openFolder(`\\?\` + link); err == nil {
+	folder, err = openFolder(`\\?\` + link)
+	if err == nil {
 		_ = folder.Close()
-		t.Error(`openFolder(\\?\ and a junction) error = nil, want an error`)
+		t.Fatal(`openFolder(\\?\ and a junction) error = nil, want an error`)
+	}
+	if !strings.Contains(err.Error(), link) || !strings.Contains(err.Error(), "a junction or link") {
+		t.Errorf(`openFolder(\\?\ and a junction) error = %q, want one that names %s as a junction`, err, link)
 	}
 }
 
