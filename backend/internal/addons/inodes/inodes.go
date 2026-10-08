@@ -13,6 +13,7 @@ import (
 	"hash/crc32"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -69,11 +70,40 @@ var skipped = map[string]bool{
 // a disk, is such a layer or root, such as one ZFS dataset per layer with
 // Docker's zfs driver, and would fill the slots of the group with values
 // that come and go with the containers. A disk mounted at such a folder
-// itself, or below it, such as one for Docker's volumes, is kept.
+// itself, or below it, such as one for Docker's volumes, is kept. Rootless
+// Podman keeps its layers in rootlessPodman below each user's home.
 var containerFolders = []string{
 	"/var/lib/docker/",
 	"/var/lib/containerd/",
 	"/var/lib/containers/storage/",
+}
+
+// rootlessPodman is rootless Podman's storage folder, below a user's home.
+const rootlessPodman = "/.local/share/containers/storage/"
+
+// instanceFolders are folders whose every mount below is a container's,
+// pod's or virtual machine's own, whatever it is mounted from, even a disk:
+//   - devices/<instance> of LXD and Incus, where a disk an instance is given,
+//     such as a custom volume, is mounted again for it;
+//   - the folders of containerd's snapshots that can be disks of their own,
+//     one per container, as with its devmapper snapshotter: rootfs/ in
+//     Docker's folder (and in DOCKER_DIR) when Docker uses containerd's
+//     snapshotters, and tmpmounts/, where containerd unpacks images;
+//   - the folders of containerd's running tasks, each with a container's
+//     root, also those of the containerd in k3s and RKE2;
+//   - kubelet's pods/ and plugins/, where pods' volumes are mounted, such as
+//     a Longhorn or other CSI volume, once for the node and again for each
+//     pod that uses it.
+var instanceFolders = []string{
+	"/var/lib/lxd/devices/",
+	"/var/snap/lxd/common/lxd/devices/",
+	"/var/lib/incus/devices/",
+	"/var/lib/docker/rootfs/",
+	"/var/lib/containerd/tmpmounts/",
+	"/run/containerd/io.containerd.runtime.v2.task/",
+	"/run/k3s/containerd/io.containerd.runtime.v2.task/",
+	"/var/lib/kubelet/pods/",
+	"/var/lib/kubelet/plugins/",
 }
 
 // storagePools are the folders of LXD's and Incus's storage pools. Each pool
@@ -91,20 +121,24 @@ var storagePools = []string{
 // folder, or below dockerDir, Docker's data folder where DOCKER_DIR moves it
 // ("" when it does not).
 func belowContainerFolder(path, dockerDir string) bool {
-	if dockerDir = strings.TrimRight(dockerDir, "/"); dockerDir != "" && strings.HasPrefix(path, dockerDir+"/") {
+	if dockerDir != "" && strings.HasPrefix(path, dockerDir+"/") {
 		return true
 	}
-	for _, folder := range containerFolders {
-		if strings.HasPrefix(path, folder) {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(path, rootlessPodman) || slices.ContainsFunc(containerFolders, func(folder string) bool {
+		return strings.HasPrefix(path, folder)
+	})
 }
 
-// belowStoragePool reports whether path is below an LXD or Incus storage
-// pool's own mount point, as a container's volume is.
-func belowStoragePool(path string) bool {
+// belowInstanceFolder reports whether path is below one of instanceFolders,
+// or the rootfs folder in dockerDir, or below an LXD or Incus storage pool's
+// own mount point, as a container's volume is.
+func belowInstanceFolder(path, dockerDir string) bool {
+	if dockerDir != "" && strings.HasPrefix(path, dockerDir+"/rootfs/") {
+		return true
+	}
+	if slices.ContainsFunc(instanceFolders, func(folder string) bool { return strings.HasPrefix(path, folder) }) {
+		return true
+	}
 	for _, folder := range storagePools {
 		if pool, ok := strings.CutPrefix(path, folder); ok && strings.Contains(strings.Trim(pool, "/"), "/") {
 			return true
@@ -114,11 +148,13 @@ func belowStoragePool(path string) bool {
 }
 
 // containerLayer reports whether m is a container's own layer, root or
-// volume: what is mounted below a storage pool, and what is mounted below
-// another container engine's folder and is not a disk, or is a thin device of
-// Docker's old devicemapper driver, a disk of its own per container.
+// volume: what is mounted below a storage pool or an instance folder, and
+// what is mounted below another container engine's folder and is not a disk,
+// or is a thin device of Docker's old devicemapper driver, a disk of its own
+// per container. dockerDir is Docker's data folder from DOCKER_DIR, without
+// a "/" at the end, or "".
 func containerLayer(m Mount, dockerDir string) bool {
-	if belowStoragePool(m.Path) {
+	if belowInstanceFolder(m.Path, dockerDir) {
 		return true
 	}
 	if !belowContainerFolder(m.Path, dockerDir) {
@@ -130,16 +166,21 @@ func containerLayer(m Mount, dockerDir string) bool {
 // ParseMounts reads a mount table in the format of /proc/self/mounts and
 // returns the real filesystems. A path with filesystems mounted over each
 // other is listed once, with the top one, the last in the table, which is
-// the one statfs sees. A container's own layers below a container engine's
-// folder are left out, with dockerDir, Docker's data folder where DOCKER_DIR
-// moves it, as one more such folder. A filesystem mounted at several paths,
-// such as through a bind mount, is listed at each; Read keeps the first that
-// can be read. Filesystems in user space ("fuse.sshfs" and the like) are left
-// out like network filesystems, except fuseblk, a disk such as an NTFS one.
+// the one statfs sees, and one that a filesystem mounted later on a folder
+// above it hides is left out. A container's own layers below a container
+// engine's folder are left out, with dockerDir, Docker's data folder where
+// DOCKER_DIR moves it, as one more such folder. A filesystem mounted at
+// several paths, such as through a bind mount, is listed at each; Read keeps
+// the first that can be read. Filesystems in user space ("fuse.sshfs" and
+// the like) are left out like network filesystems, except fuseblk, a disk
+// such as an NTFS one.
 func ParseMounts(table, dockerDir string) []Mount {
 	var mounts []Mount
-	// at is where each path is in mounts.
+	// at is where each path is in mounts, and last the line of the table
+	// with the last mount at each path, counted from 1.
 	at := map[string]int{}
+	last := map[string]int{}
+	lines := 0
 	for line := range strings.Lines(table) {
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
@@ -149,6 +190,8 @@ func ParseMounts(table, dockerDir string) []Mount {
 		if !strings.HasPrefix(m.Path, "/") {
 			continue
 		}
+		lines++
+		last[m.Path] = lines
 		if i, ok := at[m.Path]; ok {
 			mounts[i] = m
 			continue
@@ -156,9 +199,23 @@ func ParseMounts(table, dockerDir string) []Mount {
 		at[m.Path] = len(mounts)
 		mounts = append(mounts, m)
 	}
+	dockerDir = strings.TrimRight(dockerDir, "/")
 	return slices.DeleteFunc(mounts, func(m Mount) bool {
-		return skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || containerLayer(m, dockerDir)
+		return skipped[m.Type] || strings.HasPrefix(m.Type, "fuse.") || containerLayer(m, dockerDir) || hidden(m.Path, last)
 	})
+}
+
+// hidden reports whether a filesystem is mounted on a folder above path
+// later than the last one at path, by the lines of the table in last, which
+// hides what is mounted at path.
+func hidden(path string, last map[string]int) bool {
+	for above := path; above != "/"; {
+		above = filepath.Dir(above)
+		if last[above] > last[path] {
+			return true
+		}
+	}
+	return false
 }
 
 // escaped matches a character the mount table writes as an octal escape,

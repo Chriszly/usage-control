@@ -59,8 +59,8 @@ type Disk struct {
 	// Unreadable is set for a disk that was read before but cannot be read
 	// now, which may be failing. It has no values then.
 	Unreadable bool
-	// SMARTOff is set for a SATA disk that has SMART switched off, or none,
-	// which has no values either.
+	// SMARTOff is set for a SATA disk that has SMART switched off or does
+	// not have it, which has no values either.
 	SMARTOff bool
 }
 

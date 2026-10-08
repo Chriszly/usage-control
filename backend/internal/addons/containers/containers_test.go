@@ -1,6 +1,7 @@
 package containers
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,7 @@ var (
 	webID    = strings.Repeat("a", 64)
 	dbID     = strings.Repeat("b", 64)
 	podmanID = strings.Repeat("c", 64)
+	podID    = strings.Repeat("d", 64)
 )
 
 func TestReadFindsContainersAndMeasuresCPUSinceThePreviousRead(t *testing.T) {
@@ -407,6 +409,8 @@ func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
 		"libpod_parent/libpod-" + podmanID + "/cpu.stat":        "usage_usec 1",
 		"libpod_parent/libpod-conmon-" + podmanID + "/cpu.stat": "usage_usec 1",
 		"libpod_parent/conmon/cpu.stat":                         "usage_usec 1",
+		// A pod's containers are in a folder named by the pod's id.
+		"libpod_parent/" + podID + "/libpod-" + dbID + "/cpu.stat": "usage_usec 1",
 		// CRI-O with the cgroupfs driver.
 		"kubepods/besteffort/pod1/crio-" + webID + "/cpu.stat": "usage_usec 1",
 	})
@@ -417,8 +421,9 @@ func TestFindContainersWithPodmansAndCRIOsCgroupfsDriver(t *testing.T) {
 	want := map[string]string{
 		podmanID: filepath.Join(root, "libpod_parent", "libpod-"+podmanID),
 		webID:    filepath.Join(root, "kubepods", "besteffort", "pod1", "crio-"+webID),
+		dbID:     filepath.Join(root, "libpod_parent", podID, "libpod-"+dbID),
 	}
-	if len(found) != len(want) || found[podmanID] != want[podmanID] || found[webID] != want[webID] {
+	if !maps.Equal(found, want) {
 		t.Errorf("found = %v, want %v", found, want)
 	}
 }

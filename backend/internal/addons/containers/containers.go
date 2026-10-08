@@ -301,9 +301,14 @@ var (
 	// cgroupfs driver of Podman (libpod_parent/libpod-<id>) and CRI-O.
 	scope = regexp.MustCompile(`^(?:docker|libpod|cri-containerd|crio)-([0-9a-f]{64})(?:\.scope)?$`)
 	// bareID matches it with Docker's and containerd's cgroupfs driver, such
-	// as /docker/<id>.
+	// as /docker/<id>. Below libpod_parent it is a Podman pod's folder
+	// instead, which holds the pod's containers.
 	bareID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
+
+// podmanPods is the folder of Podman's cgroupfs driver, in which a folder
+// named by an id is a pod and not a container.
+const podmanPods = "libpod_parent"
 
 // findContainers adds the cgroup of each container below dir to found, by
 // container id. It does not look inside a container's cgroup, which may hold
@@ -332,7 +337,7 @@ func findIn(dir string, found map[string]string) (others []string) {
 		path := filepath.Join(dir, name)
 		if m := scope.FindStringSubmatch(name); m != nil {
 			found[m[1]] = path
-		} else if bareID.MatchString(name) {
+		} else if bareID.MatchString(name) && filepath.Base(dir) != podmanPods {
 			found[name] = path
 		} else {
 			others = append(others, path)
