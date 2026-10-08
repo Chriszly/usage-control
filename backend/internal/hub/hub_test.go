@@ -274,8 +274,17 @@ func TestCollectingRefusesTheSameOwnAddressesAsAdding(t *testing.T) {
 	if err := check("tcp4", "192.168.1.20:9393", nil); !errors.Is(err, errOwnAddress) {
 		t.Errorf("connecting to 192.168.1.20:9393 after a failed reading error = %v, want errOwnAddress", err)
 	}
+	if n := usage.reads.Load(); n != 3 {
+		t.Errorf("usage read %d times, want not again right after the failed reading", n)
+	}
+	h.ownMu.Lock()
+	h.cardsFailed = h.cardsFailed.Add(-ownRetryAfter)
+	h.ownMu.Unlock()
+	if err := check("tcp4", "192.168.1.20:9393", nil); !errors.Is(err, errOwnAddress) {
+		t.Errorf("connecting to 192.168.1.20:9393 after a failed reading error = %v, want errOwnAddress", err)
+	}
 	if n := usage.reads.Load(); n != 4 || hostReads != 3 {
-		t.Errorf("own addresses read %d times from the usage and %d from the host, want the usage once more after the failed reading and the host not", n, hostReads)
+		t.Errorf("own addresses read %d times from the usage and %d from the host, want the usage once more a second after the failed reading and the host not", n, hostReads)
 	}
 }
 
@@ -291,15 +300,19 @@ func ageOwnAddresses(h *Hub) {
 
 // blockingUsage is the hub's own usage, with a network card at
 // 192.168.1.20. Each reading is sent on reading and then waits for release
-// to be closed.
+// to be closed. When failing is set, every reading fails.
 type blockingUsage struct {
 	reading chan struct{}
 	release chan struct{}
+	failing bool
 }
 
 func (u *blockingUsage) Collect(context.Context) (metrics.Snapshot, error) {
 	u.reading <- struct{}{}
 	<-u.release
+	if u.failing {
+		return metrics.Snapshot{}, errors.New("cannot read the usage")
+	}
 	return metrics.Snapshot{Network: []metrics.NetworkInterface{{Name: "eth0", Addresses: []string{"192.168.1.20"}}}}, nil
 }
 
@@ -347,6 +360,55 @@ func TestOwnAddressesAreReadByOneCallerAtATime(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("ownAddresses() waits while the usage is read again, want the list read last at once")
 	}
+}
+
+func TestOwnAddressesGoOnWithTheHostsWhileTheUsageCannotBeRead(t *testing.T) {
+	h := openTestHub(t, openTestStore(t), nil)
+	host := []netip.Addr{netip.MustParseAddr("172.18.0.1")}
+	h.hostAddrs = func() []netip.Addr { return host }
+	usage := &blockingUsage{reading: make(chan struct{}), release: make(chan struct{}), failing: true}
+	h.local = usage
+	ask := func() chan []netip.Addr {
+		got := make(chan []netip.Addr, 1)
+		go func() { got <- h.ownAddresses() }()
+		return got
+	}
+	atOnce := func(got chan []netip.Addr, when string) {
+		t.Helper()
+		select {
+		case own := <-got:
+			if !slices.Equal(own, host) {
+				t.Errorf("ownAddresses() = %v %s, want the host's %v", own, when, host)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("ownAddresses() waits for the usage %s, want the host's addresses at once", when)
+		}
+	}
+
+	// The first reading is waited for...
+	first := ask()
+	<-usage.reading
+	second := ask()
+	select {
+	case got := <-second:
+		t.Fatalf("ownAddresses() = %v while the first reading is not done, want it to wait for it", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(usage.release)
+	atOnce(first, "after the first reading failed")
+	atOnce(second, "after the first reading failed")
+	// ...but once it failed, the usage is not read again for a second...
+	usage.release = make(chan struct{})
+	atOnce(ask(), "right after the first reading failed")
+	// ...and then by one caller, while the others go on without it.
+	h.ownMu.Lock()
+	h.cardsFailed = h.cardsFailed.Add(-ownRetryAfter)
+	h.ownMu.Unlock()
+	retry := ask()
+	<-usage.reading
+	atOnce(ask(), "while it is read again")
+	close(usage.release)
+	atOnce(retry, "after reading it again failed")
 }
 
 // countingDevice is a usage-control that counts the connections opened to

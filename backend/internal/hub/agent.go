@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 	"syscall"
 	"time"
@@ -57,7 +58,8 @@ type Agent struct {
 	// of an answer.
 	maxEntries int
 	// ownGeneration, when set, reads the hub's own addresses and returns how
-	// often they gained one; see get. Set for a device added on the page.
+	// often they gained one; see checkOwnGeneration and get. Set for a
+	// device added on the page.
 	ownGeneration func() uint64
 
 	mu       sync.Mutex
@@ -66,7 +68,8 @@ type Agent struct {
 	// offset is how far the hub's clock is ahead of the device's, as of the
 	// newest reading.
 	offset time.Duration
-	// seenGeneration is the newest ownGeneration a request started with.
+	// seenGeneration is the newest ownGeneration the connections kept idle
+	// from before were closed for.
 	seenGeneration uint64
 }
 
@@ -169,23 +172,18 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 	if a.ownGeneration != nil {
 		// A connection kept open is checked against the hub's own addresses
 		// only when it was opened. Once they gained one, the connections
-		// kept from before are closed: before a request, those kept idle,
-		// and after it, when they gained one meanwhile, the one it used too,
-		// which is idle again once its answer was read. So the next request
-		// connects anew and is checked.
-		generation := a.ownGeneration()
-		a.mu.Lock()
-		gained := generation > a.seenGeneration
-		a.seenGeneration = max(a.seenGeneration, generation)
-		a.mu.Unlock()
-		if gained {
-			a.client.CloseIdleConnections()
-		}
-		defer func() {
-			if a.ownGeneration() != generation {
-				a.client.CloseIdleConnections()
-			}
-		}()
+		// kept idle from before are closed before a request, so it connects
+		// anew and is checked. One that was in use meanwhile and is kept
+		// again is closed when it would be used again, before anything is
+		// sent over it, and the request is sent over a new one.
+		a.closeKeptBefore(a.ownGeneration())
+		request = request.WithContext(httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotConn: func(info httptrace.GotConnInfo) {
+				if conn, ok := info.Conn.(*generationConn); ok && info.Reused && conn.generation < a.ownGeneration() {
+					_ = conn.Close()
+				}
+			},
+		}))
 	}
 	response, err := a.client.Do(request)
 	if err != nil {
@@ -203,6 +201,50 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 		return fmt.Errorf("read the answer of %s: %w", url, err)
 	}
 	return nil
+}
+
+// closeKeptBefore closes the connections kept idle from before generation
+// of the hub's own addresses, unless they were already. The generation is
+// recorded only once they are closed, so a request that starts meanwhile
+// closes them too instead of using one.
+func (a *Agent) closeKeptBefore(generation uint64) {
+	a.mu.Lock()
+	newer := generation > a.seenGeneration
+	a.mu.Unlock()
+	if !newer {
+		return
+	}
+	a.client.CloseIdleConnections()
+	a.mu.Lock()
+	a.seenGeneration = max(a.seenGeneration, generation)
+	a.mu.Unlock()
+}
+
+// checkOwnGeneration makes the agent stop using a connection it kept open
+// once the hub's own addresses gained one since it was opened, with
+// ownGeneration returning how often they did; see get.
+func (a *Agent) checkOwnGeneration(ownGeneration func() uint64) {
+	a.ownGeneration = ownGeneration
+	transport := a.client.Transport.(*http.Transport)
+	dial := transport.DialContext
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		// Read before connecting, so the addresses the connection is
+		// checked against are at least as new.
+		generation := ownGeneration()
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &generationConn{Conn: conn, generation: generation}, nil
+	}
+}
+
+// generationConn is a connection of an agent of a device added on the
+// page, opened when the hub's own addresses had gained one generation
+// times.
+type generationConn struct {
+	net.Conn
+	generation uint64
 }
 
 // statusError is a device's answer other than 200 OK.
