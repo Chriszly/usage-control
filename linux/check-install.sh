@@ -9,7 +9,16 @@ set -euo pipefail
 archive="$(realpath "$1")"
 version="$2"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+docker_check=false
+
+# Removes the test container of the containers add-on and its image, where
+# they are.
+remove_check() {
+  docker rm -f usage-control-check > /dev/null 2>&1 || true
+  docker rmi usage-control-check > /dev/null 2>&1 || true
+}
+
+trap 'rm -rf "$work"; if [[ "$docker_check" == true ]]; then remove_check; fi' EXIT
 # A failing step shows what the services logged.
 trap 'journalctl -u usage-control -u usage-control-power -u usage-control-pressure -u usage-control-kernel -u usage-control-gpu -u usage-control-inodes -u usage-control-wifi -u usage-control-memory -u usage-control-ports -u usage-control-smart -u usage-control-containers -u usage-control-processes --no-pager | tail -40 >&2' ERR
 tar -xzf "$archive" -C "$work"
@@ -57,6 +66,10 @@ systemctl show -p EnvironmentFiles usage-control-containers | grep -q /etc/usage
 if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/fs/cgroup/cgroup.controllers ]]; then
   # A container of usage-control itself, from the archive, so nothing is
   # pulled from a registry.
+  # The container and image go also when a step fails; one left by an
+  # earlier run that stopped halfway goes first, so the name is free.
+  docker_check=true
+  remove_check
   tar -C "$folder" -c usage-control | docker import --change 'ENTRYPOINT ["/usage-control"]' - usage-control-check > /dev/null
   # Without --rm, so a container that exited early is still there to show.
   docker run -d --name usage-control-check --network none -e UPDATE_CHECK=false usage-control-check > /dev/null
@@ -94,6 +107,7 @@ if command -v docker > /dev/null && docker info > /dev/null 2>&1 && [[ -f /sys/f
   fi
   docker rm -f usage-control-check > /dev/null
   docker rmi usage-control-check > /dev/null
+  docker_check=false
   [[ "$reported" == true ]] || { echo "the containers add-on did not report the running container" >&2; exit 1; }
 else
   for _ in $(seq 1 10); do
