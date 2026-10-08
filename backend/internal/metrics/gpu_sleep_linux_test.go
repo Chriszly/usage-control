@@ -312,6 +312,61 @@ func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
 	}
 }
 
+func TestDeviceReadsReadAmdgpuRunpm(t *testing.T) {
+	sys := t.TempDir()
+	t.Setenv("HOST_SYS", sys)
+	// A desktop's second AMD GPU whose connected monitor is blanked.
+	device := filepath.Join(sys, "devices", "0000:03:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", "connected\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "enabled\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "Off\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+	driver := filepath.Join(sys, "bus", "pci", "drivers", "amdgpu")
+	if err := os.MkdirAll(driver, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(driver, filepath.Join(device, "driver")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	file := filepath.Join(device, "gpu_busy_percent")
+	read := func() string {
+		t.Helper()
+		data, err := reads.read(file, device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(data))
+	}
+
+	// Without the runpm file, as before amdgpu is loaded, the connected
+	// monitor keeps the GPU awake, so it is read every time.
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "20" {
+		t.Errorf("read 2 seconds later without runpm = %s, want 20", got)
+	}
+
+	// The failed read was not kept: once runpm is -2, the GPU of the
+	// blanked monitor may sleep.
+	writeSysFile(t, sys, "module/amdgpu/parameters/runpm", "-2\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "30\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("first read once runpm is -2 = %s, want 30", got)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "40\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("read within twice the autosuspend delay once runpm is -2 = %s, want the last value, 30", got)
+	}
+}
+
 func TestDeviceReadsForgetWhatIsNoLongerAsked(t *testing.T) {
 	// The devices are kept by their real folder.
 	sys, err := filepath.EvalSymlinks(t.TempDir())
