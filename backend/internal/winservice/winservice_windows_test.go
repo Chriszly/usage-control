@@ -64,6 +64,42 @@ func TestWindowsServiceServesAgainAfterAFailure(t *testing.T) {
 	}
 }
 
+func TestWindowsServiceLogsAFailureOnceAndBacksOff(t *testing.T) {
+	var attempts atomic.Int32
+	var logged []string
+	served := make(chan struct{})
+	service := &windowsService{
+		log:           func(err error) { logged = append(logged, err.Error()) },
+		retryDelay:    time.Millisecond,
+		maxRetryDelay: 50 * time.Millisecond,
+		serve: func(ctx context.Context) error {
+			switch attempts.Add(1) {
+			case 1, 2, 3, 4:
+				return errors.New("no add-on folder")
+			case 5:
+				return errors.New("port in use")
+			}
+			close(served)
+			<-ctx.Done()
+			return nil
+		},
+	}
+	requests := make(chan svc.ChangeRequest, 1)
+	go func() {
+		<-served
+		requests <- svc.ChangeRequest{Cmd: svc.Stop}
+	}()
+
+	service.Execute(nil, requests, make(chan svc.Status, 2))
+	want := []string{
+		"no add-on folder; trying again in 1ms, then less often, up to every 50ms, until it works",
+		"port in use; trying again in 16ms, then less often, up to every 50ms, until it works",
+	}
+	if len(logged) != len(want) || logged[0] != want[0] || logged[1] != want[1] {
+		t.Errorf("logged %q, want %q", logged, want)
+	}
+}
+
 func TestWindowsServiceStopsWhileWaitingToServeAgain(t *testing.T) {
 	failures := make(chan error, 1)
 	service := &windowsService{
@@ -74,7 +110,7 @@ func TestWindowsServiceStopsWhileWaitingToServeAgain(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 1)
 	go func() {
 		failure := <-failures
-		if want := "port in use; trying again in 1h0m0s"; failure.Error() != want {
+		if want := "port in use; trying again in 1h0m0s, then less often, up to every 1h0m0s, until it works"; failure.Error() != want {
 			t.Errorf("logged %q, want %q", failure, want)
 		}
 		requests <- svc.ChangeRequest{Cmd: svc.Stop}
