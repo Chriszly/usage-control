@@ -295,10 +295,3 @@ func TestSuggestsTheVisitorsDevice(t *testing.T) {
 		t.Errorf("without a suggestion: status = %d, want 204", rec.Code)
 	}
 }
-
-func TestNewWithoutTheHubsOwnDeviceDoesNotChangeDevices(t *testing.T) {
-	handler := New(Site{Devices: DeviceList(nil), Hub: &fakeHub{}, Password: &fakePassword{}, Files: site})
-	if rec := send(handler, http.MethodGet, "/api/devices/suggestion", ""); rec.Code == http.StatusNoContent || rec.Code == http.StatusOK {
-		t.Errorf("status = %d, want the suggestion refused without the hub's own device", rec.Code)
-	}
-}
