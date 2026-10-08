@@ -45,6 +45,13 @@ function Get-InstalledVersions {
         ForEach-Object { $_.DisplayVersion }) -join ', '
 }
 
+# The lines of the last installer log that match Pattern, to tell why a
+# check after an install failed. Without the zeros the log reads the same
+# whether it was written as ANSI or as UTF-16.
+function Show-InstallerLog([string] $Pattern) {
+    ((Get-Content msiexec.log -Raw) -replace "`0", '') -split "`r?`n" | Where-Object { $_ -match $Pattern }
+}
+
 # Runs the installer and checks it refuses with a message that holds each of
 # Messages, as a launch condition that is not met does, and changes nothing.
 function Assert-InstallerRefuses([string] $Arguments, [string[]] $Messages) {
@@ -331,7 +338,10 @@ Write-Host 'A repair with POWER=0 removes the power add-on and keeps the others,
 Remove-Item "$env:ProgramData\Usage Control\addons\*.json" -ErrorAction SilentlyContinue
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=0"
 if (Get-Service UsageControlPower -ErrorAction SilentlyContinue) { throw 'The repair with POWER=0 left the power add-on installed' }
-if (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe") { throw 'The repair with POWER=0 left usage-control-power.exe' }
+if (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe") {
+    Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|RemoveFiles|POWER|in use|reboot'
+    throw 'The repair with POWER=0 left usage-control-power.exe'
+}
 if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '0') { throw 'The repair did not remember POWER=0' }
 Assert-GpuAddOn
 Assert-KernelAddOn
