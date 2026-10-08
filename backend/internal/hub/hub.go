@@ -72,8 +72,9 @@ type Hub struct {
 
 	// ownMu guards the hub's own addresses besides its network interfaces'
 	// (see ownAddresses): host, the host's, read at hostRead, and cards, the
-	// network cards' in its usage, as last read at cardsRead. reading is
-	// set while the usage is read, and closed once it is. own is the list
+	// network cards' in its usage, as last read at cardsRead. cardsFailed is
+	// when reading the usage failed last, unless it was read since. reading
+	// is set while the usage is read, and closed once it is. own is the list
 	// given out last, and owned is set once one was; ownGeneration counts
 	// how often the list gained an address since.
 	ownMu         sync.Mutex
@@ -81,6 +82,7 @@ type Hub struct {
 	hostRead      time.Time
 	cards         []netip.Addr
 	cardsRead     time.Time
+	cardsFailed   time.Time
 	reading       chan struct{}
 	own           []netip.Addr
 	owned         bool
@@ -306,16 +308,22 @@ func (h *Hub) refuseOwn(own func() []netip.Addr) func(network, address string, c
 // the check of each connection to it.
 const ownAddressesFor = 5 * time.Second
 
+// ownRetryAfter is how long after reading the hub's usage failed it is
+// read again, so a usage that keeps failing does not hold up every request.
+const ownRetryAfter = time.Second
+
 // ownAddresses lists the hub's addresses besides those of its network
 // interfaces: the host's in a container (see hostAddrs) and those of the
 // network cards in its usage, which in a container are the machine's. Each
 // part is read at most every ownAddressesFor; the usage sooner while it
-// cannot be read, with the network cards read last kept meanwhile. The
-// usage, which can take seconds, is read by one caller at a time without
-// holding ownMu; the others go on with the network cards read last, or
-// wait for them when there are none yet. When the list has an address it
-// did not have before, ownGeneration counts up, so the agents of devices
-// added on the page stop using the connections they kept open.
+// cannot be read, every ownRetryAfter, with the network cards read last
+// kept meanwhile. The usage, which can take seconds, is read by one caller
+// at a time without holding ownMu; the others go on with the network cards
+// read last, or wait for the first reading when there are none yet; once
+// that failed, they go on without them until they are read. When the list
+// has an address it did not have before, ownGeneration counts up, so the
+// agents of devices added on the page stop using the connections they kept
+// open.
 func (h *Hub) ownAddresses() []netip.Addr {
 	h.ownMu.Lock()
 	if h.hostRead.IsZero() || time.Since(h.hostRead) >= ownAddressesFor {
@@ -328,11 +336,12 @@ func (h *Hub) ownAddresses() []netip.Addr {
 	}
 	read := false
 	var wait chan struct{}
-	if h.local != nil && (h.cardsRead.IsZero() || time.Since(h.cardsRead) >= ownAddressesFor) {
+	if h.local != nil && (h.cardsRead.IsZero() || time.Since(h.cardsRead) >= ownAddressesFor) &&
+		(h.cardsFailed.IsZero() || time.Since(h.cardsFailed) >= ownRetryAfter) {
 		switch {
 		case h.reading == nil:
 			h.reading, read = make(chan struct{}), true
-		case h.cardsRead.IsZero():
+		case h.cardsRead.IsZero() && h.cardsFailed.IsZero():
 			wait = h.reading
 		}
 	}
@@ -342,7 +351,9 @@ func (h *Hub) ownAddresses() []netip.Addr {
 		snapshot, err := h.local.Collect(h.ctx)
 		h.ownMu.Lock()
 		if err == nil {
-			h.cards, h.cardsRead = NetworkAddresses(snapshot), time.Now()
+			h.cards, h.cardsRead, h.cardsFailed = NetworkAddresses(snapshot), time.Now(), time.Time{}
+		} else {
+			h.cardsFailed = time.Now()
 		}
 		close(h.reading)
 		h.reading = nil

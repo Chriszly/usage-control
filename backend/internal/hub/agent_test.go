@@ -3,10 +3,13 @@ package hub
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,5 +118,60 @@ func TestAgentCleansTheExtrasOfTheAnswer(t *testing.T) {
 	}
 	if len(got.Extras) != 1 || got.Extras[0].ID != "pressure" || *got.Extras[0].Items[0].Value != 2 {
 		t.Errorf("Extras = %+v, want only the valid group", got.Extras)
+	}
+}
+
+// closeCountingTransport counts how often its idle connections are closed.
+type closeCountingTransport struct {
+	*http.Transport
+	closes atomic.Int32
+}
+
+func (t *closeCountingTransport) CloseIdleConnections() {
+	t.closes.Add(1)
+	t.Transport.CloseIdleConnections()
+}
+
+func TestAgentClosesItsConnectionsOnceWhenTheOwnAddressesGainOneDuringARequest(t *testing.T) {
+	var generation atomic.Uint64
+	var bump atomic.Bool
+	var opened atomic.Int32
+	device := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if bump.CompareAndSwap(true, false) {
+			generation.Add(1)
+		}
+		_, _ = w.Write([]byte(`{"cpu":{"usagePercent":12.5,"cores":4}}`))
+	}))
+	device.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	device.Start()
+	t.Cleanup(device.Close)
+	agent := newAgent(strings.TrimPrefix(device.URL, "http://"), func(string, string, syscall.RawConn) error { return nil })
+	agent.ownGeneration = generation.Load
+	transport := &closeCountingTransport{Transport: agent.client.Transport.(*http.Transport)}
+	agent.client.Transport = transport
+	collect := func() {
+		t.Helper()
+		if _, err := agent.Collect(context.Background()); err != nil {
+			t.Fatalf("Collect() error = %v", err)
+		}
+	}
+
+	collect()
+	// The hub's own addresses gain one while the device answers: the
+	// connection is closed after the request, and not once more before the
+	// next one, whose new connection is kept.
+	bump.Store(true)
+	collect()
+	collect()
+	collect()
+	if n := transport.closes.Load(); n != 1 {
+		t.Errorf("idle connections closed %d times, want once, after the request the addresses gained one during", n)
+	}
+	if n := opened.Load(); n != 2 {
+		t.Errorf("connections opened = %d, want 2: one more after the addresses gained one, kept open then", n)
 	}
 }

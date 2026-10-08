@@ -66,7 +66,8 @@ type Agent struct {
 	// offset is how far the hub's clock is ahead of the device's, as of the
 	// newest reading.
 	offset time.Duration
-	// seenGeneration is the newest ownGeneration a request started with.
+	// seenGeneration is the newest ownGeneration the connections kept from
+	// before were closed for, before or after a request.
 	seenGeneration uint64
 }
 
@@ -174,16 +175,12 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 		// which is idle again once its answer was read. So the next request
 		// connects anew and is checked.
 		generation := a.ownGeneration()
-		a.mu.Lock()
-		gained := generation > a.seenGeneration
-		a.seenGeneration = max(a.seenGeneration, generation)
-		a.mu.Unlock()
-		if gained {
-			a.client.CloseIdleConnections()
-		}
+		a.closeKeptBefore(generation, false)
 		defer func() {
-			if a.ownGeneration() != generation {
-				a.client.CloseIdleConnections()
+			// Closed even when another request saw now first, as this
+			// one's connection was in use then.
+			if now := a.ownGeneration(); now != generation {
+				a.closeKeptBefore(now, true)
 			}
 		}()
 	}
@@ -203,6 +200,23 @@ func (a *Agent) get(ctx context.Context, url string, limit int64, answer any) er
 		return fmt.Errorf("read the answer of %s: %w", url, err)
 	}
 	return nil
+}
+
+// closeKeptBefore closes the connections kept idle from before generation
+// of the hub's own addresses, unless they were already, or always when
+// set. The generation is recorded only once they are closed, so a request
+// that starts meanwhile closes them too instead of using one.
+func (a *Agent) closeKeptBefore(generation uint64, always bool) {
+	a.mu.Lock()
+	newer := generation > a.seenGeneration
+	a.mu.Unlock()
+	if !newer && !always {
+		return
+	}
+	a.client.CloseIdleConnections()
+	a.mu.Lock()
+	a.seenGeneration = max(a.seenGeneration, generation)
+	a.mu.Unlock()
 }
 
 // statusError is a device's answer other than 200 OK.
