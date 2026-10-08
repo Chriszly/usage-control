@@ -197,12 +197,12 @@ func (c *Collector) Collect(ctx context.Context) (Snapshot, error) {
 // readDisks returns the usage of each disk, with its activity measured since
 // the previous call. The activity is only read for the disks that answered.
 func (c *Collector) readDisks(ctx context.Context) []Disk {
-	disks := c.disks.read(ctx, c.diskPaths)
+	disks, devices := c.disks.read(ctx, c.diskPaths)
 	answered := make([]string, len(disks))
 	for i, d := range disks {
 		answered[i] = d.Path
 	}
-	current := readDiskCounters(ctx, c.disks, answered)
+	current := readDiskCounters(ctx, answered, devices)
 	now := time.Now()
 
 	c.mu.Lock()

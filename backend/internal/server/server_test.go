@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -91,6 +93,25 @@ func TestMetricsReportsCollectorError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestMetricsIgnoresARequestThatWasGivenUp(t *testing.T) {
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	handler := newHandler(device(fakeCollector{err: fmt.Errorf("wait for the reading: %w", context.Canceled)}, nil), 0, site)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/metrics", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	req.Host = "192.168.1.9:9393"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusInternalServerError || logged.Len() != 0 {
+		t.Errorf("status = %d, log %q; want no error for a request that was given up", rec.Code, logged.String())
 	}
 }
 

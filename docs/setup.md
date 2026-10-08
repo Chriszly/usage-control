@@ -63,7 +63,7 @@ By default the page shows the disk Docker keeps its data on, usually the system 
 DISK_PATHS=/,/mnt/usb
 ```
 
-usage-control refuses to start when a path in `DISK_PATHS` cannot be read, and says which one. A path that does not answer within 2 seconds, such as a network share whose server is away, is left out of the readings until it answers again, and the log says so once; the rest of the page goes on.
+usage-control refuses to start when a path in `DISK_PATHS` cannot be read, and says which one. A path that does not answer within 2 seconds, such as a network share whose server is away, is left out of the readings until it answers again (and for 30 seconds after a late answer), and the log says so once; the rest of the page goes on.
 
 ### Open the page by name
 
