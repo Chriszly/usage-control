@@ -31,6 +31,18 @@ button[aria-pressed='true'] {
     0 0 0 3px var(--mat-sys-primary);
 }
 
+/*
+ * Forced colours (such as Windows high contrast) drop box shadows, so the
+ * current language gets an outline around its flag instead, inside the
+ * button's padding so the focus ring still goes around it.
+ */
+@media (forced-colors: active) {
+  button[aria-pressed='true'] img {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
 img {
   display: block;
   border-radius: 2px;

@@ -14,12 +14,14 @@ import { MatInputModule } from '@angular/material/input';
 import {
   EMPTY,
   Observable,
+  Subject,
   catchError,
   filter,
   finalize,
   ignoreElements,
   of,
   switchMap,
+  takeUntil,
   tap,
 } from 'rxjs';
 
@@ -69,6 +71,8 @@ export class DevicesDialog {
   protected readonly kinds = DEVICE_KINDS;
   protected readonly problem = signal('');
   protected readonly busy = signal(false);
+  /** Emits when a change starts, to stop a failed change's reading of the list. */
+  private readonly changeStarted = new Subject<void>();
   /** The device the page is open on, as the hub suggested it. */
   private readonly suggestion = signal<Suggestion | null>(null);
   /** Whether the form holds the suggested device. */
@@ -135,7 +139,10 @@ export class DevicesDialog {
    * Asks for the password, makes the change and reads the list again. Emits
    * once when the change worked; a refused change shows its problem instead,
    * and the list is read again too, as a change that got no answer may still
-   * have been made.
+   * have been made. The buttons work again right away rather than after that
+   * read, which can take as long again when the hub is gone; a change started
+   * meanwhile stops that read, so it neither frees the buttons too early nor
+   * overwrites the list the new change reads.
    */
   private change(
     ask: Omit<PasswordDialogData, 'passwordSet'>,
@@ -148,6 +155,7 @@ export class DevicesDialog {
       .pipe(
         filter((result) => result !== undefined),
         tap(() => {
+          this.changeStarted.next();
           this.busy.set(true);
           this.problem.set('');
         }),
@@ -160,7 +168,9 @@ export class DevicesDialog {
         ),
         catchError((error: unknown) => {
           this.problem.set(problemMessage(error, this.i18n));
+          this.busy.set(false);
           return this.devices.load().pipe(
+            takeUntil(this.changeStarted),
             ignoreElements(),
             catchError(() => EMPTY),
           );

@@ -43,6 +43,21 @@ tmpfs /mnt/hidden tmpfs rw 0 0
 /dev/mapper/vg-containers_c1 /var/lib/incus/storage-pools/default/containers/c1 ext4 rw 0 0
 /dev/rbd0 /var/lib/lxd/storage-pools/ceph/virtual-machines/vm1 ext4 rw 0 0
 /dev/zd16 /var/snap/lxd/common/lxd/storage-pools/zfs/custom/default_data ext4 rw 0 0
+/dev/sdh1 /mnt/data/inner ext4 rw 0 0
+/dev/sdi1 /mnt/data ext4 rw 0 0
+/dev/sdj1 /mnt/data/again ext4 rw 0 0
+tank/podman/1f2e /home/me/.local/share/containers/storage/zfs/graph/1f2e zfs rw 0 0
+/dev/sdk1 /home/me/.local/share/containers/storage/volumes ext4 rw 0 0
+/dev/zd32 /var/lib/incus/devices/c1/disk.data.mnt ext4 rw 0 0
+/dev/sdl1 /var/lib/lxd/devices/c2/disk.backup.mnt ext4 rw 0 0
+/dev/zd48 /var/snap/lxd/common/lxd/devices/c3/disk.media.mnt ext4 rw 0 0
+/dev/mapper/pool-snap-3 /var/lib/docker/rootfs/devmapper/5d0e ext4 rw 0 0
+/dev/mapper/pool-snap-4 /srv/docker/rootfs/devmapper/7a1b ext4 rw 0 0
+/dev/mapper/pool-snap-5 /var/lib/containerd/tmpmounts/containerd-mount123 ext4 rw 0 0
+/dev/mapper/pool-snap-6 /run/containerd/io.containerd.runtime.v2.task/moby/5d0e/rootfs ext4 rw 0 0
+/dev/zd64 /run/k3s/containerd/io.containerd.runtime.v2.task/k8s.io/9c3f/rootfs ext4 rw 0 0
+/dev/longhorn/pvc-1 /var/lib/kubelet/plugins/kubernetes.io/csi/driver.longhorn.io/ab12/globalmount ext4 rw 0 0
+/dev/longhorn/pvc-1 /var/lib/kubelet/pods/uid1/volumes/kubernetes.io~csi/pvc-1/mount ext4 rw 0 0
 `
 
 func TestParseMountsKeepsRealFilesystems(t *testing.T) {
@@ -50,13 +65,17 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 
 	// /boot/firmware is the top of the two filesystems mounted there, the
 	// one statfs sees, and /mnt/hidden is left out as its top one is tmpfs.
-	// Disks below Docker's folders are kept, its layers are not; of a
-	// storage pool only its own mount is kept, not the containers' volumes.
+	// /var/lib/docker/bind and /mnt/data/inner are hidden by a filesystem
+	// mounted later on a folder above them; /mnt/data/again, mounted after
+	// /mnt/data, is kept. Disks below the folders of Docker and rootless
+	// Podman are kept, their layers are not; of a storage pool only its own
+	// mount is kept, not the containers' volumes; below LXD's and Incus's
+	// devices, the folders of containerd's snapshots and tasks and kubelet's
+	// pods and plugins nothing is kept, not even a disk.
 	want := []Mount{
 		{Source: "/dev/mmcblk0p2", Path: "/", Type: "ext4"},
 		{Source: "/dev/sdc1", Path: "/boot/firmware", Type: "vfat"},
 		{Source: "/dev/sda1", Path: "/mnt/usb disk\\x", Type: "ext4"},
-		{Source: "/dev/mmcblk0p2", Path: "/var/lib/docker/bind", Type: "ext4"},
 		{Source: "/dev/sdb1", Path: "/mnt/windows", Type: "fuseblk"},
 		{Source: "tank/data", Path: "/tank/data", Type: "zfs"},
 		{Source: "/dev/sdd1", Path: "/var/lib/docker", Type: "ext4"},
@@ -64,6 +83,9 @@ func TestParseMountsKeepsRealFilesystems(t *testing.T) {
 		{Source: "/dev/sde1", Path: "/var/lib/docker/volumes", Type: "ext4"},
 		{Source: "/dev/sdf1", Path: "/srv/docker", Type: "ext4"},
 		{Source: "/dev/mapper/vg-pool", Path: "/var/lib/incus/storage-pools/default", Type: "ext4"},
+		{Source: "/dev/sdi1", Path: "/mnt/data", Type: "ext4"},
+		{Source: "/dev/sdj1", Path: "/mnt/data/again", Type: "ext4"},
+		{Source: "/dev/sdk1", Path: "/home/me/.local/share/containers/storage/volumes", Type: "ext4"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseMounts() = %+v, want %+v", got, want)
