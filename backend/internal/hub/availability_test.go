@@ -2,10 +2,12 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -92,6 +94,29 @@ func TestWatchedAgentIgnoresTheHubStopping(t *testing.T) {
 
 	if got, err := readAvailability(context.Background(), store.DB(), "pi"); err != nil || got.Outages != 0 {
 		t.Errorf("availability = %+v, %v; want no outage", got, err)
+	}
+}
+
+func TestWatchedAgentCountsNoOutageWhenTheHubRefusesTheAddress(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	openTestHub(t, store, nil)
+	var up atomic.Bool
+	refused := newAgent(startSwitchableDevice(t, &up), func(string, string, syscall.RawConn) error { return errOwnAddress })
+	watched := &watchedAgent{agent: refused, db: store.DB(), device: "pi"}
+	remote := &Remote{Agent: refused, watched: watched}
+
+	for range 3 {
+		if _, err := watched.Collect(ctx); !errors.Is(err, errOwnAddress) {
+			t.Fatalf("Collect() error = %v, want errOwnAddress", err)
+		}
+	}
+
+	if got, err := readAvailability(ctx, store.DB(), "pi"); err != nil || got.Outages != 0 {
+		t.Errorf("availability = %+v, %v; want no outage", got, err)
+	}
+	if since, unreachable := remote.Unreachable(); !unreachable || !since.IsZero() {
+		t.Errorf("Unreachable() = %v, %v; want not answering, with no outage", since, unreachable)
 	}
 }
 

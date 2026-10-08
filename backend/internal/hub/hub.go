@@ -158,6 +158,11 @@ func newHub(ctx context.Context, store *history.Store, fixed []Device, historyEn
 			slog.Warn("a device added on the page has the same address and port as another; collecting from it only once", "name", device.Name, "other", other.Name, "address", device.Address)
 			continue
 		}
+		// Devices added before the hub's own addresses were refused, such as
+		// a VM behind port forwarding on the hub, show as not answering.
+		if !h.addableAddress(device.Address) {
+			slog.Warn("a device added on the page is at an address of the hub itself, which the hub no longer connects to; remove it on the page with its history kept and list it in HUB_DEVICES under the same name", "name", device.Name, "address", device.Address)
+		}
 		h.start(device, false)
 	}
 	h.recording.Go(func() {
@@ -297,6 +302,18 @@ func (h *Hub) addable(addr netip.Addr, own []netip.Addr) bool {
 		return true
 	}
 	return !addr.IsLoopback() && !addr.IsUnspecified() && (addr.Is4() || !addr.IsLinkLocalUnicast()) && !h.suggester.isOwn(addr, own)
+}
+
+// addableAddress reports whether a device can be added at address
+// (host:port), as far as an IP address tells: a host name is checked only
+// when it is connected to.
+func (h *Hub) addableAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err != nil || h.addable(ip, h.hostAddresses())
 }
 
 // save keeps an added device and its kind in the database, both or neither.

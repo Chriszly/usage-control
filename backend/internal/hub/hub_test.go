@@ -1,8 +1,10 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +189,9 @@ func TestDevicesAddedOnThePageAreNotCollectedFromAtTheHubsOwnAddress(t *testing.
 	if _, err := store.DB().ExecContext(ctx, `INSERT INTO hub_devices (id, name, address, added) VALUES ('laptop', 'Laptop', ?, 0)`, added); err != nil {
 		t.Fatal(err)
 	}
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
 	running, stop := context.WithCancel(ctx)
 	h, err := newHub(running, store, []Device{{ID: "vm", Name: "VM", Address: fixed}}, history.DefaultMaxEntries, 30*24*time.Hour, "9393", false)
 	if err != nil {
@@ -214,6 +219,12 @@ func TestDevicesAddedOnThePageAreNotCollectedFromAtTheHubsOwnAddress(t *testing.
 	}
 	if got := ids(h.Remotes()); len(got) != 2 {
 		t.Errorf("devices = %q, want vm and laptop", got)
+	}
+	// The log tells how to keep collecting from it.
+	stop()
+	h.Wait()
+	if text := logged.String(); strings.Count(text, "HUB_DEVICES under the same name") != 1 || !strings.Contains(text, "name=Laptop") {
+		t.Errorf("log = %q, want one warning about Laptop", text)
 	}
 }
 

@@ -27,8 +27,10 @@ type MinuteSource interface {
 const (
 	// valuesWithoutHub is how many values a request without a hub id gets at
 	// most per answer, so a client that is not a hub cannot have the machine
-	// read many thousands of values for each request. Every released hub
-	// that asks for minutes sends its id, as both came in the same release.
+	// read many thousands of values for each request. No release fetches
+	// the minutes without an id: both arrive in the first release after
+	// 1.1.4d. Only :main images built between the two changes do, and they
+	// just ask more often.
 	valuesWithoutHub = 1_000
 	// maxExtrasBytes is how long the descriptions of the extras in one answer
 	// may be in all, as JSON. With the longest metric names in its values,
@@ -45,8 +47,8 @@ const (
 // after may not be later than this machine's time: there are no minutes
 // after it yet. A hub sends its id as hub.HubIDHeader with every request,
 // which tells it apart from other hubs. A request without a valid id is not
-// from a hub, so it reads the minutes but deletes none, and the buffer keeps them for its span; it gets
-// valuesWithoutHub values at most per answer.
+// from a hub, so it reads the minutes but deletes none, and the buffer keeps
+// them for its span; it gets valuesWithoutHub values at most per answer.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
