@@ -122,19 +122,30 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 	if due.Equal(last) {
 		wait, due = wait+SampleInterval, due.Add(SampleInterval)
 	}
+	// After a stall, as when storing took long or the timer fired late, the
+	// minute after last can be too close for untilStore, or past already.
+	// It is stored as soon as its time comes, while it is still due (see
+	// storedUnder), so it gets its point instead of being skipped.
+	if !last.IsZero() {
+		after := last.Add(SampleInterval)
+		at := after.Add(storeAt + r.lag())
+		if due.After(after) && now.Sub(at) < SampleInterval {
+			return max(at.Sub(now), 0), after
+		}
+	}
 	return wait, due
 }
 
 // storedUnder returns the minute the average is stored under when the timer
 // fires at now: due, the minute it was set for, as long as the clock shows
-// about the time it was due at, which a clock set by a few seconds or so
-// keeps. A timer runs on the time since it was set, not on the clock, so
+// less than a minute off the time it was due at, which a clock set by some
+// seconds keeps. A timer runs on the time since it was set, not on the clock, so
 // after the clock jumped further, as when it was set by NTP after a
 // Raspberry Pi started from a saved time, or the machine resumed from
 // suspend, due would be far from the readings; the minute the clock shows is
 // taken then, but only when it is after last, the one stored last.
 func (r *Recorder) storedUnder(now, due, last time.Time) (time.Time, bool) {
-	if off := now.Sub(due.Add(storeAt + r.lag())); off > -SampleInterval/2 && off < SampleInterval/2 {
+	if off := now.Sub(due.Add(storeAt + r.lag())); off > -SampleInterval && off < SampleInterval {
 		return due, true
 	}
 	minute := r.minuteOf(now)
