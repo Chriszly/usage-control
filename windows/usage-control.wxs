@@ -313,10 +313,14 @@
       Each add-on is transitive, so a repair checks it again too (REINSTALL=ALL
       REINSTALLMODE=m POWER=1 adds it, POWER=0 removes it). A repair without
       the option reads the remembered one, which the service's component
-      writes back, so it keeps the add-ons as they are.
+      writes back, so it keeps the add-ons as they are. A repair that
+      removes a transitive component removes its service and registry
+      values but leaves its files, so each add-on also names its program
+      in RemoveFile.
     -->
     <Component Directory="INSTALLFOLDER" Condition='POWER = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-power.exe" Name="usage-control-power.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnPower" Name="usage-control-power.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlPower"
                       DisplayName="Usage Control power add-on"
                       Description="Reads the power this computer draws for Usage Control."
@@ -345,6 +349,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='GPU = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-gpu.exe" Name="usage-control-gpu.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnGpu" Name="usage-control-gpu.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlGPU"
                       DisplayName="Usage Control gpu add-on"
                       Description="Reads the fan, clocks and more of the NVIDIA graphics card for Usage Control."
@@ -374,6 +379,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='PRESSURE = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-pressure.exe" Name="usage-control-pressure.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnPressure" Name="usage-control-pressure.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlPressure"
                       DisplayName="Usage Control pressure add-on"
                       Description="Reads how much waits for the processor, memory and disks for Usage Control."
@@ -404,6 +410,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='KERNEL = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-kernel.exe" Name="usage-control-kernel.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnKernel" Name="usage-control-kernel.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlKernel"
                       DisplayName="Usage Control kernel add-on"
                       Description="Reads what Windows is busy with for Usage Control."
@@ -433,6 +440,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='WIFI = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-wifi.exe" Name="usage-control-wifi.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnWifi" Name="usage-control-wifi.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlWifi"
                       DisplayName="Usage Control Wi-Fi add-on"
                       Description="Reads the Wi-Fi signal of this computer for Usage Control."
@@ -459,6 +467,7 @@
     <!-- The memory add-on, with MEMORY=1, set up like the power add-on. -->
     <Component Directory="INSTALLFOLDER" Condition='MEMORY = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-memory.exe" Name="usage-control-memory.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnMemory" Name="usage-control-memory.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlMemory"
                       DisplayName="Usage Control memory add-on"
                       Description="Reads details of this computer's memory for Usage Control."
@@ -485,6 +494,7 @@
     <!-- The ports add-on, with PORTS=1, like the power add-on. -->
     <Component Directory="INSTALLFOLDER" Condition='PORTS = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-ports.exe" Name="usage-control-ports.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnPorts" Name="usage-control-ports.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlPorts"
                       DisplayName="Usage Control ports add-on"
                       Description="Lists the ports this computer listens on for Usage Control."
@@ -519,6 +529,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='SMART = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-smart.exe" Name="usage-control-smart.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnSmart" Name="usage-control-smart.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlSmart"
                       DisplayName="Usage Control smart add-on"
                       Description="Reads the health of this computer's disks for Usage Control."
@@ -549,6 +560,7 @@
     -->
     <Component Directory="INSTALLFOLDER" Condition='PROCESSES = "1"' Transitive="yes">
       <File Source="$(AddOns)\usage-control-processes.exe" Name="usage-control-processes.exe" KeyPath="yes" />
+      <RemoveFile Id="RemoveAddOnProcesses" Name="usage-control-processes.exe" On="uninstall" />
       <ServiceInstall Name="UsageControlProcesses"
                       DisplayName="Usage Control processes add-on"
                       Description="Lists the processes using the most CPU and memory for Usage Control."

@@ -355,6 +355,10 @@ Assert-Website 8091
 # The report the add-on left behind, so the check below sees a new one.
 Remove-Item "$env:ProgramData\Usage Control\addons\power.json" -ErrorAction SilentlyContinue
 Invoke-Installer "/i `"$NewerMsi`" REINSTALL=ALL REINSTALLMODE=m POWER=1"
+if (-not (Test-Path "$env:ProgramFiles\Usage Control\usage-control-power.exe")) {
+    Show-InstallerLog 'usage-control-power|UsageControlPower|Component: |Transitive|InstallFiles|POWER|in use|reboot'
+    throw 'The repair with POWER=1 did not install usage-control-power.exe'
+}
 Assert-PowerAddOn
 if ((Get-ItemPropertyValue 'HKLM:\SOFTWARE\Usage Control' POWER) -ne '1') { throw 'The repair did not remember POWER=1' }
 Write-Host 'A repair without add-on options keeps the add-ons'
