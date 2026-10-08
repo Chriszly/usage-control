@@ -237,7 +237,7 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			if disk.Serial == "" {
 				disk.Serial = d.serial
 			}
-			if serial, ok := lastWithValues[d.path]; ok && disk.refused && serial == disk.Serial {
+			if serial, ok := lastWithValues[d.path]; ok && disk.refused && disk.Serial != "" && serial == disk.Serial {
 				err = errRefusedAfterValues
 			}
 		}

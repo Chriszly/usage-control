@@ -650,8 +650,10 @@ type fakeSource struct {
 	// smartOff makes sda tell that SMART is off, and refuse makes it refuse
 	// to send its values without telling, which also shows SMART off.
 	smartOff, refuse bool
-	// serial is sda's serial number, WD-WX12D when empty.
-	serial string
+	// serial is sda's serial number, WD-WX12D when empty, and noSerial
+	// makes it have none.
+	serial   string
+	noSerial bool
 	// gone are the disks no longer listed, by path.
 	gone map[string]bool
 	// ioCounts are the disks' counts of reads and writes, by path; a disk
@@ -693,7 +695,7 @@ func (f *fakeSource) read(d device) (Disk, error) {
 		return Disk{}, errors.New("input/output error")
 	}
 	serial := f.serial
-	if serial == "" {
+	if serial == "" && !f.noSerial {
 		serial = "WD-WX12D"
 	}
 	switch {
@@ -814,6 +816,44 @@ func TestReaderShowsARefusalAfterValuesAsUnreadable(t *testing.T) {
 	off.refused = true
 	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], off) {
 		t.Errorf("last() = %+v, want %+v after it said SMART is off", got, off)
+	}
+
+	// A disk that slept in between is still the disk read with its values.
+	src = &fakeSource{}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.asleep = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	src.set(func(f *fakeSource) { f.asleep, f.refuse = false, true })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v after it slept", got, unreadable)
+	}
+
+	// So is one left alone in between as it was not used.
+	src = &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 1}}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	r.refresh(ctx, start.Add(ReadInterval))
+	if got := r.last(); len(got) != 2 || got[0].Celsius == nil {
+		t.Errorf("last() = %+v, want sda's values while it is not used", got)
+	}
+	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = true, 2 })
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v after it was not used", got, unreadable)
+	}
+
+	// A disk without a serial number cannot be told from another one, so
+	// it shows SMART off.
+	src = &fakeSource{noSerial: true}
+	r = newReader(src)
+	r.refresh(ctx, start)
+	src.set(func(f *fakeSource) { f.refuse = true })
+	r.refresh(ctx, start.Add(ReadInterval))
+	noSerial := Disk{Name: "sda", Model: "WDC", SMARTOff: true, refused: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], noSerial) {
+		t.Errorf("last() = %+v, want %+v without a serial number", got, noSerial)
 	}
 }
 
