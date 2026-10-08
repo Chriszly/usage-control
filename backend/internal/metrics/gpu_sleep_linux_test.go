@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,6 +205,30 @@ func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
 		t.Errorf("read of a GPU driving a monitor 2 seconds later = %s, want 20", got)
 	}
 
+	// While the monitor is only blanked, the connector stays enabled but
+	// its dpms is off, so the GPU may sleep.
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "Off\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "21\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "21" {
+		t.Errorf("first read once the monitor is blanked = %s, want 21", got)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "22\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "21" {
+		t.Errorf("read within twice the autosuspend delay once the monitor is blanked = %s, want the last value, 21", got)
+	}
+
+	// Once it shows again, the GPU is read every time again.
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "On\n")
+	now = now.Add(10 * time.Second)
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "23\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "23" {
+		t.Errorf("read of a GPU driving an unblanked monitor 2 seconds later = %s, want 23", got)
+	}
+
 	// Once the monitor is no longer in use, it may sleep.
 	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "disabled\n")
 	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "30\n")
@@ -215,6 +240,130 @@ func TestDeviceReadsReadAGPUDrivingAMonitorEveryTime(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	if got := read(); got != "30" {
 		t.Errorf("read within twice the autosuspend delay once the monitor is off = %s, want the last value, 30", got)
+	}
+}
+
+func TestDeviceReadsLetAGPUWithABlankedMonitorSleep(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// driver is the GPU's driver, runpm amdgpu's runpm setting.
+		driver, runpm, dpms string
+		// status and enabled are the connector's, "connected" and
+		// "enabled" when empty.
+		status, enabled string
+		// sleeps is whether the GPU may sleep, so it is not read every time.
+		sleeps bool
+	}{
+		{name: "amdgpu, default runpm, blanked", driver: "amdgpu", runpm: "-1", dpms: "Off", sleeps: false},
+		{name: "amdgpu, default runpm, showing", driver: "amdgpu", runpm: "-1", dpms: "On", sleeps: false},
+		{name: "amdgpu, default runpm, disconnected", driver: "amdgpu", runpm: "-1", dpms: "Off", status: "disconnected", enabled: "disabled", sleeps: true},
+		{name: "amdgpu, runpm -2, off", driver: "amdgpu", runpm: "-2", dpms: "Off", sleeps: true},
+		{name: "amdgpu, runpm -2, standby", driver: "amdgpu", runpm: "-2", dpms: "Standby", sleeps: true},
+		{name: "amdgpu, runpm -2, suspend", driver: "amdgpu", runpm: "-2", dpms: "Suspend", sleeps: true},
+		{name: "amdgpu, runpm -2, showing", driver: "amdgpu", runpm: "-2", dpms: "On", sleeps: false},
+		{name: "other driver, off", driver: "radeon", runpm: "-1", dpms: "Off", sleeps: true},
+		{name: "other driver, standby", driver: "radeon", runpm: "-1", dpms: "Standby", sleeps: true},
+		{name: "other driver, suspend", driver: "radeon", runpm: "-1", dpms: "Suspend", sleeps: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sys := t.TempDir()
+			// A desktop's second AMD GPU with a monitor connected and in
+			// use, though the display started on the first.
+			device := filepath.Join(sys, "devices", "0000:03:00.0")
+			writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+			status, enabled := cmp.Or(test.status, "connected"), cmp.Or(test.enabled, "enabled")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", status+"\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", enabled+"\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", test.dpms+"\n")
+			writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+			driver := filepath.Join(sys, "bus", "pci", "drivers", test.driver)
+			if err := os.MkdirAll(driver, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(driver, filepath.Join(device, "driver")); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			reads := newDeviceReads(func() time.Time { return now })
+			reads.runpm = test.runpm
+			file := filepath.Join(device, "gpu_busy_percent")
+			read := func() string {
+				t.Helper()
+				data, err := reads.read(file, device)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return strings.TrimSpace(string(data))
+			}
+
+			read()
+			writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+			now = now.Add(2 * time.Second)
+			want := "20"
+			if test.sleeps {
+				want = "10"
+			}
+			if got := read(); got != want {
+				t.Errorf("read 2 seconds later = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestDeviceReadsReadAmdgpuRunpm(t *testing.T) {
+	sys := t.TempDir()
+	t.Setenv("HOST_SYS", sys)
+	// A desktop's second AMD GPU whose connected monitor is blanked.
+	device := filepath.Join(sys, "devices", "0000:03:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/boot_vga", "0\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "auto\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/autosuspend_delay_ms", "5000\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/status", "connected\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/enabled", "enabled\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/drm/card1/card1-DP-1/dpms", "Off\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "10\n")
+	driver := filepath.Join(sys, "bus", "pci", "drivers", "amdgpu")
+	if err := os.MkdirAll(driver, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(driver, filepath.Join(device, "driver")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	file := filepath.Join(device, "gpu_busy_percent")
+	read := func() string {
+		t.Helper()
+		data, err := reads.read(file, device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(data))
+	}
+
+	// Without the runpm file, as before amdgpu is loaded, the connected
+	// monitor keeps the GPU awake, so it is read every time.
+	read()
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "20\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "20" {
+		t.Errorf("read 2 seconds later without runpm = %s, want 20", got)
+	}
+
+	// The failed read was not kept: once runpm is -2, the GPU of the
+	// blanked monitor may sleep.
+	writeSysFile(t, sys, "module/amdgpu/parameters/runpm", "-2\n")
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "30\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("first read once runpm is -2 = %s, want 30", got)
+	}
+	writeSysFile(t, sys, "devices/0000:03:00.0/gpu_busy_percent", "40\n")
+	now = now.Add(2 * time.Second)
+	if got := read(); got != "30" {
+		t.Errorf("read within twice the autosuspend delay once runpm is -2 = %s, want the last value, 30", got)
 	}
 }
 
