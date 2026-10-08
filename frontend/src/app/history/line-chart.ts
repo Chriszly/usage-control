@@ -37,7 +37,7 @@ export class LineChart {
   protected readonly i18n = inject(I18n);
 
   /** What the chart shows, such as "CPU and memory", for its text alternative. */
-  readonly title = input.required<string>();
+  readonly chartTitle = input.required<string>();
   readonly lines = input.required<ChartLine[]>();
   readonly from = input.required<number>();
   readonly to = input.required<number>();
@@ -74,15 +74,24 @@ export class LineChart {
     return this.i18n.t(span <= 8 * 86400 ? 'format.weekdayTime' : 'format.dayMonth');
   });
 
-  /** For screen readers: what the chart shows, of which time, and its lines. */
+  /** For screen readers: what the chart shows, of which time, and each line's latest value. */
   protected readonly summary = computed(() => {
     const language = this.i18n.language();
     const format = this.i18n.t('format.dateTime');
+    const lines = this.lines().map((line) => {
+      const latest = line.points.at(-1);
+      return latest
+        ? this.i18n.t('history.chartLineLatest', {
+            label: line.label,
+            value: this.format(latest.value),
+          })
+        : this.i18n.t('history.chartLineNoData', { label: line.label });
+    });
     return this.i18n.t('history.chartSummary', {
-      title: this.title(),
+      title: this.chartTitle(),
       from: formatDate(this.from() * 1000, format, language),
       to: formatDate(this.to() * 1000, format, language),
-      lines: new Intl.ListFormat(language).format(this.lines().map((line) => line.label)),
+      lines: new Intl.ListFormat(language).format(lines),
     });
   });
 
