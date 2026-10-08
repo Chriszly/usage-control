@@ -223,6 +223,16 @@ func TestRecorderStoresUnderTheMinuteItWasDueFor(t *testing.T) {
 		if _, due := recorder.next(at, stored); !due.Equal(minute) {
 			t.Errorf("lag %v: next() after the clock went forward = %v; want %v", lag, due, minute)
 		}
+		// The clock was set back by five minutes after it stored that
+		// minute: the minutes before it, kept already, are not stored again.
+		at = stored.Add(storeAt + lag - 5*time.Minute)
+		wait, due = recorder.next(at, stored)
+		if !due.Before(stored) {
+			t.Fatalf("lag %v: next() after the clock went back 5 minutes = %v, want a minute before %v", lag, due, stored)
+		}
+		if got, ok := recorder.storedUnder(at.Add(wait), due, stored); ok {
+			t.Errorf("lag %v: storedUnder() after the clock went back 5 minutes = %v, true; want false", lag, got)
+		}
 	}
 }
 

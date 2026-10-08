@@ -77,12 +77,23 @@ type deviceReads struct {
 	now func() time.Time
 
 	// mu guards the devices by their real folder, as /sys reaches one device
-	// through several links, the last content of each file, and when those
-	// not asked about were last dropped.
+	// through several links, the real folder of each folder asked about, the
+	// last content of each file, and when those not asked about were last
+	// dropped.
 	mu      sync.Mutex
 	devices map[string]deviceState
+	links   map[string]deviceLink
 	values  map[string]fileContent
 	pruned  time.Time
+}
+
+// deviceLink is the real folder of a folder asked about, looked up at
+// resolved. It is looked up again once the decision made then has expired,
+// so the few files read at one moment resolve it once, and a folder that
+// leads to another device after the numbering changed is followed.
+type deviceLink struct {
+	real     string
+	resolved time.Time
 }
 
 // deviceState is the decision whether to read a device, made at decided and
@@ -107,6 +118,7 @@ func newDeviceReads(now func() time.Time) *deviceReads {
 	return &deviceReads{
 		now:     now,
 		devices: map[string]deviceState{},
+		links:   map[string]deviceLink{},
 		values:  map[string]fileContent{},
 	}
 }
@@ -116,13 +128,19 @@ func newDeviceReads(now func() time.Time) *deviceReads {
 // read at most once per decisionTime, and that one decision holds for every
 // link to the device.
 func (d *deviceReads) due(device string) bool {
-	if resolved, err := filepath.EvalSymlinks(device); err == nil {
-		device = resolved
-	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
 	d.prune(now)
+	link, ok := d.links[device]
+	if since := now.Sub(link.resolved); !ok || since < 0 || since >= decisionTime {
+		link = deviceLink{real: device, resolved: now}
+		if resolved, err := filepath.EvalSymlinks(device); err == nil {
+			link.real = resolved
+		}
+		d.links[device] = link
+	}
+	device = link.real
 	state := d.devices[device]
 	if since := now.Sub(state.decided); !state.decided.IsZero() && since >= 0 && since < decisionTime {
 		return state.read
@@ -145,8 +163,8 @@ func (d *deviceReads) due(device string) bool {
 	return state.read
 }
 
-// prune drops, at most once per forgetTime, the devices and files not asked
-// about for forgetTime. d.mu is held.
+// prune drops, at most once per forgetTime, the devices, folders and files
+// not asked about for forgetTime. d.mu is held.
 func (d *deviceReads) prune(now time.Time) {
 	if since := now.Sub(d.pruned); since >= 0 && since < forgetTime {
 		return
@@ -155,6 +173,11 @@ func (d *deviceReads) prune(now time.Time) {
 	for device, state := range d.devices {
 		if now.Sub(state.decided) >= forgetTime {
 			delete(d.devices, device)
+		}
+	}
+	for device, link := range d.links {
+		if now.Sub(link.resolved) >= forgetTime {
+			delete(d.links, device)
 		}
 	}
 	for file, value := range d.values {

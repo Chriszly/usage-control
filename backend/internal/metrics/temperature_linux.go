@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,13 +105,17 @@ func (s *sensorsReported) set(file string, reported bool) {
 	s.reported[file] = reported
 }
 
-// keep forgets the sensors not in files, sorted as filepath.Glob returns
-// them, such as those gone when the hwmon numbering changed.
+// keep forgets the sensors not in files, such as those gone when the hwmon
+// numbering changed.
 func (s *sensorsReported) keep(files []string) {
+	listed := make(map[string]bool, len(files))
+	for _, file := range files {
+		listed[file] = true
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for file := range s.reported {
-		if _, found := slices.BinarySearch(files, file); !found {
+		if !listed[file] {
 			delete(s.reported, file)
 		}
 	}

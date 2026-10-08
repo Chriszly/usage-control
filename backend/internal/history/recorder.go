@@ -129,8 +129,8 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 	// so it gets its point instead of being skipped.
 	if !last.IsZero() {
 		after := last.Add(SampleInterval)
-		if due := now.Add(-SampleInterval - storeAt - r.lag()).Truncate(SampleInterval).Add(SampleInterval); due.After(after) {
-			after = due
+		if oldest := now.Add(-SampleInterval - storeAt - r.lag()).Truncate(SampleInterval).Add(SampleInterval); oldest.After(after) {
+			after = oldest
 		}
 		at := after.Add(storeAt + r.lag())
 		if due.After(after) && now.Sub(at) < SampleInterval {
@@ -147,9 +147,12 @@ func (r *Recorder) next(now, last time.Time) (time.Duration, time.Time) {
 // after the clock jumped further, as when it was set by NTP after a
 // Raspberry Pi started from a saved time, or the machine resumed from
 // suspend, due would be far from the readings; the minute the clock shows is
-// taken then, but only when it is after last, the one stored last.
+// taken then, but only when it is after last, the one stored last. due is
+// taken only when it is after last too: after the clock was set back by more
+// than a minute, due can be before last, and storing it would replace a
+// minute kept already.
 func (r *Recorder) storedUnder(now, due, last time.Time) (time.Time, bool) {
-	if off := now.Sub(due.Add(storeAt + r.lag())); off > -SampleInterval && off < SampleInterval {
+	if off := now.Sub(due.Add(storeAt + r.lag())); off > -SampleInterval && off < SampleInterval && due.After(last) {
 		return due, true
 	}
 	minute := r.minuteOf(now)

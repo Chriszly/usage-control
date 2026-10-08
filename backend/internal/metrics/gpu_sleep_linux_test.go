@@ -251,6 +251,9 @@ func TestDeviceReadsForgetWhatIsNoLongerAsked(t *testing.T) {
 	if _, ok := reads.values[filepath.Join(gone, "gpu_busy_percent")]; ok {
 		t.Error("a file not asked about for longer than forgetTime is still kept")
 	}
+	if _, ok := reads.links[gone]; ok {
+		t.Error("a folder not asked about for longer than forgetTime is still kept")
+	}
 	if _, ok := reads.devices[kept]; !ok {
 		t.Error("a device still asked about was dropped")
 	}
@@ -269,5 +272,41 @@ func TestSensorsReportedForgetSensorsThatAreGone(t *testing.T) {
 	}
 	if reported.get("/sys/class/hwmon/hwmon2/temp1_input") {
 		t.Error("a sensor that is still listed was dropped")
+	}
+}
+
+func TestDeviceReadsFollowALinkToAnotherDevice(t *testing.T) {
+	sys, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(sys, "devices", "0000:03:00.0")
+	second := filepath.Join(sys, "devices", "0000:04:00.0")
+	writeSysFile(t, sys, "devices/0000:03:00.0/power/control", "on\n")
+	writeSysFile(t, sys, "devices/0000:04:00.0/power/control", "on\n")
+	link := filepath.Join(sys, "hwmon3-device")
+	if err := os.Symlink(first, link); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	reads := newDeviceReads(func() time.Time { return now })
+	reads.due(link)
+	// The numbering changed: the same folder now leads to another device.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, link); err != nil {
+		t.Fatal(err)
+	}
+	// At the same moment, it is not looked up again.
+	now = now.Add(decisionTime / 2)
+	reads.due(link)
+	if got := reads.links[link].real; got != first {
+		t.Errorf("real folder at the same moment = %s, want %s", got, first)
+	}
+	now = now.Add(decisionTime)
+	reads.due(link)
+	if got := reads.links[link].real; got != second {
+		t.Errorf("real folder once the decision expired = %s, want %s", got, second)
 	}
 }
