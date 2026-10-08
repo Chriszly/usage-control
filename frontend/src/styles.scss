@@ -84,7 +84,8 @@ progress::-moz-progress-bar {
     font: var(--mat-sys-label-large);
     cursor: pointer;
 
-    &:hover:not(:disabled) {
+    // :where() adds nothing to the specificity, so the pressed fill below still wins on hover.
+    &:hover:where(:not(:disabled)) {
       background: color-mix(in srgb, var(--mat-sys-on-surface-variant) 8%, transparent);
     }
 
