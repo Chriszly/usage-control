@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -54,8 +55,14 @@ func TestServesTheMinutesForAHub(t *testing.T) {
 		}
 		// A hub may ask for fewer values, not for more.
 		for asked, want := range map[string]int{"500": 500, "99999999": hub.ValuesPerAnswer} {
-			if rec := get(handler, "/api/minutes?after=1700000000&values="+asked, "192.168.1.20:5000"); rec.Code != http.StatusOK || source.values != want {
+			if rec := getFromHub(handler, "/api/minutes?after=1700000000&values="+asked, "192.168.1.20:5000"); rec.Code != http.StatusOK || source.values != want {
 				t.Errorf("%s: GET with values=%s = %d, asked the source for %d values; want 200 and %d", name, asked, rec.Code, source.values, want)
+			}
+		}
+		// A request without a hub id gets fewer.
+		for asked, want := range map[string]int{"": valuesWithoutHub, "500": 500, "99999999": valuesWithoutHub} {
+			if rec := get(handler, "/api/minutes?after=1700000000&values="+asked, "192.168.1.20:5000"); rec.Code != http.StatusOK || source.values != want {
+				t.Errorf("%s: GET without a hub id with values=%q = %d, asked the source for %d values; want 200 and %d", name, asked, rec.Code, source.values, want)
 			}
 		}
 		// A time later than the device's would tell that the hub has minutes
@@ -131,6 +138,31 @@ func TestServesHowTheExtrasAmongTheMinutesAreDescribed(t *testing.T) {
 	}
 	if want := map[string]history.ExtraInfo{"extra:power/cpu": power}; !reflect.DeepEqual(got.Extras, want) {
 		t.Errorf("extras = %+v, want %+v, only the ones among the minutes", got.Extras, want)
+	}
+}
+
+func TestBoundsTheDescriptionsOfTheExtrasInOneAnswer(t *testing.T) {
+	// 600 descriptions of 8,000 characters each are more than fit.
+	minute := history.Minute{Time: 1_700_000_060, Values: map[string]float64{}}
+	extras := map[string]history.ExtraInfo{}
+	for i := range 600 {
+		metric := fmt.Sprintf("extra:big/v%03d", i)
+		minute.Values[metric] = 1
+		extras[metric] = history.ExtraInfo{Title: "Big", Label: strings.Repeat("x", 8000)}
+	}
+	source := &fakeMinutes{minutes: []history.Minute{minute}, extras: extras}
+	rec := getFromHub(NewDataOnly(fakeCollector{}, source, nil), "/api/minutes?after=1700000000", "192.168.1.20:5000")
+	size := rec.Body.Len()
+	var got hub.MinutesAnswer
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/minutes = %d, %v, want 200", rec.Code, err)
+	}
+	if len(got.Extras) == 0 || len(got.Extras) >= len(extras) || size > maxExtrasBytes+64<<10 {
+		t.Errorf("described %d of %d extras in %d bytes, want some but not all, within %d", len(got.Extras), len(extras), size, maxExtrasBytes)
+	}
+	// The first ones by metric, so every answer describes the same.
+	if _, ok := got.Extras["extra:big/v000"]; !ok {
+		t.Errorf("extras = %d without extra:big/v000, want the first ones", len(got.Extras))
 	}
 }
 

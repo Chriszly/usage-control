@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +24,19 @@ type MinuteSource interface {
 	ExtraInfo(ctx context.Context) (map[string]history.ExtraInfo, error)
 }
 
+const (
+	// valuesWithoutHub is how many values a request without a hub id gets at
+	// most per answer, so a client that is not a hub cannot have the machine
+	// read many thousands of values for each request; a hub of a version
+	// that sends no id just asks more often.
+	valuesWithoutHub = 1_000
+	// maxExtrasBytes is how long the descriptions of the extras in one answer
+	// may be in all, as JSON. With the longest metric names in its values,
+	// an answer then stays below the 8 MiB a hub reads, even when every
+	// value is an extra with the longest texts in every language.
+	maxExtrasBytes = 4 << 20
+)
+
 // minutesHandler serves GET /api/minutes?after=<unix seconds>[&values=<n>]:
 // the oldest minutes after that time, hub.MinutesPerAnswer at most and
 // hub.ValuesPerAnswer values in all, or fewer when the hub asks for fewer,
@@ -30,7 +46,8 @@ type MinuteSource interface {
 // after it yet. A hub sends its id as hub.HubIDHeader with every request,
 // which tells it apart from other hubs. A request without a valid id is not
 // from a hub, or from a hub of a version that sends none, so it reads the
-// minutes but deletes none, and the buffer keeps them for its span.
+// minutes but deletes none, and the buffer keeps them for its span; it gets
+// valuesWithoutHub values at most per answer.
 func minutesHandler(source MinuteSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
@@ -39,7 +56,11 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 			http.Error(w, "after must be a Unix time in seconds, not later than this device's time", http.StatusBadRequest)
 			return
 		}
+		hubID := hubAsking(r)
 		values := hub.ValuesPerAnswer
+		if hubID == "" {
+			values = valuesWithoutHub
+		}
 		if asked := r.URL.Query().Get("values"); asked != "" {
 			n, err := strconv.Atoi(asked)
 			if err != nil || n < 1 {
@@ -48,7 +69,7 @@ func minutesHandler(source MinuteSource) http.HandlerFunc {
 			}
 			values = min(values, n)
 		}
-		minutes, more, err := source.Since(r.Context(), hubAsking(r), time.Unix(after, 0), hub.MinutesPerAnswer, values)
+		minutes, more, err := source.Since(r.Context(), hubID, time.Unix(after, 0), hub.MinutesPerAnswer, values)
 		if err != nil {
 			slog.Error("read the minutes for a hub", "error", err)
 			http.Error(w, "could not read the minutes", http.StatusInternalServerError)
@@ -74,7 +95,9 @@ func hubAsking(r *http.Request) string {
 }
 
 // extrasAmong returns how the extras among minutes are described, or nil
-// when they have none.
+// when they have none. Descriptions beyond maxExtrasBytes are left out, in
+// the order of their metrics; the hub then shows those values once the
+// device describes them live.
 func extrasAmong(ctx context.Context, source MinuteSource, minutes []history.Minute) (map[string]history.ExtraInfo, error) {
 	used := map[string]bool{}
 	for _, minute := range minutes {
@@ -92,10 +115,22 @@ func extrasAmong(ctx context.Context, source MinuteSource, minutes []history.Min
 		return nil, err
 	}
 	extras := map[string]history.ExtraInfo{}
-	for metric := range used {
-		if info, ok := all[metric]; ok {
-			extras[metric] = info
+	size := 0
+	for _, metric := range slices.Sorted(maps.Keys(used)) {
+		info, ok := all[metric]
+		if !ok {
+			continue
 		}
+		encoded, err := json.Marshal(info)
+		if err != nil {
+			return nil, err
+		}
+		// The metric as the key, with its quotes, colon and comma.
+		size += len(encoded) + len(metric) + 4
+		if size > maxExtrasBytes {
+			break
+		}
+		extras[metric] = info
 	}
 	return extras, nil
 }
