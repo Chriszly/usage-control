@@ -195,6 +195,26 @@ describe('DevicesDialog', () => {
       .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
   });
 
+  it('keeps a new change busy when an earlier failed change reads the list late', () => {
+    button('Remove').click();
+    http
+      .expectOne('/api/devices/office-pc')
+      .flush('down', { status: 504, statusText: 'Gateway Timeout' });
+    fixture.detectChanges();
+    const staleReload = http.expectOne((r) => r.method === 'GET' && r.url === '/api/devices');
+
+    button('Remove').click();
+    fixture.detectChanges();
+
+    // The new change stops the failed change's reading of the list.
+    expect(staleReload.cancelled).toBe(true);
+    expect(button('Remove').disabled).toBe(true);
+    http.expectOne('/api/devices/office-pc').flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne((r) => r.method === 'GET' && r.url === '/api/devices')
+      .flush({ devices: [{ id: 'local', name: '' }], passwordSet: true });
+  });
+
   it('changes nothing when the password dialog is cancelled', () => {
     answer = undefined;
 
