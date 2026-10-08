@@ -368,29 +368,45 @@ func TestReadWalksTheCgroupTreeWhenCgroupsComeOrGo(t *testing.T) {
 		t.Errorf("Read() = %+v, want the new container next to web", got)
 	}
 
-	// One in a new place shows once the number of cgroups changes.
+	// One in a new place shows at once, as the cgroups in the root's
+	// folders changed.
 	writeFiles(t, sys, map[string]string{
 		"fs/cgroup/machine.slice/libpod-" + podmanID + ".scope/cpu.stat": "usage_usec 1",
 	})
-	if got := r.Read(time.Now()); len(got) != 2 {
-		t.Errorf("Read() = %+v, want no walk while the number of cgroups stays", got)
-	}
-	writeFiles(t, sys, map[string]string{"fs/cgroup/cgroup.stat": "nr_descendants 42\n"})
 	if got := r.Read(time.Now()); len(got) != 3 {
-		t.Errorf("Read() = %+v, want all three containers once there are more cgroups", got)
+		t.Errorf("Read() = %+v, want the new container in machine.slice", got)
 	}
 
-	// Should the number stay the same, the walk every walkEvery reads finds
-	// a new one.
-	nextID := strings.Repeat("d", 64)
+	// Deeper down, it shows once the number of cgroups changes.
 	writeFiles(t, sys, map[string]string{
-		"fs/cgroup/kubepods.slice/cri-containerd-" + nextID + ".scope/cpu.stat": "usage_usec 1",
+		"fs/cgroup/kubepods.slice/kubepods-besteffort.slice/cpu.stat": "usage_usec 1",
+		"fs/cgroup/cgroup.stat": "nr_descendants 45\n",
 	})
+	r.Read(time.Now())
+	nextID := strings.Repeat("d", 64)
+	pod := "fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod1.slice/"
+	writeFiles(t, sys, map[string]string{pod + "cri-containerd-" + nextID + ".scope/cpu.stat": "usage_usec 1"})
+	if got := r.Read(time.Now()); len(got) != 3 {
+		t.Errorf("Read() = %+v, want no walk while the number of cgroups stays", got)
+	}
+	writeFiles(t, sys, map[string]string{"fs/cgroup/cgroup.stat": "nr_descendants 47\n"})
+	if got := r.Read(time.Now()); len(got) != 4 {
+		t.Errorf("Read() = %+v, want all four containers once there are more cgroups", got)
+	}
+
+	// Should a pod go and another come in its place, the walk every
+	// walkEvery reads finds the new one.
+	lastID := strings.Repeat("e", 64)
+	next := strings.Replace(pod, "pod1", "pod2", 1)
+	writeFiles(t, sys, map[string]string{next + "cri-containerd-" + lastID + ".scope/cpu.stat": "usage_usec 1"})
+	if err := os.RemoveAll(filepath.Join(sys, pod)); err != nil {
+		t.Fatal(err)
+	}
 	for range walkEvery - 1 {
 		r.Read(time.Now())
 	}
-	if got := r.Read(time.Now()); len(got) != 4 {
-		t.Errorf("Read() at the walk every walkEvery reads = %+v, want four containers", got)
+	if got := r.Read(time.Now()); len(got) != 4 || got[3].ID != lastID {
+		t.Errorf("Read() at the walk every walkEvery reads = %+v, want the new pod's container", got)
 	}
 
 	// A container that stops is gone at once.
@@ -399,6 +415,32 @@ func TestReadWalksTheCgroupTreeWhenCgroupsComeOrGo(t *testing.T) {
 	}
 	if got := r.Read(time.Now()); len(got) != 3 {
 		t.Errorf("Read() = %+v, want three containers once web stopped", got)
+	}
+}
+
+func TestReadWalksTheCgroupTreeWhenACgroupIsSwappedForAContainer(t *testing.T) {
+	sys := t.TempDir()
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/cgroup.controllers":                 "cpu memory",
+		"fs/cgroup/cgroup.stat":                        "nr_descendants 3\n",
+		"fs/cgroup/system.slice/cron.service/cpu.stat": "usage_usec 1",
+		"fs/cgroup/user.slice/cpu.stat":                "usage_usec 1",
+	})
+	r := NewReader(sys, t.TempDir())
+	if got := r.Read(time.Now()); len(got) != 0 {
+		t.Fatalf("Read() = %+v, want no containers", got)
+	}
+
+	// The first container starts while a service stops, so the number of
+	// cgroups stays the same.
+	if err := os.RemoveAll(filepath.Join(sys, "fs/cgroup/system.slice/cron.service")); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, sys, map[string]string{
+		"fs/cgroup/system.slice/docker-" + webID + ".scope/cpu.stat": "usage_usec 1",
+	})
+	if got := r.Read(time.Now()); len(got) != 1 {
+		t.Errorf("Read() = %+v, want the new container at once", got)
 	}
 }
 
