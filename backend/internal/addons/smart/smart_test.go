@@ -792,7 +792,7 @@ func TestReaderShowsARefusalAfterValuesAsUnreadable(t *testing.T) {
 
 	src.set(func(f *fakeSource) { f.refuse = true })
 	r.refresh(ctx, start.Add(ReadInterval))
-	unreadable := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true}
+	unreadable := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true, refused: true}
 	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
 		t.Errorf("last() = %+v, want %+v first", got, unreadable)
 	}
@@ -854,6 +854,63 @@ func TestReaderShowsARefusalAfterValuesAsUnreadable(t *testing.T) {
 	noSerial := Disk{Name: "sda", Model: "WDC", SMARTOff: true, refused: true}
 	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], noSerial) {
 		t.Errorf("last() = %+v, want %+v without a serial number", got, noSerial)
+	}
+}
+
+// A disk that refused its values after them answered, so the disks are not
+// listed again for it, and like a disk read with them it is left alone
+// without use, until it is used or its last read is a day old.
+func TestReaderLeavesADiskThatRefusedAfterValuesAloneWithoutUse(t *testing.T) {
+	src := &fakeSource{ioCounts: map[string]uint64{"/dev/sda": 1}}
+	r := newReader(src)
+	start := time.Now()
+	ctx := context.Background()
+	r.refresh(ctx, start)
+
+	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = true, 2 })
+	r.refresh(ctx, start.Add(ReadInterval))
+	unreadable := Disk{Name: "sda", Model: "WDC", Serial: "WD-WX12D", Unreadable: true, refused: true}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Fatalf("last() = %+v, want %+v first", got, unreadable)
+	}
+	lists, reads := src.counts()
+	if lists != 1 { // the next scan is due only after ScanInterval
+		t.Errorf("listed %d times, want once as the disk that refused is there", lists)
+	}
+
+	// Without use, it is not read again and keeps showing that it cannot be
+	// read.
+	r.refresh(ctx, start.Add(2*ReadInterval))
+	r.refresh(ctx, start.Add(ReadInterval+idleReadAfter-time.Second))
+	if _, n := src.counts(); n != reads+4 {
+		t.Errorf("read %d disks, want 4 without the unused sda", n-reads)
+	}
+	if got := r.last(); len(got) != 2 || !reflect.DeepEqual(got[0], unreadable) {
+		t.Errorf("last() = %+v, want %+v while it is not used", got, unreadable)
+	}
+
+	// A day after its last read, it is read again.
+	r.refresh(ctx, start.Add(ReadInterval+idleReadAfter))
+	if _, n := src.counts(); n != reads+7 {
+		t.Errorf("read %d disks, want 3 with sda read a day ago", n-reads-4)
+	}
+
+	// Once it is used, it is read again, and shows its values once it
+	// sends them.
+	src.set(func(f *fakeSource) { f.refuse, f.ioCounts["/dev/sda"] = false, 3 })
+	r.refresh(ctx, start.Add(2*ReadInterval+idleReadAfter))
+	if got := r.last(); len(got) != 2 || got[0].Unreadable || got[0].Celsius == nil {
+		t.Errorf("last() = %+v, want sda's values once it was used", got)
+	}
+
+	// A disk that cannot be read for another reason is still tried at
+	// every read.
+	src.set(func(f *fakeSource) { f.failing, f.ioCounts["/dev/sda"] = true, 4 })
+	r.refresh(ctx, start.Add(3*ReadInterval+idleReadAfter))
+	_, reads = src.counts()
+	r.refresh(ctx, start.Add(4*ReadInterval+idleReadAfter))
+	if _, n := src.counts(); n != reads+3 {
+		t.Errorf("read %d disks, want 3 with the failing sda", n-reads)
 	}
 }
 

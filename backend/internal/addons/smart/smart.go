@@ -63,7 +63,9 @@ type Disk struct {
 	// not have it, which has no values either.
 	SMARTOff bool
 	// refused is set with SMARTOff when the disk did not tell whether SMART
-	// is on and refused to send its values, rather than telling it is off.
+	// is on and refused to send its values, rather than telling it is off,
+	// and with Unreadable when that refusal is all that keeps it from being
+	// read (errRefusedAfterValues).
 	refused bool
 }
 
@@ -223,7 +225,11 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 		if !d.nvme {
 			count, counted = r.src.ioCount(d)
 		}
-		if counted && !last[d.path].Unreadable {
+		// A disk that cannot be read is tried again at every read, unless it
+		// only refused its values as before: it answered, so it is there,
+		// and a disk whose SMART was switched off is then left alone as
+		// well, until it is used or its last read is a day old.
+		if before := last[d.path]; counted && (!before.Unreadable || before.refused) {
 			if before, ok := lastIOCounts[d.path]; ok && before.count == count && now.Sub(before.at) < idleReadAfter {
 				continue
 			}
@@ -251,16 +257,20 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			asleep[d.path] = true
 		default:
 			failed[d.path] = err
+			if counted && errors.Is(err, errRefusedAfterValues) {
+				ioCounts[d.path] = ioCount{count: count, at: now}
+			}
 		}
 	}
 	// A disk read before that cannot be read now may have been unplugged,
 	// such as one swapped out while the machine runs: listing the disks
 	// again drops it instead of showing that it cannot be read until the
-	// next scan.
+	// next scan. One that refused its values after them answered with its
+	// serial number, so it is still there.
 	rescan := false
-	for path := range failed {
+	for path, err := range failed {
 		_, shown := last[path]
-		rescan = rescan || shown
+		rescan = rescan || (shown && !errors.Is(err, errRefusedAfterValues))
 	}
 	if rescan && !scanned && ctx.Err() == nil {
 		if found, err := r.src.list(); err == nil {
@@ -303,7 +313,10 @@ func (r *Reader) refresh(ctx context.Context, now time.Time) {
 			// It was not asleep at this read, so a sleep counts anew.
 			delete(r.asleepSince, d.path)
 			if before, ok := r.disks[d.path]; ok {
-				disks[d.path] = Disk{Name: d.name, Model: before.Model, Serial: before.Serial, Unreadable: true}
+				disks[d.path] = Disk{
+					Name: d.name, Model: before.Model, Serial: before.Serial, Unreadable: true,
+					refused: errors.Is(err, errRefusedAfterValues),
+				}
 			}
 		default:
 			if before, ok := r.disks[d.path]; ok {
