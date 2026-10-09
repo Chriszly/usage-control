@@ -28,6 +28,9 @@ go_fixes() {
 }
 
 cd "$root/backend"
+# Raising the Go version in go.mod needs that newer Go, and so does every go command
+# after it, so let go switch to the version go.mod asks for instead of the installed one.
+export GOTOOLCHAIN=auto
 report="$(mktemp)"
 go tool govulncheck -format json ./... >"$report"
 while read -r module version; do
