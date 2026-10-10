@@ -98,7 +98,9 @@ jobs:
               echo "Could not look up the release of $TAG, so it is unclear whether it is a pre-release; run the Demo page workflow again on the tag." >&2
               exit 1
             fi
-            if [[ "$prerelease" == true ]]; then
+            # A pre-release tag, such as 1.2.3-alpha, is a pre-release even
+            # before its release exists.
+            if [[ "$prerelease" == true || "$TAG" == *-* ]]; then
               echo "The release $TAG is a pre-release; the demo at the root stays as it is."
               skip=true
             else
@@ -146,10 +148,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            # Fails on a tag that is no release version, such as a
-            # pre-release v1.2.3-rc1, as the other release workflows do.
-            if [[ ! "${TAG#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]*$ ]]; then
-              echo "Tag $TAG is not a release version; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional). Pre-release tags such as v1.2.3-rc1 are not supported." >&2
+            # Fails on a tag that is no release version, such as v1.2, as
+            # the other release workflows do.
+            if [[ ! "${TAG#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-z]*|-[a-z]+(\.?[0-9]+)?)$ ]]; then
+              echo "Tag $TAG is not a release version; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a, or a word and maybe a number after a dash for a pre-release, such as 1.2.3-alpha or 1.2.3-rc1 (the v is optional)." >&2
               exit 1
             fi
           fi

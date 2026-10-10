@@ -90,13 +90,13 @@ bash ci/check-no-secrets.sh
 | Workflow | Builds |
 | --- | --- |
 | `ci.yml` | every check above, plus a build-only multi-arch Docker image on pull requests, whose amd64 image is then started with the `power` and `processes` add-on containers from `compose.yaml` until the page shows the processes add-on |
-| `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags |
+| `docker.yml` | publishes `ghcr.io/chriszly/usage-control:main` on every merge to main, and `X.Y.Z`, `X.Y` and `latest` on release tags (only `X.Y.Z-alpha` on a pre-release tag) |
 | `windows.yml` | the x64 and arm64 MSIs, installs and uninstalls them on Windows; attaches them to releases |
 | `linux.yml` | the Linux archives, tests install, update and uninstall under systemd; attaches them to releases |
 | `vulnerabilities.yml` | every night, the updates that fix known vulnerabilities on main (`ci/fix-vulnerabilities.sh`), as one pull request; fails when a vulnerability has no fix yet |
 | `demo.yml` | publishes the demo of a release to the root of GitHub Pages on its release tag (not for a release marked as a pre-release, nor for a tag older than the newest release, such as a bugfix 1.0.5 after 1.1.0), and the demo of main to `main/` on every merge to main that changes the frontend; when a pre-release is later made a full release, run it by hand (*Run workflow*) on the tag |
 
-A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own. Pre-release tags, such as `1.0.4-rc1`, are not supported: the release workflows fail on them before they publish anything.
+A release is published on GitHub with a tag such as `1.0.4`; the workflows build and attach everything on their own. A pre-release adds a word, and maybe a number, after a dash, such as `2.0.0-alpha`, `2.0.0-beta.2` or `2.0.0-rc1`. The workflows mark its GitHub release as a pre-release, publish only the image `:2.0.0-alpha` (not `:2.0` or `:latest`), keep the demo at the root as it is, and build installers of version 2.0.0, so the release `2.0.0` installs over them. The update check counts a pre-release as older than the release of the same version and only ever offers full releases.
 
 The version counts the pull requests merged since the last release, in order:
 

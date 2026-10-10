@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,8 +32,10 @@ const (
 )
 
 // release matches a release version, such as 1.2.3 or the tag v1.2.3. A
-// bugfix release adds letters: 1.2.3a, 1.2.3b, ... 1.2.3z, 1.2.3aa.
-var release = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)([a-z]*)$`)
+// bugfix release adds letters: 1.2.3a, 1.2.3b, ... 1.2.3z, 1.2.3aa. A
+// pre-release adds a word, and maybe a number, after a dash instead:
+// 1.2.3-alpha, 1.2.3-rc1 or 1.2.3-beta.2; it comes before 1.2.3.
+var release = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:([a-z]*)|-([a-z]+)(?:\.?(\d+))?)$`)
 
 // Status is what the page shows about updates.
 type Status struct {
@@ -143,10 +146,11 @@ func (c *Checker) check(ctx context.Context) error {
 	if match == nil {
 		return fmt.Errorf("the newest release is %q, which is not a version such as v1.2.3", body.TagName)
 	}
-	latest := match[1] + "." + match[2] + "." + match[3] + match[4]
+	latest := strings.TrimPrefix(body.TagName, "v")
 
 	c.mu.Lock()
-	// The tag matched release, so it is only digits, dots, letters and a v.
+	// The tag matched release, so it is only digits, dots, letters, a dash
+	// and a v.
 	c.latest, c.tag = latest, body.TagName
 	c.mu.Unlock()
 	return nil
@@ -155,27 +159,47 @@ func (c *Checker) check(ctx context.Context) error {
 // newer reports whether version a is newer than b; both are releases.
 func newer(a, b string) bool {
 	pa, pb := parts(a), parts(b)
-	for i := range pa {
-		if pa[i] != pb[i] {
-			return pa[i] > pb[i]
+	for i := range pa.numbers {
+		if pa.numbers[i] != pb.numbers[i] {
+			return pa.numbers[i] > pb.numbers[i]
 		}
 	}
-	return false
+	// A pre-release comes before the release of the same version.
+	if (pa.pre == "") != (pb.pre == "") {
+		return pa.pre == ""
+	}
+	if pa.pre != pb.pre {
+		// alpha before beta before rc.
+		return pa.pre > pb.pre
+	}
+	return pa.preNumber > pb.preNumber
 }
 
-// parts returns the three numbers of a release version and the number of its
-// bugfix letters: none is 0, a is 1, z is 26 and aa is 27.
-func parts(version string) [4]int {
-	var p [4]int
+// versionParts is a release version split up for comparing.
+type versionParts struct {
+	// numbers are the three numbers and the number of the bugfix letters:
+	// none is 0, a is 1, z is 26 and aa is 27.
+	numbers [4]int
+	// pre is the word of a pre-release, such as alpha, and preNumber the
+	// number after it, 0 without one.
+	pre       string
+	preNumber int
+}
+
+// parts splits up a release version.
+func parts(version string) versionParts {
+	var p versionParts
 	match := release.FindStringSubmatch(version)
 	if match == nil {
 		return p
 	}
 	for i := range 3 {
-		p[i], _ = strconv.Atoi(match[i+1])
+		p.numbers[i], _ = strconv.Atoi(match[i+1])
 	}
 	for _, letter := range match[4] {
-		p[3] = p[3]*26 + int(letter-'a') + 1
+		p.numbers[3] = p.numbers[3]*26 + int(letter-'a') + 1
 	}
+	p.pre = match[5]
+	p.preNumber, _ = strconv.Atoi(match[6])
 	return p
 }
