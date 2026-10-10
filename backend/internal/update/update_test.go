@@ -97,7 +97,7 @@ func TestAFailedCheckIsTriedAgainSooner(t *testing.T) {
 }
 
 func TestNewCheckerSkipsBuildsThatAreNotReleases(t *testing.T) {
-	for _, current := range []string{"dev", "main-1a2b3c4", "1.2", "1.2.3-rc1", "1.2.3A", ""} {
+	for _, current := range []string{"dev", "main-1a2b3c4", "1.2", "1.2.3a-rc1", "1.2.3-RC1", "1.2.3-", "1.2.3-alpha.", "1.2.3A", ""} {
 		if c := NewChecker(current); c != nil {
 			t.Errorf("NewChecker(%q) = %v, want nil", current, c)
 		}
@@ -120,6 +120,48 @@ func TestNewerOrdersBugfixLetters(t *testing.T) {
 		if got := newer(tc.a, tc.b); got != tc.want {
 			t.Errorf("newer(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+func TestNewCheckerAcceptsAPreRelease(t *testing.T) {
+	for _, current := range []string{"2.0.0-alpha", "2.0.0-rc1", "2.0.0-beta.2"} {
+		if NewChecker(current) == nil {
+			t.Errorf("NewChecker(%q) = nil, want a Checker", current)
+		}
+	}
+}
+
+func TestNewerOrdersPreReleases(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"2.0.0", "2.0.0-alpha", true},
+		{"2.0.0-alpha", "1.3.1m", true},
+		{"2.0.0-beta", "2.0.0-alpha", true},
+		{"2.0.0-alpha.2", "2.0.0-alpha", true},
+		{"2.0.0-alpha10", "2.0.0-alpha9", true},
+		{"2.0.0-rc1", "2.0.0-beta.3", true},
+		{"2.0.0-alpha", "2.0.0", false},
+		{"2.0.0-alpha", "2.0.0-alpha", false},
+		{"2.0.0-alpha", "2.0.0-beta", false},
+	} {
+		if got := newer(tc.a, tc.b); got != tc.want {
+			t.Errorf("newer(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestStatusNamesTheReleaseAfterAPreRelease(t *testing.T) {
+	c := checkerAgainst(t, "2.0.0-alpha", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name": "v2.0.0"}`))
+	})
+	if err := c.check(context.Background()); err != nil {
+		t.Fatalf("check() error = %v", err)
+	}
+	want := Status{Current: "2.0.0-alpha", Latest: "2.0.0", URL: "https://github.com/Chriszly/usage-control/releases/tag/v2.0.0"}
+	if got := c.Status(); got != want {
+		t.Errorf("Status() = %+v, want %+v", got, want)
 	}
 }
 

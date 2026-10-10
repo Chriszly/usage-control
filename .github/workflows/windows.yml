@@ -10,14 +10,14 @@ name: Windows installer
 # machine that the x64 one installs, starts the service, the add-ons and the
 # tray icon and keeps its options across an update
 # (windows/check-installer.ps1), which takes a few minutes. Main keeps the
-# installers as a workflow artifact; a version tag (v1.2.3 or 1.2.3) also
-# attaches them to that GitHub release.
+# installers as a workflow artifact; a version tag (v1.2.3 or 1.2.3, or a
+# pre-release such as 1.2.3-alpha) also attaches them to that GitHub release.
 on:
   pull_request:
   push:
     branches:
       - main
-    # A release tag, with or without the v: v1.2.3 or 1.2.3.
+    # A release tag, with or without the v: v1.2.3 or 1.2.3, or 1.2.3-alpha.
     tags:
       - 'v*.*.*'
       - '[0-9]*.[0-9]*.[0-9]*'
@@ -72,21 +72,23 @@ jobs:
       # letters of a bugfix release become a fourth number: 1.2.3a is 1.2.3.1,
       # 1.2.3z is 1.2.3.26, 1.2.3aa 1.2.3.27. That number is also the
       # installer's Bugfix, which keeps an older bugfix from replacing a newer
-      # one; it is 0 without letters.
+      # one; it is 0 without letters. A pre-release such as 1.2.3-alpha is an
+      # installer of version 1.2.3 with Bugfix 0, so the release 1.2.3 can be
+      # installed over it.
       - name: Version
         id: version
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             version="${GITHUB_REF_NAME#v}"
-            if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)([a-z]*)$ ]]; then
-              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a (the v is optional). Pre-release tags such as v1.2.3-rc1 are not supported." >&2
+            if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)([a-z]*|-[a-z]+(\.?[0-9]+)?)$ ]]; then
+              echo "Tag $GITHUB_REF_NAME is not a version the installer accepts; use v<major>.<minor>.<patch>, such as v1.2.3, with letters for bugfixes, such as 1.2.3a, or a word and maybe a number after a dash for a pre-release, such as 1.2.3-alpha or 1.2.3-rc1 (the v is optional)." >&2
               exit 1
             fi
             msi_version="${BASH_REMATCH[1]}"
             letters="${BASH_REMATCH[2]}"
             bugfix=0
-            if [[ -n "$letters" ]]; then
+            if [[ -n "$letters" && "$letters" != -* ]]; then
               for ((i = 0; i < ${#letters}; i++)); do
                 code="$(printf '%d' "'${letters:i:1}")"
                 bugfix=$((bugfix * 26 + code - 96))
@@ -314,6 +316,11 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || gh release view "$GITHUB_REF_NAME" > /dev/null
+            # A pre-release tag, such as 1.2.3-alpha, makes a pre-release.
+            prerelease=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              prerelease=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "${prerelease[@]}" || gh release view "$GITHUB_REF_NAME" > /dev/null
           fi
           gh release upload "$GITHUB_REF_NAME" msi/*.msi --clobber
