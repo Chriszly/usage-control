@@ -3,7 +3,8 @@
 #   docker compose pull && docker compose up -d   # the published image
 #   docker compose up -d --build                  # or build it from this checkout
 # Add-ons are picked with COMPOSE_PROFILES in .env, such as COMPOSE_PROFILES=power or
-# COMPOSE_PROFILES=power,memory.
+# COMPOSE_PROFILES=power,memory. COMPOSE_PROFILES=cub starts the lightweight ones
+# (the Cub edition); Grizzly is cub with others, such as COMPOSE_PROFILES=cub,power.
 # Then open http://<the machine's address>:9393 from the local network.
 services:
   usage-control:
@@ -106,7 +107,7 @@ services:
   # mount it, and the container would not start.
   pressure:
     image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
-    profiles: [pressure]
+    profiles: [pressure, cub]
     restart: unless-stopped
     entrypoint: ["/usage-control-pressure"]
     environment:
@@ -130,7 +131,7 @@ services:
   # image's user, like usage-control, without any capability or network.
   kernel:
     image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
-    profiles: [kernel]
+    profiles: [kernel, cub]
     restart: unless-stopped
     entrypoint: ["/usage-control-kernel"]
     environment:
@@ -152,7 +153,7 @@ services:
   # user, like usage-control, without any capability and without network.
   wifi:
     image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
-    profiles: [wifi]
+    profiles: [wifi, cub]
     restart: unless-stopped
     entrypoint: ["/usage-control-wifi"]
     environment:
@@ -174,7 +175,7 @@ services:
   # image's user, like usage-control, without any capability or network.
   memory:
     image: ghcr.io/chriszly/usage-control:${IMAGE_TAG:-latest}
-    profiles: [memory]
+    profiles: [memory, cub]
     restart: unless-stopped
     entrypoint: ["/usage-control-memory"]
     environment:

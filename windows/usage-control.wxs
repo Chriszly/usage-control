@@ -240,7 +240,17 @@
     <SetProperty Action="AddOnFiles" Id="REINSTALLMODE" Value="omus" Before="CostInitialize" Sequence="execute"
                  Condition='REINSTALL AND NOT (REINSTALLMODE ~&gt;&lt; "p" OR REINSTALLMODE ~&gt;&lt; "o" OR REINSTALLMODE ~&gt;&lt; "e" OR REINSTALLMODE ~&gt;&lt; "d" OR REINSTALLMODE ~&gt;&lt; "c" OR REINSTALLMODE ~&gt;&lt; "a") AND (POWER &lt;&gt; REMEMBERED_POWER OR GPU &lt;&gt; REMEMBERED_GPU OR PRESSURE &lt;&gt; REMEMBERED_PRESSURE OR KERNEL &lt;&gt; REMEMBERED_KERNEL OR WIFI &lt;&gt; REMEMBERED_WIFI OR MEMORY &lt;&gt; REMEMBERED_MEMORY OR PORTS &lt;&gt; REMEMBERED_PORTS OR SMART &lt;&gt; REMEMBERED_SMART OR PROCESSES &lt;&gt; REMEMBERED_PROCESSES)' />
 
-    <!-- The setup wizard: welcome, the Mode page, ready to install. -->
+    <!--
+      The edition on the Edition page: Cub installs the lightweight add-ons
+      (kernel, memory, pressure, Wi-Fi), Grizzly those and the add-ons picked
+      on the Add-ons page. Not remembered itself: an update starts at Grizzly
+      when one of its add-ons is installed.
+    -->
+    <Property Id="EDITION" Value="cub" />
+    <SetProperty Action="EditionGrizzly" Id="EDITION" Value="grizzly" After="LaunchConditions" Sequence="ui"
+                 Condition='POWER = "1" OR GPU = "1" OR PROCESSES = "1" OR PORTS = "1" OR SMART = "1"' />
+
+    <!-- The setup wizard: welcome, the Mode page, the Edition page, the Add-ons page for Grizzly, ready to install. -->
     <UIRef Id="SetupWizard" />
     <!-- No "Change" in Apps and Features: a newer installer, or a repair with WEBSITE, changes the mode. -->
     <Property Id="ARPNOMODIFY" Value="1" />
@@ -655,29 +665,46 @@
         </Control>
       </Dialog>
 
+      <Dialog Id="EditionDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Which edition should it run?" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own." />
+        <Control Id="Edition" Type="RadioButtonGroup" X="20" Y="60" Width="330" Height="110" Property="EDITION">
+          <RadioButtonGroup Property="EDITION">
+            <RadioButton Value="cub" X="0" Y="0" Width="330" Height="15" Text="&amp;Cub: the lightweight add-ons (recommended)" />
+            <RadioButton Value="grizzly" X="0" Y="45" Width="330" Height="15" Text="&amp;Grizzly: Cub and the add-ons you pick next" />
+          </RadioButtonGroup>
+        </Control>
+        <Control Id="CubText" Type="Text" X="38" Y="77" Width="310" Height="24" NoPrefix="yes" Text="Kernel, memory, pressure and Wi-Fi, which read a few counters at each poll." />
+        <Control Id="GrizzlyText" Type="Text" X="38" Y="122" Width="310" Height="24" NoPrefix="yes" Text="Adds a choice of power, graphics card, processes, ports and disk health, which cost more or need more rights." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
       <!--
-        Which add-ons to install, one box each with what it tracks in its
+        Grizzly's add-ons to install, one box each with what it tracks in its
         text. Slot i is at Y = 55 + 17 * i, ten slots up to the bottom line.
-        Each add-on that runs on Windows has a fixed slot, so adding one never
-        moves the others; a slot stays empty until its add-on is added:
-        0 power, 1 gpu, 2 processes, 3 ports, 4 kernel, 5 memory, 6 pressure,
-        7 wifi, 8 smart, 9 free. The Linux-only add-ons (inodes, containers)
-        have none.
+        Each Grizzly add-on that runs on Windows has a fixed slot, so adding
+        one never moves the others; a slot stays empty until its add-on is
+        added: 0 power, 1 gpu, 2 processes, 3 ports, 4 smart, 5 to 9 free.
+        Cub's add-ons (kernel, memory, pressure, wifi) come with both editions
+        and have none, nor have the Linux-only add-ons (inodes, containers).
       -->
       <Dialog Id="AddOnsDlg" Width="370" Height="270" Title="[ProductName] Setup">
         <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
         <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
-        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should it track?" />
-        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Each add-on runs as a small service of its own. All are optional." />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}What else should Grizzly track?" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="Cub's lightweight add-ons come with it. These are optional." />
         <Control Id="Power" Type="CheckBox" X="20" Y="55" Width="330" Height="15" Property="POWER_BOX" CheckBoxValue="1" Text="&amp;Power: what the CPU, battery and NVIDIA graphics card draw" />
         <Control Id="Gpu" Type="CheckBox" X="20" Y="72" Width="330" Height="15" Property="GPU_BOX" CheckBoxValue="1" Text="&amp;Graphics card: fan, clocks, video engines and power limit" />
         <Control Id="Processes" Type="CheckBox" X="20" Y="89" Width="330" Height="15" Property="PROCESSES_BOX" CheckBoxValue="1" Text="P&amp;rocesses: the ten using the most CPU and memory" />
         <Control Id="Ports" Type="CheckBox" X="20" Y="106" Width="330" Height="15" Property="PORTS_BOX" CheckBoxValue="1" Text="P&amp;orts: which TCP and UDP ports the PC listens on" />
-        <Control Id="Kernel" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="KERNEL_BOX" CheckBoxValue="1" Text="&amp;Kernel: context switches, interrupts, handles, TCP connections" />
-        <Control Id="Memory" Type="CheckBox" X="20" Y="140" Width="330" Height="15" Property="MEMORY_BOX" CheckBoxValue="1" Text="&amp;Memory: kernel pools, committed, page faults, paging" />
-        <Control Id="Pressure" Type="CheckBox" X="20" Y="157" Width="330" Height="15" Property="PRESSURE_BOX" CheckBoxValue="1" Text="Pr&amp;essure: threads, memory and disks waiting" />
-        <Control Id="Wifi" Type="CheckBox" X="20" Y="174" Width="330" Height="15" Property="WIFI_BOX" CheckBoxValue="1" Text="&amp;Wi-Fi: signal quality and strength of the connection" />
-        <Control Id="Smart" Type="CheckBox" X="20" Y="191" Width="330" Height="15" Property="SMART_BOX" CheckBoxValue="1" Text="&amp;Smart: the disks' health, temperature and wear" />
+        <Control Id="Smart" Type="CheckBox" X="20" Y="123" Width="330" Height="15" Property="SMART_BOX" CheckBoxValue="1" Text="&amp;Smart: the disks' health, temperature and wear" />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -698,14 +725,25 @@
 
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ModeDlg" />
       <Publish Dialog="ModeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
-      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" />
-      <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <?foreach AddOn in POWER;GPU;PRESSURE;KERNEL;WIFI;MEMORY;PORTS;SMART;PROCESSES ?>
+      <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="EditionDlg" />
+      <Publish Dialog="EditionDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
+      <!-- Both editions install Cub's add-ons; Cub none of Grizzly's. -->
+      <?foreach AddOn in PRESSURE;KERNEL;WIFI;MEMORY ?>
+      <Publish Dialog="EditionDlg" Control="Next" Property="$(AddOn)" Value="1" Order="1" />
+      <?endforeach?>
+      <?foreach AddOn in POWER;GPU;PORTS;SMART;PROCESSES ?>
+      <Publish Dialog="EditionDlg" Control="Next" Property="$(AddOn)" Value="0" Condition='EDITION = "cub"' Order="1" />
+      <?endforeach?>
+      <Publish Dialog="EditionDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition='EDITION = "cub"' Order="2" />
+      <Publish Dialog="EditionDlg" Control="Next" Event="NewDialog" Value="AddOnsDlg" Condition='EDITION = "grizzly"' Order="2" />
+      <Publish Dialog="AddOnsDlg" Control="Back" Event="NewDialog" Value="EditionDlg" />
+      <?foreach AddOn in POWER;GPU;PORTS;SMART;PROCESSES ?>
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="1" Condition="$(AddOn)_BOX" Order="1" />
       <Publish Dialog="AddOnsDlg" Control="Next" Property="$(AddOn)" Value="0" Condition="NOT $(AddOn)_BOX" Order="1" />
       <?endforeach?>
       <Publish Dialog="AddOnsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="2" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AddOnsDlg" Condition="NOT Installed" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AddOnsDlg" Condition='NOT Installed AND EDITION = "grizzly"' />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="EditionDlg" Condition='NOT Installed AND EDITION = "cub"' />
 
       <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
