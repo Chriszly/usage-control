@@ -405,6 +405,11 @@ func clientExtras(list map[string]json.RawMessage) metrics.Extra {
 			wireless++
 		}
 	}
+	return clientsExtra(wired, wireless)
+}
+
+// clientsExtra is the group of the clients online, on a cable and on Wi-Fi.
+func clientsExtra(wired, wireless float64) metrics.Extra {
 	total := wired + wireless
 	return metrics.Extra{
 		ID: "clients", Title: "Clients", Titles: map[string]string{"de": "Geräte im Netz", "fr": "Appareils connectés", "es": "Dispositivos conectados"},

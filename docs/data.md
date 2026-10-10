@@ -77,7 +77,7 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 
 ## Routers
 
-A router read over UPnP reports one network card, *WAN*, with its traffic and the speed of the line, and the extras *Internet connection*: its state, the download and upload speed of the line and how long it is connected. It reports no CPU, memory, disks, temperatures or uptime, and the page leaves those cards out. An ASUS router read with its login reports the CPU per core, memory, uptime, a network card each for *WAN*, *LAN* and each Wi-Fi band, the temperatures of the CPU and the radios where the model has them, and the extras *Clients*: online, on a cable and on Wi-Fi, with the history of those online. See [Show the router](setup.md#5-show-the-router).
+A router read over UPnP reports one network card, *WAN*, with its traffic and the speed of the line, and the extras *Internet connection*: its state, the download and upload speed of the line and how long it is connected. It reports no CPU, memory, disks, temperatures or uptime, and the page leaves those cards out. An ASUS router read with its login reports the CPU per core, memory, uptime, a network card each for *WAN*, *LAN* and each Wi-Fi band, the temperatures of the CPU and the radios where the model has them, and the extras *Clients*: online, on a cable and on Wi-Fi, with the history of those online. A FRITZ!Box reports *WAN*, its uptime, *Internet connection* with the noise margins of a DSL line (with their history) and *Clients*. A router read over SNMP reports a network card for every port that is up, by its name, with errors and dropped packets, its uptime, and where the router tells them the CPU per core and memory. See [Show the router](setup.md#5-show-the-router).
 
 ## GPUs
 

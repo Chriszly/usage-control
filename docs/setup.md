@@ -233,20 +233,24 @@ The hub can show your router as a device of its own, with its availability and c
 
 - **Any router with UPnP** (ASUS, Technicolor, FRITZ!Box and most boxes of internet providers): the internet traffic, the speed of the line and whether the connection is up, without a login. Switch on UPnP in the router's settings.
 - **ASUS with its login**: also the CPU per core, memory, traffic per port and Wi-Fi band, the clients online and the temperatures of the CPU and the radios, through the router's web interface, read as the ASUS app reads it. It logs in once and keeps the token; some models then sign the admin out of the web interface, so log in there again if that happens. It is read every 30 seconds, to spare the router's CPU. Best create a user for it in the router, if the model allows one.
+- **FRITZ!Box with a FRITZ!Box user**: the internet traffic, the speed the line synchronized at, the noise margin of a DSL line, the uptime and the clients online, on a cable and on Wi-Fi, over TR-064, the FRITZ!Box's interface for applications. Allow it under *Home Network > Network > Network Settings > Allow access for applications*, and create a user for it under *System > FRITZ!Box Users*. It is read every 30 seconds. A wrong password is not tried again for 5 minutes, as the FRITZ!Box blocks logins for a while after wrong ones.
+- **SNMP** (MikroTik, OpenWrt with `snmpd`, Ubiquiti, business routers and switches): the traffic, errors and speed of every port that is up, and where the router tells them the CPU per core, memory and uptime. SNMPv2c needs the community (`public` unless it was changed); SNMPv3 a user with authentication (SHA) and encryption (AES-128), whose password is used for both. Switch on SNMP in the router's settings, read-only.
+
+A login is asked for only for a router that needs one: none for UPnP, the community for SNMPv2c, a user and password for ASUS, FRITZ!Box and SNMPv3.
 
 **Privacy:** the router is read over the local network only. No data is sent to any server; everything stays on your own devices. The hub only reads: it never changes a setting of the router.
 
 Set it up:
 
-- **Docker:** run `sudo ./setup-router.sh` next to `compose.yaml`, then `docker compose up -d`. It asks for the router and writes `HUB_ROUTERS` to `.env`; an ASUS router's password goes to `router-secrets/router-passwords`, which only root and the container's user can read. Docker has no key store to encrypt it with, so it is protected by the file's owner and permissions.
-- **Linux service:** `sudo ./install.sh`, run in a terminal, asks for the router after the add-ons, also on an update, where it can also stop showing it. An ASUS router's password is encrypted with `systemd-creds` with the machine's own key (and its TPM, where there is one), so the file `/etc/usage-control-router-passwords.cred` is of no use on another machine; systemd decrypts it only for the service. Before systemd 250, which cannot encrypt, it is stored readable by root only. `--uninstall --purge` deletes it.
-- **By hand:** list routers in `HUB_ROUTERS`, each as `name=protocol:address`, and for a login the user before the address. The passwords go in a file named by `ROUTER_PASSWORDS_FILE`, one `name=password` per line:
+- **Docker:** run `sudo ./setup-router.sh` next to `compose.yaml`, then `docker compose up -d`. It asks for the router and writes `HUB_ROUTERS` to `.env`; a router's password, or an SNMP community other than `public`, goes to `router-secrets/router-passwords`, which only root and the container's user can read. Docker has no key store to encrypt it with, so it is protected by the file's owner and permissions.
+- **Linux service:** `sudo ./install.sh`, run in a terminal, asks for the router after the add-ons, also on an update, where it can also stop showing it. A router's password or SNMP community is encrypted with `systemd-creds` with the machine's own key (and its TPM, where there is one), so the file `/etc/usage-control-router-passwords.cred` is of no use on another machine; systemd decrypts it only for the service. Before systemd 250, which cannot encrypt, it is stored readable by root only. `--uninstall --purge` deletes it.
+- **By hand:** list routers in `HUB_ROUTERS`, each as `name=protocol:address`, with the protocol `upnp`, `asus`, `fritzbox`, `snmp` or `snmpv3`, and for a login the user before the address. The passwords, and an SNMP community other than `public`, go in a file named by `ROUTER_PASSWORDS_FILE`, one `name=password` per line:
 
 ```bash
-HUB_ROUTERS=Router=upnp:192.168.1.1,Office router=asus:admin@192.168.2.1
+HUB_ROUTERS=Router=upnp:192.168.1.1,Office router=asus:admin@192.168.2.1,Box=fritzbox:monitor@192.168.178.1,Switch=snmp:192.168.1.2,Core=snmpv3:monitor@192.168.1.3
 ```
 
-The router shows as *Router* in the *Devices* dialog and is removed only where it is set. Its page shows only what the router tells: over UPnP the network card (*WAN*) and the internet connection, with an ASUS login the CPU, memory and temperatures too. A router that does not answer is an outage, as for a server. Routers that pass traffic in hardware (NAT acceleration) may count less traffic than goes through them; the page shows what the router counts.
+The router shows as *Router* in the *Devices* dialog and is removed only where it is set. Its page shows only what the router tells: over UPnP the network card (*WAN*) and the internet connection, with an ASUS login the CPU, memory and temperatures too, from a FRITZ!Box the line and the clients, over SNMP every port. A router that does not answer is an outage, as for a server. Routers that pass traffic in hardware (NAT acceleration) may count less traffic than goes through them; the page shows what the router counts.
 
 ## Run from source
 
@@ -279,8 +283,8 @@ Settings are environment variables. In Docker they go in `.env` next to `compose
 | `HISTORY_MAX_ENTRIES` | `64` | disks, sensors, network cards and GPUs each that the history keeps per device, and 8 times as many values of extras, 1 to 10000 |
 | `DEVICE_NAME` | *Host Hub* | how the page names this device |
 | `HUB_DEVICES` | none | other devices to collect from, as `name=address:port`, comma-separated |
-| `HUB_ROUTERS` | none | routers to show as devices, as `name=upnp:address` or `name=asus:user@address`, comma-separated; see [Show the router](#5-show-the-router) |
-| `ROUTER_PASSWORDS_FILE` | `router-passwords` in systemd's credentials folder; set by `compose.yaml` | the file with the passwords of routers that need a login, one `name=password` per line |
+| `HUB_ROUTERS` | none | routers to show as devices, as `name=upnp:address`, `name=snmp:address`, or `name=asus:user@address`, `name=fritzbox:user@address` or `name=snmpv3:user@address`, comma-separated; see [Show the router](#5-show-the-router) |
+| `ROUTER_PASSWORDS_FILE` | `router-passwords` in systemd's credentials folder; set by `compose.yaml` | the file with the passwords of routers that need a login, and SNMP communities other than `public`, one `name=password` per line |
 | `DATA_ONLY` | `false` | `true` serves only the usage for a hub, with no website and no history of its own |
 | `BUFFER_HOURS` | `24` | with `DATA_ONLY`, hours of usage kept for a hub that cannot reach the device, 1 to 168; see [While the hub is away](architecture.md#while-the-hub-is-away) |
 | `RESET_PASSWORD` | `false` | `true` deletes the password for changing devices at start; unset it again right after |

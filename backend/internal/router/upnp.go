@@ -218,7 +218,7 @@ type upnpDescription struct {
 
 // find looks for the router's UPnP description and the services in it.
 func (u *UPnPReader) find(ctx context.Context) error {
-	routerIP, err := u.routerIP(ctx)
+	routerIP, err := localIP(ctx, u.host)
 	if err != nil {
 		return err
 	}
@@ -261,24 +261,25 @@ func (u *UPnPReader) find(ctx context.Context) error {
 	return nil
 }
 
-// routerIP returns the router's IP address, which must be on the local
-// network.
-func (u *UPnPReader) routerIP(ctx context.Context) (netip.Addr, error) {
-	host := strings.Trim(u.host, "[]")
+// localIP returns the IP address of the router at host, a host name or IP
+// address, which must be on the local network.
+func localIP(ctx context.Context, host string) (netip.Addr, error) {
+	name := host
+	host = strings.Trim(host, "[]")
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
 		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		if err != nil {
-			return netip.Addr{}, fmt.Errorf("look up the router %s: %w", u.host, err)
+			return netip.Addr{}, fmt.Errorf("look up the router %s: %w", name, err)
 		}
 		if len(ips) == 0 {
-			return netip.Addr{}, fmt.Errorf("look up the router %s: no address", u.host)
+			return netip.Addr{}, fmt.Errorf("look up the router %s: no address", name)
 		}
 		ip = ips[0]
 	}
 	ip = ip.Unmap()
 	if !lan.Default.Local(ip) {
-		return netip.Addr{}, fmt.Errorf("the router %s is not on the local network", u.host)
+		return netip.Addr{}, fmt.Errorf("the router %s is not on the local network", name)
 	}
 	return ip, nil
 }
@@ -399,6 +400,21 @@ func sameHost(base *url.URL, reference string, routerIP netip.Addr) (string, err
 // call calls a UPnP action that only reads, and returns the values in its
 // answer by name, such as NewTotalBytesReceived.
 func (u *UPnPReader) call(ctx context.Context, service upnpService, action string) (map[string]string, error) {
+	request, err := soapRequest(ctx, service, action)
+	if err != nil {
+		return nil, err
+	}
+	response, err := u.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("ask %s for %s: %w", u.host, action, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	return soapAnswer(response, u.host, action)
+}
+
+// soapRequest returns the request that calls a UPnP or TR-064 action
+// without arguments.
+func soapRequest(ctx context.Context, service upnpService, action string) (*http.Request, error) {
 	body := `<?xml version="1.0"?>` +
 		`<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">` +
 		`<s:Body><u:` + action + ` xmlns:u="` + xmlEscape(service.ServiceType) + `"></u:` + action + `></s:Body></s:Envelope>`
@@ -408,21 +424,21 @@ func (u *UPnPReader) call(ctx context.Context, service upnpService, action strin
 	}
 	request.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
 	request.Header.Set("SOAPAction", `"`+service.ServiceType+"#"+action+`"`)
-	response, err := u.client.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("ask %s for %s: %w", u.host, action, err)
-	}
-	defer func() { _ = response.Body.Close() }()
+	return request, nil
+}
+
+// soapAnswer reads the values of the answer to an action.
+func soapAnswer(response *http.Response, host, action string) (map[string]string, error) {
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ask %s for %s: answered %s", u.host, action, response.Status)
+		return nil, fmt.Errorf("ask %s for %s: answered %s", host, action, response.Status)
 	}
 	data, err := readBody(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ask %s for %s: %w", u.host, action, err)
+		return nil, fmt.Errorf("ask %s for %s: %w", host, action, err)
 	}
 	values, err := soapValues(data)
 	if err != nil {
-		return nil, fmt.Errorf("ask %s for %s: %w", u.host, action, err)
+		return nil, fmt.Errorf("ask %s for %s: %w", host, action, err)
 	}
 	return values, nil
 }
