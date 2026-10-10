@@ -169,8 +169,14 @@ func ReadPasswords(path string) (map[string]string, error) {
 		return nil, err
 	}
 	defer func() { _ = file.Close() }()
+	return parsePasswords(file, path)
+}
+
+// parsePasswords reads lines of "router name=password" from r, which source
+// names in errors.
+func parsePasswords(r io.Reader, source string) (map[string]string, error) {
 	passwords := map[string]string{}
-	scanner := bufio.NewScanner(io.LimitReader(file, maxPasswordsBytes))
+	scanner := bufio.NewScanner(io.LimitReader(r, maxPasswordsBytes))
 	for line := 1; scanner.Scan(); line++ {
 		text := strings.TrimRight(scanner.Text(), "\r")
 		if strings.TrimSpace(text) == "" || strings.HasPrefix(strings.TrimSpace(text), "#") {
@@ -179,7 +185,7 @@ func ReadPasswords(path string) (map[string]string, error) {
 		name, password, ok := strings.Cut(text, "=")
 		if !ok || strings.TrimSpace(name) == "" || password == "" {
 			// The line is not shown, as it may hold a password.
-			return nil, fmt.Errorf("%s, line %d: write each router as name=password", path, line)
+			return nil, fmt.Errorf("%s, line %d: write each router as name=password", source, line)
 		}
 		passwords[strings.TrimSpace(name)] = password
 	}
