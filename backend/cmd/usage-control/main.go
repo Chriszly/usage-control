@@ -54,6 +54,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -375,30 +376,46 @@ func (d hubDevices) List() []server.Device {
 }
 
 // routerDevices returns the routers in HUB_ROUTERS as devices, each with
-// the password it needs from the passwords file (see router.PasswordsPath).
+// the password it needs: from the passwords file (see router.PasswordsPath),
+// or else the one the Windows installer stored (see router.StoredPasswords).
 func routerDevices() ([]hub.Device, error) {
 	configs, err := router.ParseConfigs(os.Getenv("HUB_ROUTERS"))
 	if err != nil {
 		return nil, fmt.Errorf("check HUB_ROUTERS: %w", err)
 	}
-	var passwords map[string]string
+	needsSecret, needsLogin := "", ""
 	for _, config := range configs {
-		if !config.Protocol.HasSecret() || passwords != nil {
-			continue
+		if config.Protocol.HasSecret() && needsSecret == "" {
+			needsSecret = config.Name
 		}
-		path := router.PasswordsPath()
-		if path == "" {
-			if !config.Protocol.NeedsLogin() {
-				// SNMPv2c with the community public.
-				continue
-			}
-			return nil, fmt.Errorf("the router %q needs a password; run the installer again to enter it, or set ROUTER_PASSWORDS_FILE to a file with a line %s=<password>", config.Name, config.Name)
+		if config.Protocol.NeedsLogin() && needsLogin == "" {
+			needsLogin = config.Name
 		}
-		if passwords, err = router.ReadPasswords(path); err != nil {
-			if errors.Is(err, fs.ErrNotExist) && !config.Protocol.NeedsLogin() {
-				continue
+	}
+	var passwords map[string]string
+	source := router.PasswordsPath()
+	if needsSecret != "" {
+		switch {
+		case source != "":
+			passwords, err = router.ReadPasswords(source)
+			// SNMPv2c with the community public needs no file.
+			if err != nil && (!errors.Is(err, fs.ErrNotExist) || needsLogin != "") {
+				return nil, fmt.Errorf("read the router passwords: %w", err)
 			}
-			return nil, fmt.Errorf("read the router passwords: %w", err)
+		default:
+			databasePath := os.Getenv("DATABASE_PATH")
+			if databasePath == "" {
+				databasePath = "usage-control.db"
+			}
+			var stored bool
+			passwords, stored, err = router.StoredPasswords(filepath.Dir(databasePath))
+			if err != nil {
+				return nil, fmt.Errorf("read the router passwords the installer stored: %w", err)
+			}
+			source = "the installer"
+			if !stored && needsLogin != "" {
+				return nil, fmt.Errorf("the router %q needs a password; run the installer again to enter it, or set ROUTER_PASSWORDS_FILE to a file with a line %s=<password>", needsLogin, needsLogin)
+			}
 		}
 	}
 	byID := map[string]string{}
@@ -413,7 +430,7 @@ func routerDevices() ([]hub.Device, error) {
 		}
 		password, ok := byID[device.ID]
 		if config.Protocol.NeedsLogin() && !ok {
-			return nil, fmt.Errorf("the router %q needs a password, but %s has no line %s=<password>; run the installer again to enter it", config.Name, router.PasswordsPath(), config.Name)
+			return nil, fmt.Errorf("the router %q needs a password, but %s has none for it; run the installer again to enter it", config.Name, source)
 		}
 		device.Source = router.New(config, password)
 		devices = append(devices, device)

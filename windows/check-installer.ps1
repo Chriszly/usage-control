@@ -17,8 +17,10 @@
 # keeps the add-ons and closes the tray icon, checks a bad remembered
 # UPDATE_CHECK is refused with the repair that fixes it, which does, but does
 # not hold up the uninstall, uninstalls it, then installs it with the defaults
-# and checks it only serves the usage data, and last checks that an update
-# with WEBSITE=0 turns the website off and that one with a space clears
+# and checks it only serves the usage data, and last installs it with a
+# router and its password, checks the service encrypted the password and
+# deleted it from the registry, and checks that an update with WEBSITE=0
+# turns the website and the router off and that one with a space clears
 # DISK_PATHS, UPDATE_CHECK and PORT.
 #
 #   pwsh windows/check-installer.ps1 -Msi usage-control-1.2.3-x64.msi -NewerMsi usage-control-1.2.3a-x64.msi
@@ -107,10 +109,10 @@ function Assert-FirewallPort([string] $Port) {
     if ($rule.Profile -ne 'Private') { throw "The firewall rule applies to $($rule.Profile) networks, not only private ones" }
 }
 
-function Assert-Website([string] $Port) {
-    $devices = Get-Answer "http://127.0.0.1:$Port/api/devices"
-    $names = ($devices.devices | ForEach-Object { $_.name }) -join ', '
-    if ($names -ne 'Runner, Pi') { throw "The website shows the devices '$names', not 'Runner, Pi'" }
+function Assert-Website([string] $Port, [string] $Devices = 'Runner, Pi') {
+    $answer = Get-Answer "http://127.0.0.1:$Port/api/devices"
+    $names = ($answer.devices | ForEach-Object { $_.name }) -join ', '
+    if ($names -ne $Devices) { throw "The website shows the devices '$names', not '$Devices'" }
     $status = Get-StatusCode "http://127.0.0.1:$Port/"
     if ($status -ne 200) { throw "The website answered $status" }
     if (-not (Test-Path "$env:ProgramData\Usage Control\usage-control.db")) { throw 'The history database was not created' }
@@ -445,9 +447,16 @@ if (Get-Service UsageControlSmart -ErrorAction SilentlyContinue) { throw 'The sm
 if (Get-Service UsageControlProcesses -ErrorAction SilentlyContinue) { throw 'The processes add-on was installed without PROCESSES=1' }
 Invoke-Installer "/x `"$Msi`""
 
-Write-Host 'An update with WEBSITE=0 turns the website and HUB_DEVICES off, and a space clears DISK_PATHS, UPDATE_CHECK and PORT'
-Invoke-Installer "/i `"$Msi`" PORT=8092 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false"
-Assert-Website 8092
+Write-Host 'A router password is encrypted by the service and deleted from the registry'
+Invoke-Installer "/i `"$Msi`" PORT=8092 WEBSITE=1 DEVICE_NAME=Runner HUB_DEVICES=Pi=192.168.1.20:9393 HUB_ROUTERS=Box=fritzbox:monitor@192.168.178.1 ROUTER_PASSWORDS=Box=not-in-the-clear DISK_PATHS=$env:SystemDrive\ UPDATE_CHECK=false"
+Assert-Website 8092 'Runner, Pi, Box'
+Assert-ServiceSetting HUB_ROUTERS 'Box=fritzbox:monitor@192.168.178.1'
+$protected = "$env:ProgramData\Usage Control\router-passwords.dpapi"
+Wait-Until { -not (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control\Router' -Name Passwords -ErrorAction SilentlyContinue) } 'the service deleted the router password from the registry'
+if (-not (Test-Path $protected)) { throw 'The service did not store the router password' }
+$bytes = [IO.File]::ReadAllBytes($protected)
+if ([Text.Encoding]::ASCII.GetString($bytes).Contains('not-in-the-clear') -or [Text.Encoding]::Unicode.GetString($bytes).Contains('not-in-the-clear')) { throw 'The router password is stored in the clear' }
+if ((Show-InstallerLog 'not-in-the-clear').Count -gt 0) { throw 'The installer log shows the router password' }
 # DATA_ONLY=false is what the setup wizard used to pass on after the
 # remembered WEBSITE=1, which kept the website on. An empty option such as
 # DISK_PATHS="" would count as not given, so a space clears it; PORT then
@@ -455,6 +464,7 @@ Assert-Website 8092
 Invoke-Installer "/i `"$NewerMsi`" WEBSITE=0 DATA_ONLY=false DISK_PATHS=`" `" UPDATE_CHECK=`" `" PORT=`" `""
 Assert-ServiceSetting DATA_ONLY 'true'
 Assert-ServiceSetting HUB_DEVICES ''
+Assert-ServiceSetting HUB_ROUTERS ''
 Assert-ServiceSetting DISK_PATHS ' '
 Assert-ServiceSetting UPDATE_CHECK ' '
 Assert-ServiceSetting LISTEN_ADDR ':9393'
