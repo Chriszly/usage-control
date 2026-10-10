@@ -48,7 +48,10 @@ type Device struct {
 	// Refused is set for an unreachable device added on the page that the
 	// hub does not connect to, as its address is the hub's own; it can be
 	// collected from when listed in HUB_DEVICES instead.
-	Refused bool          `json:"refused,omitempty"`
+	Refused bool `json:"refused,omitempty"`
+	// Router is set for a router, which the hub reads itself, as it runs
+	// no usage-control.
+	Router  bool          `json:"router,omitempty"`
 	Metrics Collector     `json:"-"`
 	History HistoryReader `json:"-"`
 	// Availability is set for the devices the hub collects from.

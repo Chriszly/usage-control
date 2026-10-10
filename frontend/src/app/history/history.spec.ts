@@ -4,7 +4,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DeviceService } from '../devices/devices';
 import { History } from '../metrics/metrics';
-import { translate } from '../i18n/i18n';
+import { TextParams, translate } from '../i18n/i18n';
+import { MessageKey } from '../i18n/messages/en';
 import { HistoryCharts, chartsOf, extraChartsOf, refreshIntervalMs } from './history';
 
 const NOW = new Date('2026-10-02T20:00:00Z');
@@ -287,6 +288,27 @@ describe('chartsOf', () => {
     expect(charts.map((c) => c.title)).toEqual(['CPU and memory', 'Network', 'Disks']);
     expect(charts[1].lines[0].points).toEqual([{ time: 0, value: 150 }]);
     expect(charts[2].lines[0].label).toBe('/');
+  });
+});
+
+describe('chartsOf for a router', () => {
+  it('leaves out CPU and memory while a router tells none', () => {
+    const series = [
+      { metric: 'cpu', points: [{ time: 0, value: 0 }] },
+      { metric: 'memory', points: [{ time: 0, value: 0 }] },
+      { metric: 'network.receive:WAN', points: [{ time: 0, value: 100 }] },
+    ];
+    const t = (key: MessageKey, params?: TextParams) => translate('en-GB', key, params);
+
+    expect(chartsOf(series, t, true).map((c) => c.title)).toEqual(['Network']);
+    // A device at 0 % is still charted.
+    expect(chartsOf(series, t).map((c) => c.title)).toEqual(['CPU and memory', 'Network']);
+    // A router read with a login tells them.
+    series[0].points = [{ time: 0, value: 12 }];
+    expect(chartsOf(series, t, true)[0].lines[0]).toEqual({
+      label: 'CPU',
+      points: [{ time: 0, value: 12 }],
+    });
   });
 });
 

@@ -66,6 +66,9 @@ type Agent struct {
 	// often they gained one; see checkOwnGeneration and get. Set for a
 	// device added on the page.
 	ownGeneration func() uint64
+	// reader, when set, reads the usage in place of asking a usage-control,
+	// for a router; see Device.Source.
+	reader Usage
 
 	mu       sync.Mutex
 	latest   metrics.Snapshot
@@ -102,6 +105,21 @@ func newAgent(address string, control func(network, address string, c syscall.Ra
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
+}
+
+// newReaderAgent returns an Agent that reads the usage with reader, for a
+// router, which runs no usage-control to ask.
+func newReaderAgent(reader Usage) *Agent {
+	return &Agent{reader: reader, maxEntries: history.DefaultMaxEntries}
+}
+
+// nonNil returns list, or an empty list for nil, which is sent as [] rather
+// than null.
+func nonNil[T any](list []T) []T {
+	if list == nil {
+		return []T{}
+	}
+	return list
 }
 
 // askOnce asks the device at address for its usage a single time and closes
@@ -152,7 +170,18 @@ func (a *Agent) fresh() bool {
 // ask asks the device for its current usage.
 func (a *Agent) ask(ctx context.Context) (metrics.Snapshot, error) {
 	var snapshot metrics.Snapshot
-	if err := a.get(ctx, a.url, maxResponseBytes, &snapshot); err != nil {
+	if a.reader != nil {
+		var err error
+		if snapshot, err = a.reader.Collect(ctx); err != nil {
+			return metrics.Snapshot{}, err
+		}
+		// A router has no disks or GPUs, and may tell no temperatures; the
+		// page takes empty lists for them, as a device sends.
+		snapshot.Temperatures = nonNil(snapshot.Temperatures)
+		snapshot.Disks = nonNil(snapshot.Disks)
+		snapshot.Network = nonNil(snapshot.Network)
+		snapshot.GPUs = nonNil(snapshot.GPUs)
+	} else if err := a.get(ctx, a.url, maxResponseBytes, &snapshot); err != nil {
 		return metrics.Snapshot{}, err
 	}
 	// The extras are shown and stored as the device describes them, so they

@@ -494,6 +494,54 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('Switched on all the time');
   });
 
+  it('shows only what a router tells, with how it is read and that nothing leaves the network', () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'router', name: 'Router', kind: 'server', address: '192.168.1.1', router: true },
+    ]);
+    devices.selectedId.set('router');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    // A router read over UPnP: the internet traffic only.
+    http.expectOne('/api/metrics?device=router').flush({
+      time: '2026-10-02T12:00:00Z',
+      uptimeSeconds: 0,
+      cpu: { usagePercent: 0, cores: 0 },
+      memory: { totalBytes: 0, usedBytes: 0, usedPercent: 0 },
+      temperatures: [],
+      disks: [],
+      network: [
+        {
+          name: 'WAN',
+          receivedBytes: 1024 ** 3,
+          sentBytes: 1024 ** 2,
+          receiveBytesPerSecond: 2 * 1024 ** 2,
+          sendBytesPerSecond: 1024,
+        },
+      ],
+    } satisfies Snapshot);
+    http.expectOne('/api/availability?device=router').flush({
+      kind: 'server',
+      since: '2026-10-01T12:00:00Z',
+      countedSince: '2026-10-01T12:00:00Z',
+      offlineSeconds: 0,
+      outages: 0,
+    });
+    fixture.detectChanges();
+
+    const titles = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.card h2'),
+      (h) => h.textContent?.trim(),
+    );
+    expect(titles).toEqual(['Network', 'Router', 'Availability']);
+    expect(text()).toContain('WAN');
+    expect(text()).toContain('No data is sent to any server');
+  });
+
   it('shows how long another device was offline since it was added', () => {
     vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
     respond(snapshot);

@@ -115,6 +115,21 @@ describe('DevicesDialog', () => {
     expect(element().querySelectorAll('li > button')).toHaveLength(1);
   });
 
+  it('names a router as one instead of offering a kind', () => {
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      ...devices.devices(),
+      { id: 'router', name: 'Router', address: '192.168.1.1', kind: 'server', router: true },
+    ]);
+    fixture.detectChanges();
+
+    const items = Array.from(element().querySelectorAll('ul > li'));
+    const router = items.find((li) => li.textContent?.includes('192.168.1.1'))!;
+    expect(router.querySelector('.router')?.textContent?.trim()).toBe('Router');
+    expect(router.querySelector('.kind')).toBeNull();
+    expect(router.textContent).toContain('Set in .env');
+  });
+
   it('adds a device with the password and reads the list again', async () => {
     await type('name', 'Laptop');
     await type('address', '192.168.1.40:9393');

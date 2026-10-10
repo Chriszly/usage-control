@@ -62,179 +62,185 @@
 
 @if (snapshot(); as s) {
   <div class="cards" appEvenColumns [class.stale]="connection.lost()">
-    <div class="card">
-      <h2>{{ i18n.t('dashboard.cpu') }}</h2>
-      <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' : i18n.language() }} %</p>
-      <progress
-        max="100"
-        [value]="s.cpu.usagePercent"
-        [attr.aria-label]="i18n.t('dashboard.cpuUsage')"
-      ></progress>
-      @if (s.cpu.coreUsagePercent?.length) {
-        <div
-          class="cores"
-          role="img"
-          [attr.aria-label]="coresLabel(s.cpu.coreUsagePercent!)"
-          [style.--core-columns]="coreColumns(s.cpu.coreUsagePercent!.length)"
-        >
-          @for (usage of s.cpu.coreUsagePercent; track $index) {
-            <span
-              class="core"
-              [title]="
-                i18n.t('dashboard.coreUsage', {
-                  core: $index + 1,
-                  usage: decimal(usage, '1.0-0'),
-                })
-              "
-              ><span class="core-usage" [style.height.%]="usage"></span
-            ></span>
-          }
-        </div>
-      }
-      <p class="detail">
-        {{ i18n.plural(s.cpu.cores, 'dashboard.cores.one', 'dashboard.cores.other') }}
-        @if (s.cpu.clockMHz) {
-          · {{ s.cpu.clockMHz / 1000 | number: '1.1-1' : i18n.language() }} GHz
-        }
-      </p>
-      @if (s.cpu.loadAverage; as load) {
-        <p class="detail" [title]="i18n.t('dashboard.loadAverageHint')">
-          {{
-            i18n.t('dashboard.loadAverage', {
-              one: decimal(load.one, '1.2-2'),
-              five: decimal(load.five, '1.2-2'),
-              fifteen: decimal(load.fifteen, '1.2-2'),
-            })
-          }}
-        </p>
-      }
-      @if (s.cpu.processes; as p) {
-        <p class="detail">
-          {{ i18n.t('dashboard.processes', { total: p.total, running: p.running }) }}
-        </p>
-      }
-      @if (s.cpu.ioWaitPercent !== undefined) {
-        <p class="detail" [title]="i18n.t('dashboard.ioWaitHint')">
-          {{ i18n.t('dashboard.ioWait', { percent: decimal(s.cpu.ioWaitPercent, '1.1-1') }) }}
-          @if (s.cpu.stealPercent) {
-            ·
-            {{ i18n.t('dashboard.steal', { percent: decimal(s.cpu.stealPercent, '1.1-1') }) }}
-          }
-        </p>
-      }
-    </div>
-
-    <div class="card">
-      <h2>{{ i18n.t('dashboard.memory') }}</h2>
-      <p class="value">{{ s.memory.usedPercent | number: '1.0-1' : i18n.language() }} %</p>
-      <progress
-        max="100"
-        [value]="s.memory.usedPercent"
-        [attr.aria-label]="i18n.t('dashboard.memoryUsage')"
-      ></progress>
-      <p class="detail">
-        {{
-          i18n.t('dashboard.usedOfTotal', {
-            used: (s.memory.usedBytes | bytes: i18n.language()),
-            total: (s.memory.totalBytes | bytes: i18n.language()),
-          })
-        }}
-      </p>
-      @if (s.memory.availableBytes) {
-        <p class="detail">
-          {{
-            i18n.t('dashboard.available', {
-              available: (s.memory.availableBytes | bytes: i18n.language()),
-            })
-          }}
-          @if (s.memory.cachedBytes) {
-            ·
-            {{
-              i18n.t('dashboard.cache', {
-                cache: (s.memory.cachedBytes | bytes: i18n.language()),
-              })
-            }}
-          }
-        </p>
-      }
-      @if (s.memory.swap; as swap) {
-        <p class="sensor swap">
-          <span>{{ i18n.t('dashboard.swap') }}</span
-          ><span>{{ swap.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
-        </p>
+    @if (!isRouter() || s.cpu.cores > 0) {
+      <div class="card">
+        <h2>{{ i18n.t('dashboard.cpu') }}</h2>
+        <p class="value">{{ s.cpu.usagePercent | number: '1.0-1' : i18n.language() }} %</p>
         <progress
           max="100"
-          [value]="swap.usedPercent"
-          [attr.aria-label]="i18n.t('dashboard.swapUsage')"
+          [value]="s.cpu.usagePercent"
+          [attr.aria-label]="i18n.t('dashboard.cpuUsage')"
+        ></progress>
+        @if (s.cpu.coreUsagePercent?.length) {
+          <div
+            class="cores"
+            role="img"
+            [attr.aria-label]="coresLabel(s.cpu.coreUsagePercent!)"
+            [style.--core-columns]="coreColumns(s.cpu.coreUsagePercent!.length)"
+          >
+            @for (usage of s.cpu.coreUsagePercent; track $index) {
+              <span
+                class="core"
+                [title]="
+                  i18n.t('dashboard.coreUsage', {
+                    core: $index + 1,
+                    usage: decimal(usage, '1.0-0'),
+                  })
+                "
+                ><span class="core-usage" [style.height.%]="usage"></span
+              ></span>
+            }
+          </div>
+        }
+        <p class="detail">
+          {{ i18n.plural(s.cpu.cores, 'dashboard.cores.one', 'dashboard.cores.other') }}
+          @if (s.cpu.clockMHz) {
+            · {{ s.cpu.clockMHz / 1000 | number: '1.1-1' : i18n.language() }} GHz
+          }
+        </p>
+        @if (s.cpu.loadAverage; as load) {
+          <p class="detail" [title]="i18n.t('dashboard.loadAverageHint')">
+            {{
+              i18n.t('dashboard.loadAverage', {
+                one: decimal(load.one, '1.2-2'),
+                five: decimal(load.five, '1.2-2'),
+                fifteen: decimal(load.fifteen, '1.2-2'),
+              })
+            }}
+          </p>
+        }
+        @if (s.cpu.processes; as p) {
+          <p class="detail">
+            {{ i18n.t('dashboard.processes', { total: p.total, running: p.running }) }}
+          </p>
+        }
+        @if (s.cpu.ioWaitPercent !== undefined) {
+          <p class="detail" [title]="i18n.t('dashboard.ioWaitHint')">
+            {{ i18n.t('dashboard.ioWait', { percent: decimal(s.cpu.ioWaitPercent, '1.1-1') }) }}
+            @if (s.cpu.stealPercent) {
+              ·
+              {{ i18n.t('dashboard.steal', { percent: decimal(s.cpu.stealPercent, '1.1-1') }) }}
+            }
+          </p>
+        }
+      </div>
+    }
+
+    @if (!isRouter() || s.memory.totalBytes > 0) {
+      <div class="card">
+        <h2>{{ i18n.t('dashboard.memory') }}</h2>
+        <p class="value">{{ s.memory.usedPercent | number: '1.0-1' : i18n.language() }} %</p>
+        <progress
+          max="100"
+          [value]="s.memory.usedPercent"
+          [attr.aria-label]="i18n.t('dashboard.memoryUsage')"
         ></progress>
         <p class="detail">
           {{
             i18n.t('dashboard.usedOfTotal', {
-              used: (swap.usedBytes | bytes: i18n.language()),
-              total: (swap.totalBytes | bytes: i18n.language()),
+              used: (s.memory.usedBytes | bytes: i18n.language()),
+              total: (s.memory.totalBytes | bytes: i18n.language()),
             })
           }}
         </p>
-      }
-    </div>
-
-    <div class="card">
-      <h2>{{ i18n.t('dashboard.disks') }}</h2>
-      @for (d of s.disks; track d.path) {
-        <div class="disk">
-          <p class="sensor">
-            <span class="label" [title]="d.path">{{ d.path }}</span
-            ><span>{{ d.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
+        @if (s.memory.availableBytes) {
+          <p class="detail">
+            {{
+              i18n.t('dashboard.available', {
+                available: (s.memory.availableBytes | bytes: i18n.language()),
+              })
+            }}
+            @if (s.memory.cachedBytes) {
+              ·
+              {{
+                i18n.t('dashboard.cache', {
+                  cache: (s.memory.cachedBytes | bytes: i18n.language()),
+                })
+              }}
+            }
+          </p>
+        }
+        @if (s.memory.swap; as swap) {
+          <p class="sensor swap">
+            <span>{{ i18n.t('dashboard.swap') }}</span
+            ><span>{{ swap.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
           </p>
           <progress
             max="100"
-            [value]="d.usedPercent"
-            [attr.aria-label]="i18n.t('dashboard.diskUsage', { path: d.path })"
+            [value]="swap.usedPercent"
+            [attr.aria-label]="i18n.t('dashboard.swapUsage')"
           ></progress>
           <p class="detail">
             {{
               i18n.t('dashboard.usedOfTotal', {
-                used: (d.usedBytes | bytes: i18n.language()),
-                total: (d.totalBytes | bytes: i18n.language()),
+                used: (swap.usedBytes | bytes: i18n.language()),
+                total: (swap.totalBytes | bytes: i18n.language()),
               })
             }}
           </p>
-          @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
-            <p class="detail speeds">
-              <span>{{
-                i18n.t('dashboard.diskRead', {
-                  speed: (d.readBytesPerSecond | bytes: i18n.language()),
-                })
-              }}</span>
-              <span>{{
-                i18n.t('dashboard.diskWrite', {
-                  speed: (d.writeBytesPerSecond | bytes: i18n.language()),
-                })
-              }}</span>
+        }
+      </div>
+    }
+
+    @if (!isRouter() || s.disks.length > 0) {
+      <div class="card">
+        <h2>{{ i18n.t('dashboard.disks') }}</h2>
+        @for (d of s.disks; track d.path) {
+          <div class="disk">
+            <p class="sensor">
+              <span class="label" [title]="d.path">{{ d.path }}</span
+              ><span>{{ d.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
             </p>
-          }
-          @if (d.operationsPerSecond !== undefined) {
-            <p class="detail speeds">
-              <span>{{
-                i18n.t('dashboard.diskOperations', {
-                  count: decimal(d.operationsPerSecond, '1.0-0'),
+            <progress
+              max="100"
+              [value]="d.usedPercent"
+              [attr.aria-label]="i18n.t('dashboard.diskUsage', { path: d.path })"
+            ></progress>
+            <p class="detail">
+              {{
+                i18n.t('dashboard.usedOfTotal', {
+                  used: (d.usedBytes | bytes: i18n.language()),
+                  total: (d.totalBytes | bytes: i18n.language()),
                 })
-              }}</span>
-              @if (d.busyPercent !== undefined && d.latencyMs !== undefined) {
+              }}
+            </p>
+            @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
+              <p class="detail speeds">
                 <span>{{
-                  i18n.t('dashboard.diskBusy', { percent: decimal(d.busyPercent, '1.0-0') })
+                  i18n.t('dashboard.diskRead', {
+                    speed: (d.readBytesPerSecond | bytes: i18n.language()),
+                  })
                 }}</span>
-                <span [title]="i18n.t('dashboard.diskLatencyHint')">{{
-                  i18n.t('dashboard.diskLatency', { ms: decimal(d.latencyMs, '1.1-1') })
+                <span>{{
+                  i18n.t('dashboard.diskWrite', {
+                    speed: (d.writeBytesPerSecond | bytes: i18n.language()),
+                  })
                 }}</span>
-              }
-            </p>
-          }
-        </div>
-      } @empty {
-        <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
-      }
-    </div>
+              </p>
+            }
+            @if (d.operationsPerSecond !== undefined) {
+              <p class="detail speeds">
+                <span>{{
+                  i18n.t('dashboard.diskOperations', {
+                    count: decimal(d.operationsPerSecond, '1.0-0'),
+                  })
+                }}</span>
+                @if (d.busyPercent !== undefined && d.latencyMs !== undefined) {
+                  <span>{{
+                    i18n.t('dashboard.diskBusy', { percent: decimal(d.busyPercent, '1.0-0') })
+                  }}</span>
+                  <span [title]="i18n.t('dashboard.diskLatencyHint')">{{
+                    i18n.t('dashboard.diskLatency', { ms: decimal(d.latencyMs, '1.1-1') })
+                  }}</span>
+                }
+              </p>
+            }
+          </div>
+        } @empty {
+          <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
+        }
+      </div>
+    }
 
     <div class="card">
       <h2>{{ i18n.t('dashboard.network') }}</h2>
@@ -298,17 +304,19 @@
       </div>
     }
 
-    <div class="card" [appFitLabels]="s.temperatures">
-      <h2>{{ i18n.t('dashboard.temperature') }}</h2>
-      @for (t of s.temperatures; track t.sensor) {
-        <p class="sensor">
-          <span class="label" [title]="t.sensor">{{ t.sensor }}</span
-          ><span>{{ t.celsius | number: '1.0-1' : i18n.language() }} °C</span>
-        </p>
-      } @empty {
-        <p class="detail">{{ i18n.t('dashboard.noTemperature') }}</p>
-      }
-    </div>
+    @if (!isRouter() || s.temperatures.length > 0) {
+      <div class="card" [appFitLabels]="s.temperatures">
+        <h2>{{ i18n.t('dashboard.temperature') }}</h2>
+        @for (t of s.temperatures; track t.sensor) {
+          <p class="sensor">
+            <span class="label" [title]="t.sensor">{{ t.sensor }}</span
+            ><span>{{ t.celsius | number: '1.0-1' : i18n.language() }} °C</span>
+          </p>
+        } @empty {
+          <p class="detail">{{ i18n.t('dashboard.noTemperature') }}</p>
+        }
+      </div>
+    }
 
     @if (s.fans?.length) {
       <div class="card">
@@ -399,13 +407,22 @@
       </div>
     }
 
-    <div class="card">
-      <h2>{{ i18n.t('dashboard.uptime') }}</h2>
-      <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
-      @if (s.version) {
-        <p class="detail">{{ i18n.t('dashboard.version', { version: s.version }) }}</p>
-      }
-    </div>
+    @if (!isRouter() || s.uptimeSeconds > 0) {
+      <div class="card">
+        <h2>{{ i18n.t('dashboard.uptime') }}</h2>
+        <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
+        @if (s.version) {
+          <p class="detail">{{ i18n.t('dashboard.version', { version: s.version }) }}</p>
+        }
+      </div>
+    }
+
+    @if (isRouter()) {
+      <div class="card">
+        <h2>{{ i18n.t('dashboard.router') }}</h2>
+        <p class="detail">{{ i18n.t('dashboard.routerPrivacy') }}</p>
+      </div>
+    }
 
     @if (shownAvailability(); as a) {
       <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />

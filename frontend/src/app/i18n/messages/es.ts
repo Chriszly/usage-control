@@ -36,6 +36,9 @@ export const es: Messages = {
   'dashboard.noTemperature': 'No disponible en este equipo',
   'dashboard.time': 'Hora',
   'dashboard.uptime': 'Tiempo de actividad',
+  'dashboard.router': 'Router',
+  'dashboard.routerPrivacy':
+    'Leído del router solo a través de la red local. No se envía ningún dato a ningún servidor; todo se queda en los propios dispositivos, y la contraseña de un router se guarda cifrada donde el sistema lo permite.',
   'dashboard.loading': 'Cargando…',
   'dashboard.uptimeDays': '{days} d {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',
@@ -114,6 +117,7 @@ export const es: Messages = {
     'Este dispositivo puede mostrar el uso de otros dispositivos de la red local que ejecutan usage-control.',
   'devicesDialog.remove': 'Quitar',
   'devicesDialog.fixed': 'Definido en .env',
+  'devicesDialog.router': 'Router',
   'devicesDialog.empty': 'Aún no hay otros dispositivos.',
   'devicesDialog.addTitle': 'Añadir un dispositivo',
   'devicesDialog.suggested': 'Rellenado con el dispositivo en el que está abierta esta página.',

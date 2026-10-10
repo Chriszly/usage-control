@@ -75,6 +75,10 @@ Sensors and GPUs that share a name are numbered (`coretemp 1`, `coretemp 2`), so
 | Time and time zone | yes; in Docker, the host's zone when `/etc/localtime` is mounted (as in `compose.yaml`), else UTC | yes | no |
 | Uptime | yes | yes | no |
 
+## Routers
+
+A router read over UPnP reports one network card, *WAN*, with its traffic and the speed of the line, and the extras *Internet connection*: its state, the download and upload speed of the line and how long it is connected. It reports no CPU, memory, disks, temperatures or uptime, and the page leaves those cards out. An ASUS router read with its login reports the CPU per core, memory, uptime, a network card each for *WAN*, *LAN* and each Wi-Fi band, the temperatures of the CPU and the radios where the model has them, and the extras *Clients*: online, on a cable and on Wi-Fi, with the history of those online. See [Show the router](setup.md#5-show-the-router).
+
 ## GPUs
 
 The GPU card appears when usage-control finds a GPU whose usage the system reports to programs without extra rights:

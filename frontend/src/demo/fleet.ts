@@ -34,6 +34,11 @@ export interface DemoMachine {
   batteryDetails?: boolean;
   /** Servers keep their clocks in UTC; the other devices use the visitor's time zone. */
   utc?: boolean;
+  /**
+   * A router the hub reads with its login, as an ASUS one: CPU per core, memory, traffic per port
+   * and Wi-Fi band, temperatures and clients, but no disks, clock, load, version or time zone.
+   */
+  router?: boolean;
   bootedDaysAgo: number;
   /** For a device that answers only part of the day, such as a laptop that sleeps at night. */
   online?: (t: number) => boolean;
@@ -1685,6 +1690,82 @@ const linuxLaptop: DemoMachine = {
   },
 };
 
+const clientLabels = {
+  online: { de: 'Online', fr: 'En ligne', es: 'En línea' },
+  wired: { de: 'Per Kabel', fr: 'Par câble', es: 'Por cable' },
+  wireless: { de: 'Per WLAN', fr: 'En Wi-Fi', es: 'Por Wi-Fi' },
+};
+
+const homeRouter: DemoMachine = {
+  device: {
+    id: 'home-router',
+    kind: 'server',
+    name: 'Home router',
+    address: '192.168.1.1',
+    router: true,
+  },
+  os: 'linux',
+  router: true,
+  cores: 4,
+  maxClockMHz: 0,
+  memoryBytes: 1 * GB,
+  disks: [],
+  network: [{ name: 'WAN' }, { name: 'LAN' }, { name: 'Wi-Fi 2.4 GHz' }, { name: 'Wi-Fi 5 GHz' }],
+  extras: [
+    {
+      id: 'clients',
+      title: 'Clients',
+      titles: { de: 'Geräte im Netz', fr: 'Appareils connectés', es: 'Dispositivos conectados' },
+      items: [
+        {
+          id: 'online',
+          label: 'Online',
+          labels: clientLabels.online,
+          unit: 'number',
+          history: true,
+        },
+        { id: 'wired', label: 'On a cable', labels: clientLabels.wired, unit: 'number' },
+        { id: 'wireless', label: 'On Wi-Fi', labels: clientLabels.wireless, unit: 'number' },
+      ],
+    },
+  ],
+  bootedDaysAgo: 23,
+  values: (t, step) => {
+    const busy = workday(t);
+    const wan = vary(
+      t,
+      step,
+      141,
+      1.5e6 + busy * 4e6,
+      [
+        [1.2e6, 40],
+        [2e6, 1800],
+      ],
+      2e4,
+      1e8,
+    );
+    const wireless = Math.round(vary(t, step, 142, 9 + busy * 5, [[2, 3600]], 4, 30));
+    return {
+      cpu: vary(t, step, 143, 6 + wan / 4e5, [[3, 20]], 1, 100),
+      memory: vary(t, step, 144, 58, [[2, 7200]]),
+      'temperature:Wi-Fi 2.4 GHz': vary(t, step, 145, 49, [[1.5, 900]], 30, 90),
+      'temperature:Wi-Fi 5 GHz': vary(t, step, 146, 54, [[1.5, 900]], 30, 90),
+      'temperature:CPU': vary(t, step, 147, 63 + wan / 1e6, [[2, 600]], 30, 100),
+      'network.receive:WAN': wan,
+      'network.send:WAN': wan / 8,
+      'network.receive:LAN': wan * 0.3,
+      'network.send:LAN': wan * 0.35,
+      'network.receive:Wi-Fi 2.4 GHz': wan / 30,
+      'network.send:Wi-Fi 2.4 GHz': wan / 6,
+      'network.receive:Wi-Fi 5 GHz': wan / 10,
+      'network.send:Wi-Fi 5 GHz': wan * 0.5,
+      'extra:clients/online': wireless + 4,
+      'extra:clients/wired': 4,
+      'extra:clients/wireless': wireless,
+    };
+  },
+};
+
 export const FLEET: readonly DemoMachine[] = [
   piHub,
   windowsPc,
@@ -1694,6 +1775,7 @@ export const FLEET: readonly DemoMachine[] = [
   linuxNas,
   linuxServer,
   linuxLaptop,
+  homeRouter,
 ];
 
 /** The values whose names start with kind and a colon, by what follows the colon. */
@@ -1749,6 +1831,51 @@ export function snapshotOf(machine: DemoMachine, t: number, version: string): Sn
   const memoryUsed = percentOf(machine.memoryBytes, v['memory']);
   const temperatures = named(v, 'temperature').map(([sensor, celsius]) => ({ sensor, celsius }));
   const hottest = Math.max(45, ...temperatures.map((temp) => temp.celsius));
+  const network = machine.network.map((n) => {
+    const receive = v[`network.receive:${n.name}`] ?? 0;
+    const send = v[`network.send:${n.name}`] ?? 0;
+    return {
+      name: n.name,
+      // A rough total: the current speed over the time since the machine started.
+      receivedBytes: Math.round(receive * uptimeSeconds * 0.8),
+      sentBytes: Math.round(send * uptimeSeconds * 0.8),
+      receiveBytesPerSecond: receive,
+      sendBytesPerSecond: send,
+      ...(n.linkMbps ? { linkMbps: n.linkMbps } : {}),
+      ...(n.addresses ? { addresses: n.addresses } : {}),
+    };
+  });
+  const extras = (machine.extras ?? []).map((group) => {
+    const items = group.items.map((item) =>
+      item.unit === 'text' ? item : { ...item, value: v[`extra:${group.id}/${item.id}`] },
+    );
+    return { ...group, items: group.id.startsWith('processes-') ? busiestFirst(items) : items };
+  });
+
+  if (machine.router) {
+    return {
+      time: new Date(t * 1000).toISOString(),
+      uptimeSeconds,
+      cpu: {
+        usagePercent: v['cpu'],
+        cores: machine.cores,
+        coreUsagePercent: Array.from({ length: machine.cores }, (_, core) =>
+          vary(t, 0, seed + core, v['cpu'], [[v['cpu'] * 0.8 + 4, 6]], 0, 100),
+        ),
+      },
+      memory: {
+        totalBytes: machine.memoryBytes,
+        usedBytes: memoryUsed,
+        usedPercent: v['memory'],
+        availableBytes: machine.memoryBytes - memoryUsed,
+      },
+      temperatures,
+      disks: [],
+      network,
+      gpus: [],
+      extras,
+    };
+  }
 
   return {
     version,
@@ -1797,20 +1924,7 @@ export function snapshotOf(machine: DemoMachine, t: number, version: string): Sn
     },
     temperatures,
     disks,
-    network: machine.network.map((n) => {
-      const receive = v[`network.receive:${n.name}`] ?? 0;
-      const send = v[`network.send:${n.name}`] ?? 0;
-      return {
-        name: n.name,
-        // A rough total: the current speed over the time since the machine started.
-        receivedBytes: Math.round(receive * uptimeSeconds * 0.8),
-        sentBytes: Math.round(send * uptimeSeconds * 0.8),
-        receiveBytesPerSecond: receive,
-        sendBytesPerSecond: send,
-        ...(n.linkMbps ? { linkMbps: n.linkMbps } : {}),
-        ...(n.addresses ? { addresses: n.addresses } : {}),
-      };
-    }),
+    network,
     gpus: (machine.gpus ?? []).map((gpu) => {
       const usage = v[`gpu:${gpu.name}`];
       return {
@@ -1846,19 +1960,7 @@ export function snapshotOf(machine: DemoMachine, t: number, version: string): Sn
           })),
         }
       : {}),
-    ...(machine.extras
-      ? {
-          extras: machine.extras.map((group) => {
-            const items = group.items.map((item) =>
-              item.unit === 'text' ? item : { ...item, value: v[`extra:${group.id}/${item.id}`] },
-            );
-            return {
-              ...group,
-              items: group.id.startsWith('processes-') ? busiestFirst(items) : items,
-            };
-          }),
-        }
-      : {}),
+    ...(machine.extras ? { extras } : {}),
   };
 }
 

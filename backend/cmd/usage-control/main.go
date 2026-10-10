@@ -16,6 +16,14 @@
 //	DEVICE_NAME     how the page names this device (default "Host Hub")
 //	HUB_DEVICES     other devices to collect from, which turns on hub mode:
 //	                comma-separated name=host:port entries (default none)
+//	HUB_ROUTERS     routers to read, which the hub shows as devices:
+//	                comma-separated name=protocol:address entries, such as
+//	                Router=upnp:192.168.1.1 or Router=asus:admin@192.168.1.1
+//	                (default none)
+//	ROUTER_PASSWORDS_FILE  file with the passwords of the routers that need a
+//	                login, one name=password per line (default the file
+//	                router-passwords in CREDENTIALS_DIRECTORY, where systemd
+//	                decrypts it for the service)
 //	DATA_ONLY       true to serve only the usage data for a hub, without the
 //	                website and history (default false)
 //	BUFFER_HOURS    with DATA_ONLY, how many hours of minutes this device keeps
@@ -54,6 +62,7 @@ import (
 	"github.com/Chriszly/usage-control/backend/internal/hub"
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 	"github.com/Chriszly/usage-control/backend/internal/password"
+	"github.com/Chriszly/usage-control/backend/internal/router"
 	"github.com/Chriszly/usage-control/backend/internal/server"
 	"github.com/Chriszly/usage-control/backend/internal/update"
 	"github.com/Chriszly/usage-control/backend/internal/version"
@@ -106,13 +115,21 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("check HUB_DEVICES: %w", err)
 	}
+	routers, err := routerDevices()
+	if err != nil {
+		return err
+	}
+	remotes = append(remotes, routers...)
+	if err := hub.CheckFixed(remotes); err != nil {
+		return fmt.Errorf("check HUB_DEVICES and HUB_ROUTERS: %w", err)
+	}
 
 	dataOnly, err := boolSettingOr("DATA_ONLY", false)
 	if err != nil {
 		return err
 	}
 	if dataOnly && len(remotes) > 0 {
-		return errors.New("HUB_DEVICES is set, but DATA_ONLY turns off the website that would show them; unset one of the two")
+		return errors.New("HUB_DEVICES or HUB_ROUTERS is set, but DATA_ONLY turns off the website that would show them; unset one of the two")
 	}
 
 	bufferSpan, err := bufferHours()
@@ -345,12 +362,53 @@ func (d hubDevices) List() []server.Device {
 			Unreachable:      unreachable,
 			UnreachableSince: unreachableSince,
 			Refused:          remote.Refused(),
+			Router:           remote.Router(),
 			Metrics:          remote.Agent.Latest(),
 			History:          remote.Reader,
 			Availability:     remote,
 		})
 	}
 	return devices
+}
+
+// routerDevices returns the routers in HUB_ROUTERS as devices, each with
+// the password it needs from the passwords file (see router.PasswordsPath).
+func routerDevices() ([]hub.Device, error) {
+	configs, err := router.ParseConfigs(os.Getenv("HUB_ROUTERS"))
+	if err != nil {
+		return nil, fmt.Errorf("check HUB_ROUTERS: %w", err)
+	}
+	var passwords map[string]string
+	for _, config := range configs {
+		if !config.Protocol.NeedsLogin() || passwords != nil {
+			continue
+		}
+		path := router.PasswordsPath()
+		if path == "" {
+			return nil, fmt.Errorf("the router %q needs a password; run the installer again to enter it, or set ROUTER_PASSWORDS_FILE to a file with a line %s=<password>", config.Name, config.Name)
+		}
+		if passwords, err = router.ReadPasswords(path); err != nil {
+			return nil, fmt.Errorf("read the router passwords: %w", err)
+		}
+	}
+	byID := map[string]string{}
+	for name, password := range passwords {
+		byID[hub.IDOf(name)] = password
+	}
+	var devices []hub.Device
+	for _, config := range configs {
+		device, err := hub.NewRouter(config.Name, config.Address, nil)
+		if err != nil {
+			return nil, fmt.Errorf("check HUB_ROUTERS: %w", err)
+		}
+		password, ok := byID[device.ID]
+		if config.Protocol.NeedsLogin() && !ok {
+			return nil, fmt.Errorf("the router %q needs a password, but %s has no line %s=<password>; run the installer again to enter it", config.Name, router.PasswordsPath(), config.Name)
+		}
+		device.Source = router.New(config, password)
+		devices = append(devices, device)
+	}
+	return devices, nil
 }
 
 // ownName returns what this device calls itself, which a hub offers as the

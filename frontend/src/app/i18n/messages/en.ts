@@ -37,6 +37,9 @@ export const en = {
   'dashboard.noTemperature': 'Not available on this machine',
   'dashboard.time': 'Time',
   'dashboard.uptime': 'Uptime',
+  'dashboard.router': 'Router',
+  'dashboard.routerPrivacy':
+    'Read from the router over the local network only. No data is sent to any server; everything stays on your own devices, and a router password is stored encrypted where the system allows it.',
   'dashboard.loading': 'Loading…',
   'dashboard.uptimeDays': '{days} d {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',
@@ -116,6 +119,7 @@ export const en = {
     'This device can show the usage of other devices on the local network that run usage-control.',
   'devicesDialog.remove': 'Remove',
   'devicesDialog.fixed': 'Set in .env',
+  'devicesDialog.router': 'Router',
   'devicesDialog.empty': 'No other devices yet.',
   'devicesDialog.addTitle': 'Add a device',
   'devicesDialog.suggested': 'Filled in with the device this page is open on.',

@@ -30,8 +30,13 @@ type Device struct {
 	ID string
 	// Name is how the device is shown on the page.
 	Name string
-	// Address is where its usage-control is reachable, as host:port.
+	// Address is where its usage-control is reachable, as host:port, or
+	// the address of a router.
 	Address string
+	// Source, when set, reads the device's usage in place of asking a
+	// usage-control at Address: a router, which the hub reads in a language
+	// it speaks. Routers come from HUB_ROUTERS.
+	Source Usage
 }
 
 // ParseDevices reads the devices from a comma-separated list of entries such
@@ -92,17 +97,50 @@ func NewDevice(name, address string) (Device, error) {
 		return Device{}, &InputError{Problem: ProblemAddress, Message: "the port must be a number from 1 to 65535"}
 	}
 
+	id, err := checkName(name)
+	if err != nil {
+		return Device{}, err
+	}
+	return Device{ID: id, Name: name, Address: address}, nil
+}
+
+// NewRouter returns a router as a device, named name, at address, whose
+// usage reader reads.
+func NewRouter(name, address string, reader Usage) (Device, error) {
+	name = strings.TrimSpace(name)
+	id, err := checkName(name)
+	if err != nil {
+		return Device{}, fmt.Errorf("%q: %w", name, err)
+	}
+	return Device{ID: id, Name: name, Address: address, Source: reader}, nil
+}
+
+// checkName checks a device's name and returns its ID.
+func checkName(name string) (string, error) {
 	if name == "" || utf8.RuneCountInString(name) > maxNameLength {
-		return Device{}, &InputError{Problem: ProblemName, Message: fmt.Sprintf("the name must have 1 to %d characters", maxNameLength)}
+		return "", &InputError{Problem: ProblemName, Message: fmt.Sprintf("the name must have 1 to %d characters", maxNameLength)}
 	}
 	id := idOf(name)
 	if id == "" {
-		return Device{}, &InputError{Problem: ProblemName, Message: "the name needs at least one letter or digit"}
+		return "", &InputError{Problem: ProblemName, Message: "the name needs at least one letter or digit"}
 	}
 	if id == LocalID {
-		return Device{}, &InputError{Problem: ProblemNameTaken, Message: fmt.Sprintf("the name %q is reserved for this device; pick another one", name)}
+		return "", &InputError{Problem: ProblemNameTaken, Message: fmt.Sprintf("the name %q is reserved for this device; pick another one", name)}
 	}
-	return Device{ID: id, Name: name, Address: address}, nil
+	return id, nil
+}
+
+// CheckFixed refuses devices, from HUB_DEVICES and HUB_ROUTERS together,
+// of which two have the same name.
+func CheckFixed(devices []Device) error {
+	ids := map[string]bool{}
+	for _, device := range devices {
+		if ids[device.ID] {
+			return fmt.Errorf("%q: another device or router has the same name; give each its own name", device.Name)
+		}
+		ids[device.ID] = true
+	}
+	return nil
 }
 
 // SameAddress reports whether two addresses (host:port) name the same host
@@ -170,6 +208,11 @@ func (e *InputError) Error() string {
 // LocalID is the ID of the device the program runs on, the name its own
 // history is stored under.
 const LocalID = history.LocalDevice
+
+// IDOf returns the ID of a device named name, such as "living-room-pi".
+func IDOf(name string) string {
+	return idOf(name)
+}
 
 // idOf turns a name into an ID: letters and digits in lower case, with one
 // dash for every run of other characters, such as "living-room-pi".

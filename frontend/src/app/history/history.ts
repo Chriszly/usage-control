@@ -160,7 +160,11 @@ export class HistoryCharts {
     }
     const language = this.i18n.language();
     return [
-      ...chartsOf(history.series, (key, params) => this.i18n.t(key, params)),
+      ...chartsOf(
+        history.series,
+        (key, params) => this.i18n.t(key, params),
+        !!this.devices.selected().router,
+      ),
       ...extraChartsOf(history.series, history.extras ?? {}, language),
     ];
   });
@@ -225,17 +229,25 @@ function nowSeconds(): number {
 /**
  * Groups the stored metrics into charts: CPU, memory and swap, battery, GPUs,
  * temperatures, network speed, disk usage and disk activity, with titles and
- * labels in the language of t. Charts without values are left out.
+ * labels in the language of t. Charts without values are left out. A router
+ * read without a login tells no CPU or memory, which are kept as 0, so for a
+ * router those lines are left out while they hold nothing but 0.
  */
 export function chartsOf(
   series: Series[],
   t: (key: MessageKey, params?: TextParams) => string,
+  router = false,
 ): Chart[] {
   const named = (kind: string) =>
     series
       .filter((s) => s.metric.startsWith(kind + ':'))
       .map((s) => ({ label: s.metric.slice(kind.length + 1), points: s.points }));
-  const metric = (name: string) => series.find((s) => s.metric === name)?.points ?? [];
+  const metric = (name: string) => {
+    const points = series.find((s) => s.metric === name)?.points ?? [];
+    const untold =
+      router && (name === 'cpu' || name === 'memory') && points.every((p) => p.value === 0);
+    return untold ? [] : points;
+  };
 
   const charts: Chart[] = [
     {
