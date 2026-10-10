@@ -36,6 +36,9 @@ services:
       # from in hub mode; see .env.example.
       DEVICE_NAME: ${DEVICE_NAME:-}
       HUB_DEVICES: ${HUB_DEVICES:-}
+      HUB_ROUTERS: ${HUB_ROUTERS:-}
+      # Written by setup-router.sh for a router that needs a login.
+      ROUTER_PASSWORDS_FILE: /run/secrets/router-passwords
       RESET_PASSWORD: ${RESET_PASSWORD:-}
       # true serves only the usage data for a hub, without the website and
       # history; see .env.example.
@@ -55,6 +58,7 @@ services:
       # Kept when the container is updated or recreated.
       - data:/data
       - addons:/addons:ro
+      - ./router-secrets:/run/secrets:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       # Shows the host's time zone on the page instead of UTC.

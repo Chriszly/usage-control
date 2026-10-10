@@ -100,7 +100,8 @@ type Hub struct {
 // Remote is another device the hub collects from.
 type Remote struct {
 	Device
-	// Fixed is set for a device from HUB_DEVICES, which the page cannot remove.
+	// Fixed is set for a device from HUB_DEVICES or HUB_ROUTERS, which the
+	// page cannot remove.
 	Fixed  bool
 	Agent  *Agent
 	Reader history.Reader
@@ -528,7 +529,7 @@ func (h *Hub) Remove(ctx context.Context, id string, keepHistory bool) error {
 		return &InputError{Problem: ProblemNotFound, Message: "there is no device with this id"}
 	}
 	if remote.Fixed {
-		return &InputError{Problem: ProblemFixed, Message: "the device is set in HUB_DEVICES; remove it there"}
+		return &InputError{Problem: ProblemFixed, Message: "the device is set in HUB_DEVICES or HUB_ROUTERS; remove it there"}
 	}
 
 	// Counted before the database is changed, so a shutdown that times out
@@ -727,6 +728,12 @@ func (r *Remote) Refused() bool {
 	return !r.Agent.answers() && r.watched.isRefused()
 }
 
+// Router reports whether the device is a router, which the hub reads in a
+// language it speaks.
+func (r *Remote) Router() bool {
+	return r.Source != nil
+}
+
 // Kind tells what the device is used as.
 func (r *Remote) Kind() Kind {
 	r.mu.Lock()
@@ -764,8 +771,13 @@ func (h *Hub) start(device Device, fixed bool, own []netip.Addr) {
 	// set to, as the hub's owner chose it, such as a VM behind port
 	// forwarding on the hub itself. One added on the page is not, even when
 	// its host name resolves to the hub only later.
-	agent := NewAgent(device.Address)
-	if !fixed {
+	var agent *Agent
+	switch {
+	case device.Source != nil:
+		agent = newReaderAgent(device.Source)
+	case fixed:
+		agent = NewAgent(device.Address)
+	default:
 		agent = h.pageAgent(device.Address)
 	}
 	agent.pagePort = h.pagePort
@@ -801,8 +813,13 @@ func (h *Hub) start(device Device, fixed bool, own []netip.Addr) {
 		recorded: make(chan struct{}),
 		kind:     kind,
 	}
-	fetcher := &fetcher{agent: agent, store: h.store, device: device.ID, maxEntries: h.historyEntries, retention: h.retention}
-	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries, Fetch: fetcher.fetch}
+	recorder := &history.Recorder{Store: h.store, Recent: recent, Device: device.ID, Collector: watched, MaxEntries: h.historyEntries}
+	// A router keeps no minutes to fetch; the hub stores the average of its
+	// own readings.
+	if device.Source == nil {
+		fetcher := &fetcher{agent: agent, store: h.store, device: device.ID, maxEntries: h.historyEntries, retention: h.retention}
+		recorder.Fetch = fetcher.fetch
+	}
 	h.recording.Go(func() {
 		defer close(remote.recorded)
 		recorder.Run(ctx)

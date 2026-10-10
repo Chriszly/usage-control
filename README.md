@@ -6,6 +6,7 @@ A small website that shows the usage of the hardware it runs on: CPU, memory, di
 - **Local only:** answers only the local network, needs no account and no cloud; the only call outside is an optional daily check for a newer release
 - **Read-only:** it only reads hardware data and runs without privileges, in a read-only container or as an unprivileged service
 - **Several devices:** a hub polls each device every 5 seconds and keeps all history; Windows PCs only report to it
+- **Your router too:** the hub reads its internet traffic over UPnP, and an ASUS router's CPU, memory, Wi-Fi and clients with its login, over the local network only
 - **Five languages:** British and American English, German, French and Spanish, switched in place
 
 ```mermaid

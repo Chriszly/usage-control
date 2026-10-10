@@ -151,6 +151,15 @@ Rules the agent follows:
 
 Collecting uses no extra setting on the devices: retention, history and the charts all live on the hub.
 
+### Routers
+
+A router in `HUB_ROUTERS` runs no usage-control, so its agent does not ask `/api/metrics`: a reader in `backend/internal/router` asks the router in a language it speaks, and turns the answer into the same snapshot. From there on, the recorder, the history and the availability treat it like any other device; it keeps no minutes of its own, so the hub stores the average of its readings.
+
+- **UPnP:** the reader sends a UPnP search to the router's port 1900 (and to the UPnP multicast address, which does not leave a Docker network), takes only the answer from the router's own address, reads its description and calls `GetTotalBytesReceived`, `GetTotalBytesSent`, `GetCommonLinkProperties` and `GetStatusInfo`. A description or control URL on another host is not followed. Byte counters are often 32 bits, so one that went down by less than 4 GiB wrapped around; after the connection restarted, or a jump faster than 100 Gbit/s, the interval is skipped.
+- **ASUS:** the reader logs in to `/login.cgi` with the user and password once and keeps the token, then asks `/appGet.cgi` for CPU, memory, network counters, uptime and clients and `/ajax_coretmp.asp` for temperatures, every 30 seconds. A token the router no longer takes is renewed once per reading; a refused login is not tried again for 5 minutes, so a wrong password does not lock the admin out.
+
+Both only read: a test lists every action and page a reader may ask, and none changes a setting. The same rules apply as for an agent: 4 seconds per request, 1 MiB per answer, no proxy, no redirects, local network only. Logins come from the passwords file, never from the page, and are neither shown nor logged.
+
 ## While the hub is away
 
 When the hub cannot reach a device for a while, because the hub is updated or switched off or the network is down, the device keeps its usage, and the hub fetches it once it reaches the device again. The hub's history then has no gap for the time the device was running, apart from a minute when its program crashed and was started again within seconds, or was stopped for more than about 40 seconds.

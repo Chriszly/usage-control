@@ -1,0 +1,7 @@
+{
+"cpu_usage":{"cpu1_total":"1000","cpu1_usage":"100","cpu2_total":"1000","cpu2_usage":"300",},
+"memory_usage":{"mem_total":"524288","mem_free":"262144","mem_used":"262144"},
+"netdev":{"BRIDGE_rx":"0x10000","BRIDGE_tx":"0x10000","INTERNET_rx":"0x100000","INTERNET_tx":"0x80000","WIRED_rx":"0x2000","WIRED_tx":"0x1000","WIRELESS0_rx":"0x400","WIRELESS0_tx":"0x200","WIRELESS1_rx":"0x800","WIRELESS1_tx":"0x400"},
+"uptime":"Thu, 10 Oct 2026 08:00:00 +0200(86400 secs since boot)",
+"get_clientlist":{"maclist":["00:00:00:00:00:01","00:00:00:00:00:02","00:00:00:00:00:03"],"ClientAPILevel":"2","00:00:00:00:00:01":{"isOnline":"1","isWL":"0"},"00:00:00:00:00:02":{"isOnline":"1","isWL":"2"},"00:00:00:00:00:03":{"isOnline":"0","isWL":"1"}}
+}

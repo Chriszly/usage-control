@@ -62,6 +62,8 @@ export class Dashboard {
   protected readonly deviceName = computed(() => deviceName(this.devices.selected(), this.i18n));
   /** Whether the picked device is a PC or laptop, which is just not in use while it does not answer. */
   protected readonly isPC = computed(() => this.devices.selected().kind === 'pc');
+  /** Whether the picked device is a router, which tells only some of what a device does. */
+  protected readonly isRouter = computed(() => !!this.devices.selected().router);
   /** Whether the backend does not connect to the picked device, as its address is the hub's own. */
   protected readonly refused = computed(() => !!this.devices.selected().refused);
   /** How long the picked device did not answer since it was added; null for this device. */

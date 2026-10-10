@@ -35,6 +35,11 @@ export interface Device {
    * address is the hub's own; it can be collected from when listed in HUB_DEVICES instead.
    */
   refused?: boolean;
+  /**
+   * Set for a router, which the hub reads itself over the local network, as it runs no
+   * usage-control; it is set in HUB_ROUTERS.
+   */
+  router?: boolean;
 }
 
 /** The body of GET /api/availability: how long another device did not answer since it was added. */

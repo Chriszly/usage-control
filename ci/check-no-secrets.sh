@@ -3,6 +3,7 @@
 #
 # Checks every file git tracks in DIR (default: this checkout):
 #   - no .env settings file besides .env.example
+#   - no file of router passwords (router-passwords, *.cred)
 #   - no line starting with "-----BEGIN ... PRIVATE KEY-----"
 #   - no line in a tracked .env file or example, such as
 #     linux/usage-control.env.example, giving a *PASSWORD, *KEY, *TOKEN or
@@ -20,6 +21,7 @@ while IFS= read -r f; do
   case "${f##*/}" in
     .env.example) ;;
     .env|.env.*|*.env) problem "$f is a settings file; keep filled settings out of the repository" ;;
+    router-passwords|*.cred) problem "$f holds router passwords; keep it out of the repository" ;;
   esac
 done < <(git ls-files)
 

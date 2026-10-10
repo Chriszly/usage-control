@@ -325,3 +325,32 @@ func TestRunServesUntilStopped(t *testing.T) {
 		t.Error("run() did not answer on its port")
 	}
 }
+
+func TestRouterDevicesNeedThePasswordOfALogin(t *testing.T) {
+	t.Setenv("HUB_ROUTERS", "Home router=upnp:192.168.1.1,Office=asus:admin@192.168.2.1")
+	t.Setenv("CREDENTIALS_DIRECTORY", "")
+	t.Setenv("ROUTER_PASSWORDS_FILE", "")
+	if _, err := routerDevices(); err == nil || !strings.Contains(err.Error(), "Office") {
+		t.Errorf("without a passwords file: %v, want an error naming the router", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "router-passwords")
+	if err := os.WriteFile(path, []byte("Home router=unused\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROUTER_PASSWORDS_FILE", path)
+	if _, err := routerDevices(); err == nil || !strings.Contains(err.Error(), "Office") {
+		t.Errorf("without the router's line: %v, want an error naming the router", err)
+	}
+
+	if err := os.WriteFile(path, []byte("office=secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := routerDevices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 2 || devices[0].ID != "home-router" || devices[1].ID != "office" || devices[1].Source == nil {
+		t.Errorf("got %+v", devices)
+	}
+}

@@ -7,6 +7,10 @@
 #   sudo ./install.sh --addons=      # install without any add-on
 #   sudo ./install.sh --uninstall    # remove it; add --purge to delete settings and history too
 #
+# Run in a terminal, it also asks whether to read the router, and for its
+# login when the router needs one (ASUS). The login is stored encrypted with
+# systemd-creds, and only the service can read it.
+#
 # Add-ons are optional programs that track more than usage-control itself,
 # each as a service of its own. Without --addons, the install asks for each
 # one when run in a terminal, and an update keeps the add-ons installed before.
@@ -20,6 +24,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 binary=/usr/local/bin/usage-control
 unit=/etc/systemd/system/usage-control.service
 settings=/etc/usage-control.env
+# The router passwords, encrypted with systemd-creds, and the setting that
+# hands them to the service.
+router_passwords=/etc/usage-control-router-passwords.cred
+router_dropin=/etc/systemd/system/usage-control.service.d/router-passwords.conf
 
 # Every add-on there is: those in this archive and those installed before,
 # each with what it does for the question at install, from the
@@ -60,7 +68,7 @@ if [[ "${1:-}" == --uninstall ]]; then
   systemctl daemon-reload
   if [[ "${2:-}" == --purge ]]; then
     # Settings made with systemctl edit are settings too.
-    rm -rf /var/lib/usage-control /var/lib/private/usage-control "$settings" /etc/systemd/system/usage-control*.service.d
+    rm -rf /var/lib/usage-control /var/lib/private/usage-control "$settings" "$router_passwords" /etc/systemd/system/usage-control*.service.d
     systemctl daemon-reload
     echo "usage-control, its settings and its history are removed."
   else
@@ -101,6 +109,63 @@ else
   done
 fi
 
+# The router to read: asked in a terminal only, and on an update only when
+# asked to set it up again.
+router_entry=""
+router_password=""
+router_name=""
+if [[ -t 0 && "${1:-}" != --addons=* ]]; then
+  current="$(sed -n 's/^HUB_ROUTERS=//p' "$settings" 2> /dev/null | tail -n 1)"
+  echo
+  echo "usage-control can also show your router: its internet traffic, and with an ASUS router's"
+  echo "login its CPU, memory, ports, Wi-Fi, clients and temperatures."
+  echo "Privacy: the router is read over the local network only. No data is sent to any server;"
+  echo "everything stays on this machine, and the router's password is stored encrypted."
+  if [[ -n "$current" ]]; then
+    question="Set up the router again? It is now $current. [y/n, default n] "
+  else
+    question="Show your router? [y/n, default n] "
+  fi
+  read -r -p "$question" answer
+  if [[ "${answer:-n}" == [yY]* ]]; then
+    echo "Which router is it?"
+    echo "  1) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
+    echo "  2) ASUS without a login, Technicolor, FRITZ!Box or another: internet traffic over UPnP,"
+    echo "     which must be switched on in the router's settings"
+    read -r -p "[1/2, default 2] " kind
+    gateway="$(ip -4 route show default 2> /dev/null | awk '{print $3; exit}' || true)"
+    read -r -p "The router's address [default ${gateway:-none}] " address
+    address="${address:-$gateway}"
+    if [[ ! "$address" =~ ^[A-Za-z0-9.-]+$ ]]; then
+      echo "The router's address must be a host name or IPv4 address, such as 192.168.1.1." >&2
+      exit 1
+    fi
+    read -r -p "Its name on the page [default Router] " router_name
+    router_name="${router_name:-Router}"
+    if [[ "$router_name" == *[=,]* ]]; then
+      echo "The router's name cannot hold = or ,." >&2
+      exit 1
+    fi
+    if [[ "${kind:-2}" == 1 ]]; then
+      read -r -p "The user of its web interface [default admin] " user
+      user="${user:-admin}"
+      if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
+        echo "The user cannot hold spaces, @, =, , or :." >&2
+        exit 1
+      fi
+      read -r -s -p "Its password (not shown): " router_password
+      echo
+      if [[ -z "$router_password" ]]; then
+        echo "The ASUS router needs its password; run install.sh again to enter it." >&2
+        exit 1
+      fi
+      router_entry="$router_name=asus:$user@$address"
+    else
+      router_entry="$router_name=upnp:$address"
+    fi
+  fi
+fi
+
 for file in usage-control usage-control.service usage-control.env.example; do
   if [[ ! -f "$here/$file" ]]; then
     echo "$here/$file is missing; run install.sh from the unpacked release archive." >&2
@@ -129,6 +194,32 @@ for addon in "${!addon_descriptions[@]}"; do
     remove_addon "$addon"
   fi
 done
+if [[ -n "$router_entry" ]]; then
+  # Settings files from before routers have no HUB_ROUTERS line yet.
+  if grep -q '^HUB_ROUTERS=' "$settings"; then
+    escaped="$(printf '%s' "$router_entry" | sed 's/[\\&|]/\\&/g')"
+    sed -i "s|^HUB_ROUTERS=.*|HUB_ROUTERS=$escaped|" "$settings"
+  else
+    printf '\nHUB_ROUTERS=%s\n' "$router_entry" >> "$settings"
+  fi
+  rm -f "$router_passwords" "$router_dropin"
+  if [[ -n "$router_password" ]]; then
+    mkdir -p "$(dirname "$router_dropin")"
+    # Encrypted with the machine's own key (and its TPM, where there is
+    # one), so the file is of no use elsewhere; systemd decrypts it only for
+    # the service, into a folder only the service can read.
+    if command -v systemd-creds > /dev/null && printf '%s=%s\n' "$router_name" "$router_password" |
+      systemd-creds encrypt --name=router-passwords - "$router_passwords" 2> /dev/null; then
+      chmod 600 "$router_passwords"
+      printf '[Service]\nLoadCredentialEncrypted=router-passwords:%s\n' "$router_passwords" > "$router_dropin"
+    else
+      # systemd before 250 cannot encrypt it: kept readable by root only.
+      (umask 077 && printf '%s=%s\n' "$router_name" "$router_password" > "$router_passwords")
+      printf '[Service]\nLoadCredential=router-passwords:%s\n' "$router_passwords" > "$router_dropin"
+      echo "This systemd cannot encrypt the router's password (systemd-creds needs systemd 250 or newer); it is stored readable by root only in $router_passwords." >&2
+    fi
+  fi
+fi
 systemctl daemon-reload
 # Several installs in a row would hit systemd's limit of starts in a short
 # time, which reset-failed clears.
@@ -144,5 +235,8 @@ done
 echo "usage-control is running. Open http://<this machine's address>:9393 on the local network (or the port in LISTEN_ADDR)."
 if [[ ${#wanted[@]} -gt 0 ]]; then
   echo "Add-ons: ${!wanted[*]}"
+fi
+if [[ -n "$router_entry" ]]; then
+  echo "Router: ${router_entry%%=*}, shown as a device on the page"
 fi
 echo "Settings: $settings, then: sudo systemctl restart usage-control"

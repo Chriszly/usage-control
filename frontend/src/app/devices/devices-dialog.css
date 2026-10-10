@@ -8,6 +8,7 @@ p {
 
 .hint,
 .address,
+.router,
 .fixed {
   color: var(--mat-sys-on-surface-variant);
 }
@@ -34,6 +35,10 @@ li {
   flex-wrap: wrap;
   gap: 0 0.75rem;
   flex-basis: 100%;
+}
+
+.router {
+  font: var(--mat-sys-label-medium);
 }
 
 .kind > button {

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# The router passwords, written by setup-router.sh.
+router-secrets/
 
 # Editor and IDE files
 .idea/

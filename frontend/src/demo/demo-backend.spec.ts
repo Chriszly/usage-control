@@ -35,10 +35,20 @@ describe('DemoBackend', () => {
       expect(s.cpu.usagePercent).toBeGreaterThanOrEqual(0);
       expect(s.cpu.usagePercent).toBeLessThanOrEqual(100);
       expect(s.disks.map((d) => d.path)).toEqual(machine.disks.map((d) => d.path));
-      // Windows has no load average and no temperature sensors the backend reads.
-      expect(s.cpu.loadAverage === undefined).toBe(machine.os === 'windows');
+      // Windows and routers have no load average; Windows no temperature sensors the backend reads.
+      expect(s.cpu.loadAverage === undefined).toBe(machine.os === 'windows' || !!machine.router);
       expect(s.temperatures.length === 0).toBe(machine.os === 'windows');
     }
+  });
+
+  it('shows a router with what an ASUS router tells and no disks', async () => {
+    const router = FLEET.find((m) => m.router)!;
+    expect(router.device.router).toBe(true);
+    const s = await firstValueFrom(metrics.current(router.device.id));
+    expect(s.disks).toEqual([]);
+    expect(s.version).toBeUndefined();
+    expect(s.network.map((n) => n.name)).toEqual(['WAN', 'LAN', 'Wi-Fi 2.4 GHz', 'Wi-Fi 5 GHz']);
+    expect(s.extras?.[0].items[0].value).toBeGreaterThan(0);
   });
 
   it('reports the version the demo was built from, like the backend', async () => {
