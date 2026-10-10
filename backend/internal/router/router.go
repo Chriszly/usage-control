@@ -201,9 +201,9 @@ func New(config Config, password string) Reader {
 		if password == "" {
 			password = "public"
 		}
-		return NewSNMP(config.Address, password)
+		return everyInterval(NewSNMP(config.Address, password), snmpInterval)
 	case SNMPv3:
-		return NewSNMPv3(config.Address, config.User, password)
+		return everyInterval(NewSNMPv3(config.Address, config.User, password), snmpInterval)
 	case FritzBox:
 		return everyInterval(NewFritzBox(config.Address, config.User, password), fritzInterval)
 	default:
@@ -260,6 +260,11 @@ func readBody(body io.Reader) ([]byte, error) {
 // asusInterval is how often an ASUS router is read: its web interface runs
 // on a weak CPU, which a login keeps busy, so less often than a device.
 const asusInterval = 30 * time.Second
+
+// snmpInterval is how often a router is read over SNMP: a reading is a
+// few dozen requests, which an SNMP agent on a small router answers by
+// reading the kernel's tables again each time.
+const snmpInterval = 15 * time.Second
 
 // throttled reads a router at most once per interval, and answers with the
 // reading from before in between. A failed reading is not kept: the next one

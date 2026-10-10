@@ -154,21 +154,6 @@ func (f *fakeSNMPAgent) setMIB(mib map[string]snmpValue) {
 	slices.SortFunc(f.oids, compareOIDs)
 }
 
-func compareOIDs(a, b string) int {
-	x, y := strings.Split(a, "."), strings.Split(b, ".")
-	for i := 0; i < len(x) && i < len(y); i++ {
-		m, _ := strconv.ParseUint(x[i], 10, 64)
-		n, _ := strconv.ParseUint(y[i], 10, 64)
-		if m != n {
-			if m < n {
-				return -1
-			}
-			return 1
-		}
-	}
-	return len(x) - len(y)
-}
-
 func (f *fakeSNMPAgent) serve() {
 	buffer := make([]byte, snmpMaxMessage)
 	for {
@@ -546,6 +531,71 @@ func TestSNMPv3AnswerMustBeSigned(t *testing.T) {
 	agent.mu.Unlock()
 	_, err := reader.Collect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "not signed") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestSNMPPrefersUCDMemoryAndSystemUptime(t *testing.T) {
+	mib := routerMIB(1, 1, 360000)
+	mib[oidSystemUptime] = timeTicks(8640000)
+	mib[oidMemTotal] = integer(262144)
+	mib[oidMemFree] = integer(16384)
+	mib[oidMemBuffer] = integer(16384)
+	mib[oidMemCached] = integer(32768)
+	agent := newFakeSNMPAgent(t, mib)
+	snapshot, err := newTestSNMP(t, agent, false, "", "public").Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.UptimeSeconds != 86400 {
+		t.Errorf("uptime %d, want the system's 86400", snapshot.UptimeSeconds)
+	}
+	// Buffers and cache count as available.
+	if snapshot.Memory.TotalBytes != 256<<20 || snapshot.Memory.AvailableBytes != 64<<20 || snapshot.Memory.UsedPercent != 75 {
+		t.Errorf("memory is %+v", snapshot.Memory)
+	}
+	agent.mu.Lock()
+	mib[oidMemAvailable] = integer(131072)
+	agent.mu.Unlock()
+	snapshot, err = newTestSNMP(t, agent, false, "", "public").Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Memory.AvailableBytes != 128<<20 {
+		t.Errorf("memory is %+v, want memAvailable", snapshot.Memory)
+	}
+}
+
+func TestSNMPWalkOutOfOrder(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	// An agent that answers every walk with the same two rows, the second
+	// before the first.
+	go func() {
+		buffer := make([]byte, snmpMaxMessage)
+		for {
+			n, from, err := conn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			outer, start, _ := (&berReader{data: buffer[:n]}).expect(tagSequence)
+			fields := inside(outer, start)
+			_, _ = fields.integer()
+			community, _, _ := fields.expect(tagOctetString)
+			_, pdu, pduStart, _ := fields.next()
+			id, _ := inside(pdu, pduStart).integer()
+			answer := encodeAnswer(pduResponse, int32(id), []varbind{ //nolint:gosec // a test's request id
+				{oid: oidIfType + ".2", value: integer(6)},
+				{oid: oidIfType + ".1", value: integer(6)},
+			})
+			_, _ = conn.WriteToUDP(berSequence(tagSequence, berInteger(1), berOctets(community), answer), from)
+		}
+	}()
+	client := newSNMPv2c(conn.LocalAddr().String(), "public")
+	if _, err := client.walk(context.Background(), oidIfType); err == nil || !strings.Contains(err.Error(), "out of order") {
 		t.Errorf("got %v", err)
 	}
 }

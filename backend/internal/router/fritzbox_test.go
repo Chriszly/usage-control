@@ -66,8 +66,11 @@ type fakeFritzBox struct {
 	staleAfter int
 	actions    []string
 	unauthed   int
-	received   uint64
-	uptime     uint64
+	// failed counts the logins with a wrong password, which a FRITZ!Box
+	// logs.
+	failed   int
+	received uint64
+	uptime   uint64
 }
 
 func newFakeFritzBox(t *testing.T) *fakeFritzBox {
@@ -100,6 +103,9 @@ func (f *fakeFritzBox) serve(w http.ResponseWriter, r *http.Request) {
 	stale := f.staleAfter > 0 && len(f.actions) == f.staleAfter
 	if !f.authorized(r) || stale {
 		f.unauthed++
+		if r.Header.Get("Authorization") != "" && !stale {
+			f.failed++
+		}
 		if stale {
 			// The count starts again with a new nonce.
 			f.nonce, f.lastNC = f.nonce+"x", ""
@@ -258,6 +264,14 @@ func TestFritzBoxWrongPasswordBacksOff(t *testing.T) {
 	}
 	if box.unauthed != 2 {
 		t.Errorf("the login was tried again at once: %d refused", box.unauthed)
+	}
+	// After the backoff, it costs one failed login, not two.
+	reader.refusedAt = time.Now().Add(-fritzLoginBackoff)
+	if _, err := reader.Collect(t.Context()); err == nil {
+		t.Fatal("a wrong password logged in")
+	}
+	if box.failed != 2 {
+		t.Errorf("%d failed logins, want 2", box.failed)
 	}
 }
 

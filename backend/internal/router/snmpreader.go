@@ -36,6 +36,15 @@ const (
 	oidStorageSize    = "1.3.6.1.2.1.25.2.3.1.5"
 	oidStorageUsed    = "1.3.6.1.2.1.25.2.3.1.6"
 	oidStorageTypeRAM = "1.3.6.1.2.1.25.2.1.2"
+	oidSystemUptime   = "1.3.6.1.2.1.25.1.1.0"
+
+	// The memory in UCD-SNMP-MIB, in KiB, of net-snmp, which Linux-based
+	// routers run: hrStorage counts buffers and cache there as used.
+	oidMemTotal     = "1.3.6.1.4.1.2021.4.5.0"
+	oidMemFree      = "1.3.6.1.4.1.2021.4.6.0"
+	oidMemBuffer    = "1.3.6.1.4.1.2021.4.14.0"
+	oidMemCached    = "1.3.6.1.4.1.2021.4.15.0"
+	oidMemAvailable = "1.3.6.1.4.1.2021.4.27.0" // net-snmp 5.9 and later
 )
 
 // The interface types that are left out: loopback, and those that only
@@ -73,14 +82,17 @@ func NewSNMPv3(address, user, password string) *SNMPReader {
 func (s *SNMPReader) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	uptime, err := s.client.get(ctx, oidUptime)
+	// The system's uptime where the router tells it; sysUpTime is the SNMP
+	// agent's, which starts again when the agent restarts.
+	uptime, err := s.client.get(ctx, oidSystemUptime, oidUptime)
 	if err != nil {
 		return metrics.Snapshot{}, err
 	}
 	var snapshot metrics.Snapshot
-	if len(uptime) == 1 {
-		if ticks, ok := uptime[0].value.numeric(); ok {
+	for _, bind := range uptime {
+		if ticks, ok := bind.value.numeric(); ok {
 			snapshot.UptimeSeconds = ticks / 100
+			break
 		}
 	}
 	restarted := s.read && snapshot.UptimeSeconds < s.uptime
@@ -165,7 +177,8 @@ func (s *SNMPReader) network(columns map[string]map[string]snmpValue, now time.T
 		// every reading.
 		received, ok := number(oidIfHCInOctets, row)
 		sent, okSent := number(oidIfHCOutOctets, row)
-		if !ok || !okSent {
+		wide := ok && okSent
+		if !wide {
 			received, ok = number(oidIfInOctets, row)
 			sent, okSent = number(oidIfOutOctets, row)
 			if !ok || !okSent {
@@ -178,8 +191,12 @@ func (s *SNMPReader) network(columns map[string]map[string]snmpValue, now time.T
 			s.traffic[name] = counters
 		}
 		network := metrics.NetworkInterface{Name: name, ReceivedBytes: received, SentBytes: sent}
-		network.ReceiveBytesPerSecond, _ = counters[0].rate(received, now, restarted)
-		network.SendBytesPerSecond, _ = counters[1].rate(sent, now, restarted)
+		rate := (*counter).rate
+		if wide {
+			rate = (*counter).rate64
+		}
+		network.ReceiveBytesPerSecond, _ = rate(&counters[0], received, now, restarted)
+		network.SendBytesPerSecond, _ = rate(&counters[1], sent, now, restarted)
 		if speed, ok := number(oidIfHighSpeed, row); ok && speed > 0 && speed < 1<<31 {
 			network.LinkMbps = int(speed)
 		}
@@ -221,8 +238,25 @@ func processorLoad(loads map[string]snmpValue) metrics.CPU {
 	return metrics.CPU{UsagePercent: sum / float64(len(cores)), Cores: len(cores), CoreUsagePercent: cores}
 }
 
-// memory reads the RAM from hrStorage.
+// memory reads the RAM from UCD-SNMP-MIB, or else from hrStorage.
 func (s *SNMPReader) memory(ctx context.Context) (metrics.Memory, error) {
+	if binds, err := s.client.get(ctx, oidMemTotal, oidMemFree, oidMemBuffer, oidMemCached, oidMemAvailable); err == nil && len(binds) == 5 {
+		var kib [5]uint64
+		var known [5]bool
+		for i, bind := range binds {
+			kib[i], known[i] = bind.value.numeric()
+		}
+		total, available := kib[0], kib[4]
+		if !known[4] && known[1] {
+			available = kib[1] + kib[2] + kib[3]
+		}
+		if known[0] && total > 0 && total < 1<<40 && (known[4] || known[1]) && available <= total {
+			return metrics.Memory{
+				TotalBytes: total << 10, UsedBytes: (total - available) << 10, AvailableBytes: available << 10,
+				UsedPercent: float64(total-available) / float64(total) * 100,
+			}, nil
+		}
+	}
 	types, err := s.column(ctx, oidStorageType)
 	if err != nil {
 		return metrics.Memory{}, err
@@ -232,8 +266,11 @@ func (s *SNMPReader) memory(ctx context.Context) (metrics.Memory, error) {
 			continue
 		}
 		binds, err := s.client.get(ctx, oidStorageUnits+"."+row, oidStorageSize+"."+row, oidStorageUsed+"."+row)
-		if err != nil || len(binds) != 3 {
+		if err != nil {
 			return metrics.Memory{}, fmt.Errorf("read the memory of %s: %w", s.client.address, err)
+		}
+		if len(binds) != 3 {
+			break
 		}
 		units, okUnits := binds[0].value.numeric()
 		size, okSize := binds[1].value.numeric()

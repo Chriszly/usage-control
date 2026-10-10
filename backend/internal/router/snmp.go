@@ -31,10 +31,12 @@ const (
 // The USM reports a router answers a request it does not take with
 // (RFC 3414).
 const (
-	usmUnknownUser   = "1.3.6.1.6.3.15.1.1.3.0"
-	usmNotInTime     = "1.3.6.1.6.3.15.1.1.2.0"
-	usmUnknownEngine = "1.3.6.1.6.3.15.1.1.4.0"
-	usmWrongDigest   = "1.3.6.1.6.3.15.1.1.5.0"
+	usmUnsupportedSecLevel = "1.3.6.1.6.3.15.1.1.1.0"
+	usmDecryptionError     = "1.3.6.1.6.3.15.1.1.6.0"
+	usmUnknownUser         = "1.3.6.1.6.3.15.1.1.3.0"
+	usmNotInTime           = "1.3.6.1.6.3.15.1.1.2.0"
+	usmUnknownEngine       = "1.3.6.1.6.3.15.1.1.4.0"
+	usmWrongDigest         = "1.3.6.1.6.3.15.1.1.5.0"
 )
 
 // varbind is one variable of an SNMP answer.
@@ -118,9 +120,9 @@ func (c *snmpClient) walk(ctx context.Context, root string) ([]varbind, error) {
 			if v.value.tag == tagEndOfMIB || !strings.HasPrefix(v.oid, root+".") {
 				return all, nil
 			}
-			if v.oid == next {
-				// A router that does not move on would be asked forever.
-				return all, nil
+			if compareOIDs(v.oid, next) <= 0 {
+				// An agent that does not move on would be asked forever.
+				return nil, fmt.Errorf("the router %s answered an SNMP walk out of order", c.address)
 			}
 			all = append(all, v)
 			next = v.oid
@@ -195,7 +197,11 @@ func (c *snmpClient) report(binds []varbind) (retry bool, err error) {
 		case usmUnknownUser:
 			return false, errors.New("the router does not know the SNMPv3 user")
 		case usmWrongDigest:
-			return false, errors.New("the router refused the SNMPv3 password")
+			return false, errors.New("the router refused the SNMPv3 password; check it, and that the user authenticates with SHA (SHA-1)")
+		case usmDecryptionError:
+			return false, errors.New("the router could not decrypt the request; the SNMPv3 user must encrypt with AES (AES-128)")
+		case usmUnsupportedSecLevel:
+			return false, errors.New("the SNMPv3 user must both authenticate (SHA) and encrypt (AES-128)")
 		}
 	}
 	return false, nil
@@ -223,6 +229,10 @@ func (c *snmpClient) exchange(ctx context.Context, message []byte) ([]byte, erro
 		n, err := conn.Read(buffer)
 		if err == nil {
 			return buffer[:n], nil
+		}
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			// The router answered that nothing listens on the SNMP port.
+			break
 		}
 		var timeout net.Error
 		if !errors.As(err, &timeout) || !timeout.Timeout() || ctx.Err() != nil {
@@ -474,9 +484,12 @@ func (c *snmpClient) encodeV3(pdu []byte, id int32) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	placeholder := make([]byte, 12)
-	security := berSequence(tagSequence, berOctets(c.engineID), berInteger(boots), berInteger(engineTime),
-		berOctets([]byte(c.user)), berOctets(placeholder), berOctets(salt))
+	before := bytes.Join([][]byte{berOctets(c.engineID), berInteger(boots), berInteger(engineTime), berOctets([]byte(c.user))}, nil)
+	params := bytes.Join([][]byte{before, berOctets(make([]byte, 12)), berOctets(salt)}, nil)
+	security := berElement(tagSequence, params)
+	// Where the 12 bytes of the authentication code start in security:
+	// after its header, the parameters before them and their own header.
+	within := len(security) - len(params) + len(before) + 2
 	message := berSequence(tagSequence,
 		berInteger(3),
 		// Authenticated, encrypted and reportable.
@@ -485,11 +498,10 @@ func (c *snmpClient) encodeV3(pdu []byte, id int32) ([]byte, error) {
 		berOctets(encrypted),
 	)
 	at := bytes.Index(message, security)
-	within := bytes.Index(security, append([]byte{tagOctetString, 12}, placeholder...))
-	if at < 0 || within < 0 {
+	if at < 0 {
 		return nil, errors.New("encode the SNMPv3 request")
 	}
-	copy(message[at+within+2:], authCode(c.authKey, message))
+	copy(message[at+within:], authCode(c.authKey, message))
 	return message, nil
 }
 
@@ -549,7 +561,9 @@ func (c *snmpClient) decodeV3(message []byte, id int32) (byte, []varbind, error)
 	}
 	if tag == pduReport {
 		for _, bind := range binds {
-			if bind.oid == usmNotInTime {
+			// The clock is only taken from a report signed with the user's
+			// key, as RFC 3414 sends it.
+			if bind.oid == usmNotInTime && m.flags&0x01 != 0 {
 				c.boots, c.engineTime, c.timeAt = m.boots, m.engineTime, time.Now()
 			}
 		}

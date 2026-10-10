@@ -226,6 +226,22 @@ func parseOID(content []byte) (string, error) {
 	return strings.Join(parts, "."), nil
 }
 
+// compareOIDs orders two OIDs as SNMP does, by their numbers.
+func compareOIDs(a, b string) int {
+	x, y := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(x) && i < len(y); i++ {
+		m, _ := strconv.ParseUint(x[i], 10, 64)
+		n, _ := strconv.ParseUint(y[i], 10, 64)
+		if m != n {
+			if m < n {
+				return -1
+			}
+			return 1
+		}
+	}
+	return len(x) - len(y)
+}
+
 // snmpValue is the value of one variable in an answer.
 type snmpValue struct {
 	tag     byte

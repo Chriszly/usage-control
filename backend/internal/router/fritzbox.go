@@ -180,7 +180,9 @@ func (f *FritzBoxReader) read(ctx context.Context) (metrics.Snapshot, error) {
 	}
 	receivedBytes, receivedErr := strconv.ParseUint(addon["NewX_AVM_DE_TotalBytesReceived64"], 10, 64)
 	sentBytes, sentErr := strconv.ParseUint(addon["NewX_AVM_DE_TotalBytesSent64"], 10, 64)
+	rate := (*counter).rate64
 	if receivedErr != nil || sentErr != nil {
+		rate = (*counter).rate
 		// Older FRITZ!OS versions only count in 32 bits.
 		receivedBytes, receivedErr = strconv.ParseUint(addon["NewTotalBytesReceived"], 10, 64)
 		sentBytes, sentErr = strconv.ParseUint(addon["NewTotalBytesSent"], 10, 64)
@@ -212,18 +214,16 @@ func (f *FritzBoxReader) read(ctx context.Context) (metrics.Snapshot, error) {
 	if err != nil {
 		return metrics.Snapshot{}, err
 	}
-	connectionPrefix := fritzIP
-	if _, ok := f.services[fritzPPP]; ok {
-		// A DSL line connects over PPP; the IP connection is then not used.
-		if status, err := optional(fritzPPP, "GetStatusInfo"); err != nil {
-			return metrics.Snapshot{}, err
-		} else if status["NewConnectionStatus"] == "Connected" {
-			connectionPrefix = fritzPPP
-		}
-	}
-	status, err := optional(connectionPrefix, "GetStatusInfo")
+	// A DSL line connects over PPP, whose state counts then, also while it
+	// is down; the IP connection is listed too, but not used.
+	status, err := optional(fritzPPP, "GetStatusInfo")
 	if err != nil {
 		return metrics.Snapshot{}, err
+	}
+	if state := status["NewConnectionStatus"]; state == "" || state == "Unconfigured" {
+		if status, err = optional(fritzIP, "GetStatusInfo"); err != nil {
+			return metrics.Snapshot{}, err
+		}
 	}
 
 	var snapshot metrics.Snapshot
@@ -233,17 +233,20 @@ func (f *FritzBoxReader) read(ctx context.Context) (metrics.Snapshot, error) {
 		restarted = f.uptimeRead && uptime < f.uptime
 		f.uptime, f.uptimeRead = uptime, true
 	}
-	now := time.Now()
-	wan := metrics.NetworkInterface{Name: "WAN", ReceivedBytes: receivedBytes, SentBytes: sentBytes}
-	wan.ReceiveBytesPerSecond, _ = f.received.rate(receivedBytes, now, restarted)
-	wan.SendBytesPerSecond, _ = f.sent.rate(sentBytes, now, restarted)
-
 	// The line's speed: what a DSL line synchronized at, in kbit/s, or else
 	// the link's, in bit/s.
 	down, up := parseRate(dsl["NewDownstreamCurrRate"], 1000), parseRate(dsl["NewUpstreamCurrRate"], 1000)
 	if down == 0 {
 		down, up = parseRate(link["NewLayer1DownstreamMaxBitRate"], 1), parseRate(link["NewLayer1UpstreamMaxBitRate"], 1)
 	}
+	// Traffic faster than the line, with room for a line that synchronized
+	// faster since, is a counter that was reset, not counted up.
+	f.received.limit, f.sent.limit = float64(down)/8*2, float64(up)/8*2
+	now := time.Now()
+	wan := metrics.NetworkInterface{Name: "WAN", ReceivedBytes: receivedBytes, SentBytes: sentBytes}
+	wan.ReceiveBytesPerSecond, _ = rate(&f.received, receivedBytes, now, restarted)
+	wan.SendBytesPerSecond, _ = rate(&f.sent, sentBytes, now, restarted)
+
 	if down > 0 {
 		wan.LinkMbps = int(min(down/1_000_000, 1<<31-1))
 	}
@@ -389,6 +392,9 @@ func (f *FritzBoxReader) call(ctx context.Context, prefix, action string) (map[s
 			return nil, fmt.Errorf("ask %s for %s: it asks for a login other than HTTP digest", f.host, action)
 		}
 		if (attempt > 0 && !stale) || attempt > 1 {
+			// The next login starts without the refused password, so it
+			// costs one failed login, not two.
+			f.digest.nonce = ""
 			return nil, errFritzLogin
 		}
 	}
