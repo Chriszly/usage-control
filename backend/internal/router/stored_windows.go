@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -19,8 +20,9 @@ const (
 	// was given, readable only by the system, administrators and the
 	// service's account (see windows/usage-control.wxs).
 	storedKey = `SOFTWARE\Usage Control\Router`
-	// storedValue holds them as "name=password" lines, until the service
-	// moves them into protectedFile.
+	// storedValue holds them as "name=password" lines, one per string of a
+	// multi-string or in one string, until the service moves them into
+	// protectedFile.
 	storedValue = "Passwords"
 	// protectedFile holds the passwords in the data folder, encrypted with
 	// DPAPI for the service's account, so only programs running as that
@@ -60,7 +62,7 @@ func StoredPasswords(dir string) (map[string]string, bool, error) {
 		return nil, false, fmt.Errorf(`open HKLM\%s: %w`, storedKey, err)
 	}
 	defer func() { _ = key.Close() }()
-	value, _, err := key.GetStringValue(storedValue)
+	value, err := storedString(key)
 	if errors.Is(err, registry.ErrNotExist) {
 		return passwords, stored, nil
 	}
@@ -96,6 +98,17 @@ func formatPasswords(passwords map[string]string) []byte {
 		out.WriteString(name + "=" + passwords[name] + "\n")
 	}
 	return out.Bytes()
+}
+
+// storedString reads storedValue, which the installer writes as a
+// multi-string, as lines.
+func storedString(key registry.Key) (string, error) {
+	lines, _, err := key.GetStringsValue(storedValue)
+	if errors.Is(err, registry.ErrUnexpectedType) {
+		value, _, err := key.GetStringValue(storedValue)
+		return value, err
+	}
+	return strings.Join(lines, "\n"), err
 }
 
 // protect encrypts data with DPAPI for the current account.
