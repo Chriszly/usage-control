@@ -11,6 +11,8 @@ export const de: Messages = {
     'Das Backend ist nicht erreichbar. Angezeigt werden die zuletzt bekannten Werte.',
   'dashboard.deviceUnreachable':
     '{device} hat in letzter Zeit nicht geantwortet. Läuft usage-control darauf?',
+  'dashboard.routerUnreachable':
+    '{device} hat in letzter Zeit nicht geantwortet. Ist das Gerät eingeschaltet, und stimmen Adresse und Anmeldung?',
   'dashboard.deviceRefused':
     '{device} hat eine Adresse des Hubs selbst, zu der sich der Hub bei einem auf der Seite hinzugefügten Gerät nicht verbindet. Entferne es mit angehaktem „Verlauf behalten“ und trage es unter demselben Namen in HUB_DEVICES ein.',
   'dashboard.deviceNotInUse':
@@ -208,6 +210,8 @@ export const de: Messages = {
   'history.network': 'Netzwerk',
   'history.received': 'Empfangen',
   'history.sent': 'Gesendet',
+  'history.interfaceReceived': '{name} empfangen',
+  'history.interfaceSent': '{name} gesendet',
   'history.disks': 'Datenträger',
   'history.swap': 'Swap',
   'history.diskActivity': 'Datenträgeraktivität',

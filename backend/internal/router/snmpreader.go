@@ -269,14 +269,16 @@ func (s *SNMPReader) memory(ctx context.Context) (metrics.Memory, error) {
 		if err != nil {
 			return metrics.Memory{}, fmt.Errorf("read the memory of %s: %w", s.client.address, err)
 		}
+		// A router may list more RAM rows than one, some of them unusable
+		// (shared or virtual memory), so the next one is tried.
 		if len(binds) != 3 {
-			break
+			continue
 		}
 		units, okUnits := binds[0].value.numeric()
 		size, okSize := binds[1].value.numeric()
 		used, okUsed := binds[2].value.numeric()
 		if !okUnits || !okSize || !okUsed || size == 0 || used > size || units == 0 || units > 1<<20 {
-			break
+			continue
 		}
 		total, usedBytes := size*units, used*units
 		return metrics.Memory{

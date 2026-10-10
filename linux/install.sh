@@ -150,13 +150,15 @@ else
 fi
 
 # The router to read: asked in a terminal only, and on an update only when
-# asked to set it up again.
+# asked to set it up again. Not on a device that only serves its usage to a
+# hub (DATA_ONLY), which shows no routers and would not start with one.
 router_entry=""
 router_password=""
 router_name=""
 router_remove=""
 kind=""
-if [[ -t 0 && "${1:-}" != --addons=* ]]; then
+data_only="$(sed -n 's/^DATA_ONLY=//p' "$settings" 2> /dev/null | tail -n 1 | tr -d '[:space:]' || true)"
+if [[ -t 0 && "${1:-}" != --addons=* && ! "$data_only" =~ ^(1|t|T|true|TRUE|True)$ ]]; then
   # No settings file yet on a first install.
   current="$(sed -n 's/^HUB_ROUTERS=//p' "$settings" 2> /dev/null | tail -n 1 || true)"
   echo

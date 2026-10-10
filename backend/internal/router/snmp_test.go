@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"slices"
 	"strconv"
@@ -597,5 +598,28 @@ func TestSNMPWalkOutOfOrder(t *testing.T) {
 	client := newSNMPv2c(conn.LocalAddr().String(), "public")
 	if _, err := client.walk(context.Background(), oidIfType); err == nil || !strings.Contains(err.Error(), "out of order") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestSNMPSkipsAnUnusableRAMRow(t *testing.T) {
+	mib := routerMIB(100, 100, 100)
+	// Rows of shared or virtual memory that tell no size, listed before
+	// and after the real RAM in no fixed order.
+	for row := 2; row <= 9; row++ {
+		mib[fmt.Sprintf("1.3.6.1.2.1.25.2.3.1.2.%d", row)] = objectID(oidStorageTypeRAM)
+		mib[fmt.Sprintf("1.3.6.1.2.1.25.2.3.1.4.%d", row)] = integer(1024)
+		mib[fmt.Sprintf("1.3.6.1.2.1.25.2.3.1.5.%d", row)] = integer(0)
+		mib[fmt.Sprintf("1.3.6.1.2.1.25.2.3.1.6.%d", row)] = integer(0)
+	}
+	agent := newFakeSNMPAgent(t, mib)
+	reader := newTestSNMP(t, agent, false, "", "public")
+	for range 5 {
+		snapshot, err := reader.Collect(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Memory.TotalBytes != 262144*1024 {
+			t.Fatalf("got %d bytes of memory, want %d", snapshot.Memory.TotalBytes, 262144*1024)
+		}
 	}
 }

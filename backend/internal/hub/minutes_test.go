@@ -747,3 +747,38 @@ func TestFetcherDescribesTheExtrasItFetches(t *testing.T) {
 		t.Errorf("the fetched description = %+v, want its label cut to 80 characters and an unknown unit a number", gpu)
 	}
 }
+
+func TestFetcherFetchesTheFirstMinuteOfANewDevice(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	// The device kept only the minute before this one.
+	device := newMinutesDevice(time.Now(), 1)
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: store, device: "office-pc", maxEntries: history.DefaultMaxEntries}
+
+	if !f.fetch(ctx, anyMinute) {
+		t.Fatal("fetch() = false, want true")
+	}
+	if got := storedTimes(t, store, "office-pc"); len(got) != 1 {
+		t.Errorf("stored %v, want the minute the device kept before this one; asked %v, kept %d", got, device.asked, device.minutes[0].Time)
+	}
+}
+
+func TestFetcherAsksForFewerValuesWhenTheDeviceAnswersTooSlowly(t *testing.T) {
+	ctx := context.Background()
+	device := newMinutesDevice(time.Now(), 10)
+	// Slower than requestTimeout, but within the fetch's budget.
+	device.broken = func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	agent := device.start(t)
+	if _, err := agent.Collect(ctx); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	f := &fetcher{agent: agent, store: openTestStore(t), device: "office-pc", maxEntries: 10, budget: 2 * requestTimeout}
+
+	if f.fetch(ctx, anyMinute) || f.failing || f.values != ValuesPerAnswer/2 {
+		t.Errorf("fetch() failing %v, values %d; want not failing and %d values next time", f.failing, f.values, ValuesPerAnswer/2)
+	}
+}

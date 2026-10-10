@@ -12,6 +12,8 @@ export const en = {
   'dashboard.unreachable': 'The backend cannot be reached. Showing the last known values.',
   'dashboard.deviceUnreachable':
     '{device} has not answered recently. Is usage-control running on it?',
+  'dashboard.routerUnreachable':
+    '{device} has not answered recently. Is it on, and are its address and login right?',
   'dashboard.deviceRefused':
     '{device} is at an address of the hub itself, which the hub does not connect to for a device added on the page. Remove it with “Keep its history” ticked and list it in HUB_DEVICES under the same name.',
   'dashboard.deviceNotInUse':
@@ -205,6 +207,8 @@ export const en = {
   'history.network': 'Network',
   'history.received': 'Received',
   'history.sent': 'Sent',
+  'history.interfaceReceived': '{name} received',
+  'history.interfaceSent': '{name} sent',
   'history.disks': 'Disks',
   'history.swap': 'Swap',
   'history.diskActivity': 'Disk activity',

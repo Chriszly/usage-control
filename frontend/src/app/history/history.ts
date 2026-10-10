@@ -222,6 +222,43 @@ export class HistoryCharts {
   }
 }
 
+/**
+ * The lines of the network chart: what all interfaces received and sent
+ * together. A router passes each byte it forwards through two of its
+ * interfaces, so for a router only its internet connection (WAN) is added up,
+ * or, where it does not tell which interface that is, each interface gets
+ * lines of its own.
+ */
+function networkLines(
+  received: ChartLine[],
+  sent: ChartLine[],
+  t: (key: MessageKey, params?: TextParams) => string,
+  router: boolean,
+): ChartLine[] {
+  if (router) {
+    const wan = (lines: ChartLine[]) =>
+      lines.filter((line) => line.label === 'WAN' || line.label.startsWith('WAN '));
+    if (wan(received).length === 0 && wan(sent).length === 0) {
+      return [
+        ...received.map((line) => ({
+          ...line,
+          label: t('history.interfaceReceived', { name: line.label }),
+        })),
+        ...sent.map((line) => ({
+          ...line,
+          label: t('history.interfaceSent', { name: line.label }),
+        })),
+      ];
+    }
+    received = wan(received);
+    sent = wan(sent);
+  }
+  return [
+    { label: t('history.received'), points: sum(received) },
+    { label: t('history.sent'), points: sum(sent) },
+  ];
+}
+
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
@@ -231,7 +268,9 @@ function nowSeconds(): number {
  * temperatures, network speed, disk usage and disk activity, with titles and
  * labels in the language of t. Charts without values are left out. A router
  * read without a login tells no CPU or memory, which are kept as 0, so for a
- * router those lines are left out while they hold nothing but 0.
+ * router those lines are left out while they hold nothing but 0. A router's
+ * network is its internet connection where it tells which one that is, as
+ * its other interfaces carry the same traffic again.
  */
 export function chartsOf(
   series: Series[],
@@ -289,16 +328,7 @@ export function chartsOf(
     {
       title: t('history.network'),
       unit: 'bytesPerSecond',
-      lines: [
-        {
-          label: t('history.received'),
-          points: sum(named('network.receive')),
-        },
-        {
-          label: t('history.sent'),
-          points: sum(named('network.send')),
-        },
-      ],
+      lines: networkLines(named('network.receive'), named('network.send'), t, router),
     },
     {
       title: t('history.disks'),

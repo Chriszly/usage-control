@@ -6,12 +6,14 @@
 # - npm: `npm audit fix` updates package-lock.json within the ranges package.json allows
 # The changes are left in the working tree. A list of them goes to the file given as
 # the first argument, for the pull request. Exits 1 when a vulnerability is left that
-# none of this fixes, so the workflow fails and someone looks at it.
+# none of this fixes, so the workflow fails and someone looks at it; once it got that
+# far, it creates <summary file>.done, which an exit on an error before leaves out.
 set -euo pipefail
 
 summary="${1:?usage: ci/fix-vulnerabilities.sh <summary file>}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 : >"$summary"
+rm -f "$summary.done"
 unfixed=0
 
 # Prints "<module> <fixed version>" for each module with a vulnerability the code
@@ -65,6 +67,7 @@ if ! npm audit --package-lock-only --audit-level=high; then
   unfixed=1
 fi
 
+: >"$summary.done"
 if ((unfixed)); then
   echo "::error::Vulnerabilities are left that no update fixes yet; see the output above"
   exit 1

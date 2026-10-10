@@ -18,13 +18,15 @@ import (
 type fakeASUSRouter struct {
 	server *httptest.Server
 
-	mu      sync.Mutex
-	paths   []string
-	logins  int
-	busy    bool
-	token   string
-	appGet  string
-	coretmp string
+	mu     sync.Mutex
+	paths  []string
+	logins int
+	busy   bool
+	// pagesBusy makes appGet.cgi fail while the token is still taken.
+	pagesBusy bool
+	token     string
+	appGet    string
+	coretmp   string
 }
 
 func newFakeASUSRouter(t *testing.T) *fakeASUSRouter {
@@ -67,6 +69,10 @@ func newFakeASUSRouter(t *testing.T) *fakeASUSRouter {
 		}
 		switch r.URL.Path {
 		case "/appGet.cgi":
+			if f.pagesBusy {
+				http.Error(w, "<html>busy</html>", http.StatusServiceUnavailable)
+				return
+			}
 			_ = r.ParseForm()
 			if r.PostForm.Get("hook") != asusHooks {
 				http.Error(w, "unknown hook", http.StatusBadRequest)
@@ -174,6 +180,31 @@ func TestASUSLogsInAgainWhenTheTokenExpired(t *testing.T) {
 	defer router.mu.Unlock()
 	if router.logins != 2 {
 		t.Errorf("logged in %d times, want 2", router.logins)
+	}
+}
+
+func TestASUSKeepsTheTokenAfterAFailedPage(t *testing.T) {
+	router := newFakeASUSRouter(t)
+	reader := router.reader("right")
+	if _, err := reader.Collect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	router.mu.Lock()
+	router.pagesBusy = true
+	router.mu.Unlock()
+	if _, err := reader.Collect(t.Context()); err == nil {
+		t.Fatal("read a router whose page failed")
+	}
+	router.mu.Lock()
+	router.pagesBusy = false
+	router.mu.Unlock()
+	if _, err := reader.Collect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	if router.logins != 1 {
+		t.Errorf("logged in %d times, want once with the token kept", router.logins)
 	}
 }
 
