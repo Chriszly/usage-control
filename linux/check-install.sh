@@ -179,6 +179,19 @@ if systemctl cat usage-control-containers > /dev/null 2>&1 || [[ -e /usr/local/b
   exit 1
 fi
 
+# --addons=cub installs the Cub edition: the lightweight add-ons, and only those.
+"$folder/install.sh" --addons=cub
+for addon in kernel memory pressure wifi inodes; do
+  systemctl is-enabled --quiet "usage-control-$addon" || { echo "--addons=cub did not install the $addon add-on" >&2; exit 1; }
+done
+for addon in power gpu processes ports smart containers; do
+  if systemctl cat "usage-control-$addon" > /dev/null 2>&1; then
+    echo "--addons=cub installed the $addon add-on" >&2
+    exit 1
+  fi
+done
+"$folder/install.sh" --addons=
+
 # The gpu add-on runs without an NVIDIA GPU too, and then reports nothing.
 "$folder/install.sh" --addons=gpu
 systemctl is-active --quiet usage-control-gpu || { journalctl -u usage-control-gpu --no-pager | tail -20 >&2; echo "the gpu add-on is not running" >&2; exit 1; }

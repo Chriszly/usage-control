@@ -2,14 +2,18 @@
 # Installs or updates usage-control as a systemd service, from the folder of an
 # unpacked release archive (usage-control-<version>-linux-<arch>.tar.gz):
 #
-#   sudo ./install.sh                # install, or update to this version
-#   sudo ./install.sh --addons=power # install with the power add-on
-#   sudo ./install.sh --addons=      # install without any add-on
-#   sudo ./install.sh --uninstall    # remove it; add --purge to delete settings and history too
+#   sudo ./install.sh                    # install, or update to this version
+#   sudo ./install.sh --addons=cub       # install the Cub edition
+#   sudo ./install.sh --addons=cub,power # Grizzly: Cub with the power add-on
+#   sudo ./install.sh --addons=          # install without any add-on
+#   sudo ./install.sh --uninstall        # remove it; add --purge to delete settings and history too
 #
 # Add-ons are optional programs that track more than usage-control itself,
-# each as a service of its own. Without --addons, the install asks for each
-# one when run in a terminal, and an update keeps the add-ons installed before.
+# each as a service of its own. Run in a terminal without --addons, the
+# install first asks for the edition: Cub is usage-control with the
+# lightweight add-ons, Grizzly is Cub with the other add-ons you pick, each
+# asked for in turn. Without a terminal, an update keeps the add-ons
+# installed before. In --addons, cub stands for the lightweight add-ons.
 #
 # Settings live in /etc/usage-control.env and the history in
 # /var/lib/usage-control; an update keeps both. --uninstall --purge deletes
@@ -32,6 +36,10 @@ for service in "$here"/usage-control-*.service /etc/systemd/system/usage-control
   [[ -n "${addon_descriptions[$addon]+set}" ]] && continue
   addon_descriptions[$addon]="$(sed -n 's/^Description=Usage Control [^:]* add-on: //p' "$service")"
 done
+
+# The lightweight add-ons, which make up the Cub edition: each reads a few
+# small files or counters per poll.
+cub_addons=(kernel memory pressure wifi inodes)
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run this as root, for example: sudo $0 $*" >&2
@@ -72,11 +80,21 @@ fi
 # The add-ons to install: from --addons, else asked in a terminal, else the
 # ones installed before.
 declare -A wanted=()
+declare -A cub=()
+for addon in "${cub_addons[@]}"; do
+  cub[$addon]=1
+done
 if [[ "${1:-}" == --addons=* ]]; then
   IFS=, read -r -a picked <<< "${1#--addons=}"
   for addon in "${picked[@]}"; do
+    if [[ $addon == cub ]]; then
+      for light in "${cub_addons[@]}"; do
+        [[ -f "$here/usage-control-$light.service" ]] && wanted[$light]=1
+      done
+      continue
+    fi
     if [[ -z "${addon_descriptions[$addon]+set}" || ! -f "$here/usage-control-$addon.service" ]]; then
-      echo "There is no add-on called '$addon'. Add-ons: ${!addon_descriptions[*]}" >&2
+      echo "There is no add-on called '$addon'. Add-ons: cub ${!addon_descriptions[*]}" >&2
       exit 1
     fi
     wanted[$addon]=1
@@ -84,20 +102,41 @@ if [[ "${1:-}" == --addons=* ]]; then
 elif [[ -n "${1:-}" ]]; then
   echo "Unknown option $1. Use --addons=<names>, --uninstall or --uninstall --purge." >&2
   exit 1
-else
+elif [[ -t 0 ]]; then
+  # Grizzly is the default when one of its add-ons is installed already.
+  edition=1
   for addon in "${!addon_descriptions[@]}"; do
-    # One that is no longer in this archive is removed below.
-    [[ -f "$here/usage-control-$addon.service" ]] || continue
-    installed=no
-    [[ -f "/etc/systemd/system/usage-control-$addon.service" ]] && installed=yes
-    if [[ -t 0 ]]; then
+    if [[ -z "${cub[$addon]+set}" && -f "/etc/systemd/system/usage-control-$addon.service" ]]; then
+      edition=2
+    fi
+  done
+  cub_list="${cub_addons[*]}"
+  echo "Which edition should this machine run?"
+  echo "  1) Cub: usage-control with the lightweight add-ons (${cub_list// /, })"
+  echo "  2) Grizzly: Cub, plus the other add-ons you pick next"
+  read -r -p "[1/2, default $edition] " answer
+  answer="${answer:-$edition}"
+  if [[ ! "$answer" =~ ^[12]$ ]]; then
+    echo "Choose 1 or 2." >&2
+    exit 1
+  fi
+  for addon in "${cub_addons[@]}"; do
+    [[ -f "$here/usage-control-$addon.service" ]] && wanted[$addon]=1
+  done
+  if [[ $answer == 2 ]]; then
+    for addon in "${!addon_descriptions[@]}"; do
+      [[ -n "${cub[$addon]+set}" ]] && continue
+      # One that is no longer in this archive is removed below.
+      [[ -f "$here/usage-control-$addon.service" ]] || continue
       default=n
-      [[ $installed == yes ]] && default=y
+      [[ -f "/etc/systemd/system/usage-control-$addon.service" ]] && default=y
       read -r -p "Install the $addon add-on? It ${addon_descriptions[$addon]}. [y/n, default $default] " answer
       [[ "${answer:-$default}" == [yY]* ]] && wanted[$addon]=1
-    elif [[ $installed == yes ]]; then
-      wanted[$addon]=1
-    fi
+    done
+  fi
+else
+  for addon in "${!addon_descriptions[@]}"; do
+    [[ -f "$here/usage-control-$addon.service" && -f "/etc/systemd/system/usage-control-$addon.service" ]] && wanted[$addon]=1
   done
 fi
 
