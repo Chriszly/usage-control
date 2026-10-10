@@ -456,7 +456,11 @@ Wait-Until { -not (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control\Router' -Name 
 if (-not (Test-Path $protected)) { throw 'The service did not store the router password' }
 $bytes = [IO.File]::ReadAllBytes($protected)
 if ([Text.Encoding]::ASCII.GetString($bytes).Contains('not-in-the-clear') -or [Text.Encoding]::Unicode.GetString($bytes).Contains('not-in-the-clear')) { throw 'The router password is stored in the clear' }
-if ((Show-InstallerLog 'not-in-the-clear').Count -gt 0) { throw 'The installer log shows the router password' }
+$shown = @(Show-InstallerLog 'not-in-the-clear')
+if ($shown.Count -gt 0) {
+    $shown -replace 'not-in-the-clear', '<password>'
+    throw 'The installer log shows the router password, in the lines above'
+}
 # DATA_ONLY=false is what the setup wizard used to pass on after the
 # remembered WEBSITE=1, which kept the website on. An empty option such as
 # DISK_PATHS="" would count as not given, so a space clears it; PORT then
