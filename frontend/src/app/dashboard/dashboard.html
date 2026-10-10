@@ -54,6 +54,10 @@
   <p class="notice" role="status">
     {{ i18n.t('dashboard.deviceNotInUse', { device: deviceName() }) }}
   </p>
+} @else if (problem() === 'device' && isRouter()) {
+  <p class="warning" role="alert">
+    {{ i18n.t('dashboard.routerUnreachable', { device: deviceName() }) }}
+  </p>
 } @else if (problem() === 'device') {
   <p class="warning" role="alert">
     {{ i18n.t('dashboard.deviceUnreachable', { device: deviceName() }) }}

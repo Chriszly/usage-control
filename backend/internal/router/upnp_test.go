@@ -25,11 +25,15 @@ type fakeUPnPRouter struct {
 	web      *httptest.Server
 	location string
 
-	mu       sync.Mutex
-	actions  []string
-	received uint64
-	sent     uint64
-	uptime   uint64
+	mu      sync.Mutex
+	actions []string
+	// descriptions counts the reads of the description; fail makes every
+	// action fail.
+	descriptions int
+	fail         bool
+	received     uint64
+	sent         uint64
+	uptime       uint64
 }
 
 func newFakeUPnPRouter(t *testing.T) *fakeUPnPRouter {
@@ -41,6 +45,9 @@ func newFakeUPnPRouter(t *testing.T) *fakeUPnPRouter {
 	f := &fakeUPnPRouter{t: t, received: 1<<32 - 4000, sent: 5000, uptime: 600}
 	f.web = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/rootDesc.xml" {
+			f.mu.Lock()
+			f.descriptions++
+			f.mu.Unlock()
 			_, _ = w.Write(description)
 			return
 		}
@@ -55,6 +62,9 @@ func newFakeUPnPRouter(t *testing.T) *fakeUPnPRouter {
 		}
 		var values string
 		switch {
+		case f.fail:
+			http.Error(w, "action failed", http.StatusInternalServerError)
+			return
 		case r.URL.Path == "/ctl/CmnIfCfg" && name == "GetTotalBytesReceived":
 			values = fmt.Sprintf("<NewTotalBytesReceived>%d</NewTotalBytesReceived>", f.received)
 		case r.URL.Path == "/ctl/CmnIfCfg" && name == "GetTotalBytesSent":
@@ -220,5 +230,24 @@ func TestUPnPDoesNotSearchAgainAtOnce(t *testing.T) {
 	}
 	if time.Since(start) > time.Second {
 		t.Error("searched again at once")
+	}
+}
+
+func TestUPnPDoesNotSearchAgainAtOnceAfterAFailedRead(t *testing.T) {
+	router := newFakeUPnPRouter(t)
+	router.mu.Lock()
+	router.fail = true
+	router.mu.Unlock()
+	reader := router.reader()
+	if _, err := reader.Collect(t.Context()); err == nil {
+		t.Fatal("read a router whose actions fail")
+	}
+	if _, err := reader.Collect(t.Context()); err == nil {
+		t.Fatal("read a router whose actions fail")
+	}
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	if router.descriptions != 1 {
+		t.Errorf("read the description %d times, want once", router.descriptions)
 	}
 }

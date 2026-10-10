@@ -95,8 +95,14 @@ func (a *ASUSReader) values(ctx context.Context) (map[string]json.RawMessage, er
 		if err == nil {
 			return values, nil
 		}
+		// Only a signed-out token is dropped: logging in again after a
+		// timeout would sign out the admin on routers that allow one
+		// session.
+		if !errors.Is(err, errASUSSignedOut) {
+			return nil, err
+		}
 		a.token = ""
-		if !errors.Is(err, errASUSSignedOut) || attempt > 0 {
+		if attempt > 0 {
 			return nil, err
 		}
 	}
@@ -158,6 +164,10 @@ func (a *ASUSReader) appGet(ctx context.Context) (map[string]json.RawMessage, er
 	data, status, err := a.ask(ctx, http.MethodPost, "/appGet.cgi", url.Values{"hook": {asusHooks}})
 	if err != nil {
 		return nil, err
+	}
+	// A busy or failing web server says nothing about the token.
+	if status >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("ask %s/appGet.cgi: answered %d", a.base, status)
 	}
 	if status != http.StatusOK {
 		return nil, fmt.Errorf("%w: answered %d", errASUSSignedOut, status)

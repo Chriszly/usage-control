@@ -59,9 +59,9 @@ type UPnPReader struct {
 	// common and connection are the control URLs of the services, and their
 	// types, found in the description; empty until it was read.
 	common, connection upnpService
-	// notFound is when the router was last looked for in vain, and why: it
-	// is looked for again only after upnpSearchBackoff, as each search goes
-	// to every device on the local network.
+	// notFound is when the router was last looked for or read in vain, and
+	// why: it is looked for again only after upnpSearchBackoff, as each
+	// search goes to every device on the local network.
 	notFoundAt           time.Time
 	notFound             error
 	received, sent       counter
@@ -92,8 +92,11 @@ func (u *UPnPReader) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	snapshot, err := u.read(ctx)
 	if err != nil {
 		// The router may have restarted with its services elsewhere, so
-		// they are looked for again next time.
+		// they are looked for again, but not before upnpSearchBackoff: a
+		// router whose actions keep failing is not searched for with every
+		// reading.
 		u.common, u.connection = upnpService{}, upnpService{}
+		u.notFoundAt, u.notFound = time.Now(), err
 		return metrics.Snapshot{}, err
 	}
 	return snapshot, nil

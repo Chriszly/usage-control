@@ -66,15 +66,22 @@ const defaultMaxEntries = 64
 // values than defaultMaxEntries.
 var warnedTooMany atomic.Bool
 
-// Extras returns the disks as the group of extras the collector shows: for
-// each disk its overall check and the numbers it reports, each labelled with
-// the disk, such as "Samsung SSD 980 (nvme0): Temperature", or for a disk
-// that cannot be read any more or has SMART switched off only that, in place
-// of its check. The values of all disks are in one group, whose id is part of
-// the name their history is kept under; past defaultMaxEntries values, which
-// about 16 SATA disks reach, usage-control leaves out the rest unless
-// HISTORY_MAX_ENTRIES is set higher, which is logged once.
+// Extras returns the disks as the groups of extras the collector shows: the
+// disks' own checks, each labelled with the disk, such as "Samsung SSD 980
+// (nvme0): SMART check passed", or for a disk that cannot be read any more or
+// has SMART switched off only that, in place of its check; and the numbers
+// the disks report, labelled the same way. The checks are a group of their
+// own, so they are never among what usage-control leaves out of a group with
+// too many values: past defaultMaxEntries values, which about 21 SATA or 16
+// NVMe disks reach, it keeps those whose ids come first unless HISTORY_MAX_ENTRIES is
+// set higher, which is logged once. The values' group id is part of the name
+// their history is kept under.
 func Extras(disks []Disk) []metrics.Extra {
+	checks := metrics.Extra{
+		ID:     "smart-checks",
+		Title:  "SMART checks",
+		Titles: map[string]string{"de": "SMART-Prüfungen", "fr": "Contrôles SMART", "es": "Comprobaciones SMART"},
+	}
 	group := metrics.Extra{
 		ID:     "smart",
 		Title:  "Disk health",
@@ -98,7 +105,7 @@ func Extras(disks []Disk) []metrics.Extra {
 			case !*disk.Passed:
 				label, labels, text = "SMART check FAILED", failedLabels, "✗"
 			}
-			group.Items = append(group.Items, metrics.ExtraItem{
+			checks.Items = append(checks.Items, metrics.ExtraItem{
 				ID:     id + "-health",
 				Label:  prefix + ": " + label,
 				Labels: labelled(prefix, labels),
@@ -122,14 +129,17 @@ func Extras(disks []Disk) []metrics.Extra {
 			})
 		}
 	}
-	if len(group.Items) == 0 {
-		return nil
-	}
 	if len(group.Items) > defaultMaxEntries && !warnedTooMany.Swap(true) {
-		slog.Warn("the disks report more values than usage-control keeps by default, so those of the last disks are left out; set HISTORY_MAX_ENTRIES higher on this device and its hub to keep them",
+		slog.Warn("the disks report more values than usage-control keeps by default, so some of them are left out; set HISTORY_MAX_ENTRIES higher on this device and its hub to keep them",
 			"values", len(group.Items), "kept", defaultMaxEntries)
 	}
-	return []metrics.Extra{group}
+	var extras []metrics.Extra
+	for _, g := range []metrics.Extra{checks, group} {
+		if len(g.Items) > 0 {
+			extras = append(extras, g)
+		}
+	}
+	return extras
 }
 
 // labelled puts prefix before each translation.

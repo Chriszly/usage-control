@@ -219,7 +219,10 @@
       so reg.exe writes them, in a custom action whose command line is
       hidden. As a multi-string ending in \0, a password may end in a
       backslash; reg.exe cannot take a double quote in it, which the Router
-      page refuses. Hidden keeps them out of the installer's log otherwise.
+      page refuses, as it refuses the two characters \0, which would split
+      the value. Hidden keeps them out of the installer's log otherwise. It
+      runs once the key's permissions are set (they are set after
+      InstallServices), so the password is never in a key others can read.
       ROUTER_SECRET is the password field on the Router page (see RouterDlg).
     -->
     <Property Id="ROUTER_PASSWORDS" Secure="yes" Hidden="yes" />
@@ -232,7 +235,7 @@
     <CustomAction Id="StoreRouterPasswords" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixSilentExec"
                   Execute="deferred" Impersonate="no" HideTarget="yes" Return="check" />
     <InstallExecuteSequence>
-      <Custom Action="StoreRouterPasswords" After="WriteRegistryValues" Condition='ROUTER_PASSWORDS AND WEBSITE = "1" AND REMOVE &lt;&gt; "ALL"' />
+      <Custom Action="StoreRouterPasswords" Before="StartServices" Condition='ROUTER_PASSWORDS AND WEBSITE = "1" AND REMOVE &lt;&gt; "ALL"' />
     </InstallExecuteSequence>
 
     <!--
@@ -759,8 +762,8 @@
         <Control Id="Secret" Type="Edit" X="100" Y="138" Width="250" Height="16" Property="ROUTER_SECRET" Password="yes" Text="{128}" ShowCondition='(ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3" OR ROUTER_KIND = "snmp")' HideCondition='NOT (ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3" OR ROUTER_KIND = "snmp")' />
         <Control Id="PasswordHint" Type="Text" X="100" Y="157" Width="250" Height="20" NoPrefix="yes" ShowCondition='(ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3")' HideCondition='NOT (ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3")' Text="Empty keeps the password stored before for this name. SNMPv3 needs at least 8 characters." />
         <Control Id="CommunityHint" Type="Text" X="100" Y="157" Width="250" Height="20" NoPrefix="yes" ShowCondition='ROUTER_KIND = "snmp"' HideCondition='ROUTER_KIND &lt;&gt; "snmp"' Text="Empty for public, or the community stored before for this name." />
-        <Control Id="InvalidText" Type="Text" X="20" Y="179" Width="330" Height="12" NoPrefix="yes" ShowCondition="RouterInvalid" HideCondition="NOT RouterInvalid" Text="Fill in the address, the name and the user, without commas, = or @, and a password without double quotes." />
-        <Control Id="PrivacyText" Type="Text" X="20" Y="195" Width="330" Height="36" NoPrefix="yes" Text="Nothing is sent to any server: the hub asks the router on the local network and keeps everything on this PC. The password is encrypted with Windows (DPAPI), so only the service can read it." />
+        <Control Id="InvalidText" Type="Text" X="20" Y="179" Width="330" Height="12" NoPrefix="yes" ShowCondition="RouterInvalid" HideCondition="NOT RouterInvalid" Text="Fill in the address (no port for UPnP), a name other than Local and the user, without commas, = or @." />
+        <Control Id="PrivacyText" Type="Text" X="20" Y="195" Width="330" Height="36" NoPrefix="yes" Text="Nothing is sent to any server: the hub asks the router on the local network and keeps everything on this PC. The password is encrypted with Windows (DPAPI) for the Local Service account, which the service and its add-ons run as." />
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -832,8 +835,8 @@
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="RouterDlg" Condition='WEBSITE = "1"' />
       <Publish Dialog="ModeDlg" Control="Next" Event="NewDialog" Value="EditionDlg" Condition='WEBSITE &lt;&gt; "1"' />
       <Publish Dialog="RouterDlg" Control="Back" Event="NewDialog" Value="ModeDlg" />
-      <Publish Dialog="RouterDlg" Control="Next" Property="RouterInvalid" Value="1" Condition='ROUTER_SECRET &gt;&lt; Quote OR (ROUTER_KIND &lt;&gt; "none" AND ROUTER_KIND &lt;&gt; "keep") AND (NOT ROUTER_ADDRESS OR NOT ROUTER_NAME OR ROUTER_ADDRESS &gt;&lt; "," OR ROUTER_ADDRESS &gt;&lt; "=" OR ROUTER_ADDRESS &gt;&lt; "@" OR ROUTER_ADDRESS &gt;&lt; " " OR ROUTER_NAME &gt;&lt; "," OR ROUTER_NAME &gt;&lt; "=" OR ((ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3") AND (NOT ROUTER_USER OR ROUTER_USER &gt;&lt; "," OR ROUTER_USER &gt;&lt; "=" OR ROUTER_USER &gt;&lt; "@" OR ROUTER_USER &gt;&lt; ":" OR ROUTER_USER &gt;&lt; " ")))' Order="1" />
-      <Publish Dialog="RouterDlg" Control="Next" Property="RouterInvalid" Value="{}" Condition='NOT (ROUTER_SECRET &gt;&lt; Quote OR (ROUTER_KIND &lt;&gt; "none" AND ROUTER_KIND &lt;&gt; "keep") AND (NOT ROUTER_ADDRESS OR NOT ROUTER_NAME OR ROUTER_ADDRESS &gt;&lt; "," OR ROUTER_ADDRESS &gt;&lt; "=" OR ROUTER_ADDRESS &gt;&lt; "@" OR ROUTER_ADDRESS &gt;&lt; " " OR ROUTER_NAME &gt;&lt; "," OR ROUTER_NAME &gt;&lt; "=" OR ((ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3") AND (NOT ROUTER_USER OR ROUTER_USER &gt;&lt; "," OR ROUTER_USER &gt;&lt; "=" OR ROUTER_USER &gt;&lt; "@" OR ROUTER_USER &gt;&lt; ":" OR ROUTER_USER &gt;&lt; " "))))' Order="1" />
+      <Publish Dialog="RouterDlg" Control="Next" Property="RouterInvalid" Value="1" Condition='ROUTER_SECRET &gt;&lt; Quote OR ROUTER_SECRET &gt;&lt; "\0" OR (ROUTER_KIND &lt;&gt; "none" AND ROUTER_KIND &lt;&gt; "keep") AND (NOT ROUTER_ADDRESS OR NOT ROUTER_NAME OR ROUTER_ADDRESS &gt;&lt; "," OR ROUTER_ADDRESS &gt;&lt; "=" OR ROUTER_ADDRESS &gt;&lt; "@" OR ROUTER_ADDRESS &gt;&lt; " " OR ROUTER_ADDRESS &gt;&lt; "/" OR (ROUTER_KIND = "upnp" AND ROUTER_ADDRESS &gt;&lt; ":") OR ROUTER_NAME &gt;&lt; "," OR ROUTER_NAME &gt;&lt; "=" OR ROUTER_NAME &gt;&lt; "\0" OR ROUTER_NAME ~= "Local" OR ((ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3") AND (NOT ROUTER_USER OR ROUTER_USER &gt;&lt; "," OR ROUTER_USER &gt;&lt; "=" OR ROUTER_USER &gt;&lt; "@" OR ROUTER_USER &gt;&lt; ":" OR ROUTER_USER &gt;&lt; " ")))' Order="1" />
+      <Publish Dialog="RouterDlg" Control="Next" Property="RouterInvalid" Value="{}" Condition='NOT (ROUTER_SECRET &gt;&lt; Quote OR ROUTER_SECRET &gt;&lt; "\0" OR (ROUTER_KIND &lt;&gt; "none" AND ROUTER_KIND &lt;&gt; "keep") AND (NOT ROUTER_ADDRESS OR NOT ROUTER_NAME OR ROUTER_ADDRESS &gt;&lt; "," OR ROUTER_ADDRESS &gt;&lt; "=" OR ROUTER_ADDRESS &gt;&lt; "@" OR ROUTER_ADDRESS &gt;&lt; " " OR ROUTER_ADDRESS &gt;&lt; "/" OR (ROUTER_KIND = "upnp" AND ROUTER_ADDRESS &gt;&lt; ":") OR ROUTER_NAME &gt;&lt; "," OR ROUTER_NAME &gt;&lt; "=" OR ROUTER_NAME &gt;&lt; "\0" OR ROUTER_NAME ~= "Local" OR ((ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3") AND (NOT ROUTER_USER OR ROUTER_USER &gt;&lt; "," OR ROUTER_USER &gt;&lt; "=" OR ROUTER_USER &gt;&lt; "@" OR ROUTER_USER &gt;&lt; ":" OR ROUTER_USER &gt;&lt; " "))))' Order="1" />
       <Publish Dialog="RouterDlg" Control="Next" Property="HUB_ROUTERS" Value=" " Condition='NOT RouterInvalid AND ROUTER_KIND = "none"' Order="2" />
       <Publish Dialog="RouterDlg" Control="Next" Property="HUB_ROUTERS" Value="[ROUTER_NAME]=[ROUTER_KIND]:[ROUTER_ADDRESS]" Condition='NOT RouterInvalid AND (ROUTER_KIND = "upnp" OR ROUTER_KIND = "snmp")' Order="2" />
       <Publish Dialog="RouterDlg" Control="Next" Property="HUB_ROUTERS" Value="[ROUTER_NAME]=[ROUTER_KIND]:[ROUTER_USER]@[ROUTER_ADDRESS]" Condition='NOT RouterInvalid AND (ROUTER_KIND = "asus" OR ROUTER_KIND = "fritzbox" OR ROUTER_KIND = "snmpv3")' Order="2" />

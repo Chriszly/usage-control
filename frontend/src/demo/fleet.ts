@@ -820,8 +820,8 @@ function diskLabels(disk: string, label: string, labels: Record<string, string>)
 }
 
 /**
- * What the smart add-on reports for the given disks: whether each one passes its own check, and
- * the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>". The id is
+ * What the smart add-on reports for the given disks: whether each one passes its own check, in a
+ * group of its own, and the numbers it reports, which come from values() as "extra:smart/<disk id>-<value>". The id is
  * the disk's serial number, as the add-on keys each disk on it.
  */
 function smartAddOn(
@@ -829,23 +829,28 @@ function smartAddOn(
 ): Extra[] {
   return [
     {
+      id: 'smart-checks',
+      title: 'SMART checks',
+      titles: { de: 'SMART-Prüfungen', fr: 'Contrôles SMART', es: 'Comprobaciones SMART' },
+      items: disks.map((disk) => ({
+        id: `${disk.id}-health`,
+        ...diskLabels(disk.name, 'SMART check passed', passedLabels),
+        unit: 'text' as const,
+        text: '✓',
+      })),
+    },
+    {
       id: 'smart',
       title: 'Disk health',
       titles: { de: 'Laufwerkszustand', fr: 'Santé des disques', es: 'Salud de los discos' },
-      items: disks.flatMap((disk) => [
-        {
-          id: `${disk.id}-health`,
-          ...diskLabels(disk.name, 'SMART check passed', passedLabels),
-          unit: 'text' as const,
-          text: '✓',
-        },
-        ...disk.values.map((value) => ({
+      items: disks.flatMap((disk) =>
+        disk.values.map((value) => ({
           id: `${disk.id}-${value}`,
           ...diskLabels(disk.name, smartValues[value].label, smartValues[value].labels),
           unit: smartValues[value].unit,
           history: true,
         })),
-      ]),
+      ),
     },
   ];
 }

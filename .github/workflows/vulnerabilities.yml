@@ -62,7 +62,9 @@ jobs:
 
           if git diff --quiet; then
             echo "Nothing to update."
-            if [[ -n "$open_pr" ]]; then
+            # A fix step that stopped early on an error, as when the vulnerability
+            # database could not be reached, says nothing about the open pull request.
+            if [[ -n "$open_pr" && -f "$RUNNER_TEMP/fixes.md.done" ]]; then
               gh pr close "$open_pr" --delete-branch \
                 --comment "main has no known vulnerabilities with a fix anymore, so this is no longer needed."
             fi

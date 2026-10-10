@@ -11,6 +11,8 @@ export const es: Messages = {
     'No se puede conectar con el backend. Se muestran los últimos valores conocidos.',
   'dashboard.deviceUnreachable':
     '{device} no ha respondido últimamente. ¿Está usage-control en marcha en él?',
+  'dashboard.routerUnreachable':
+    '{device} no ha respondido últimamente. ¿Está encendido y son correctos su dirección y su inicio de sesión?',
   'dashboard.deviceRefused':
     '{device} está en una dirección del propio hub, a la que el hub no se conecta para un dispositivo añadido en la página. Quítalo con «Conservar su historial» marcado y añádelo a HUB_DEVICES con el mismo nombre.',
   'dashboard.deviceNotInUse':
@@ -208,6 +210,8 @@ export const es: Messages = {
   'history.network': 'Red',
   'history.received': 'Recibido',
   'history.sent': 'Enviado',
+  'history.interfaceReceived': '{name} recibido',
+  'history.interfaceSent': '{name} enviado',
   'history.disks': 'Discos',
   'history.swap': 'Swap',
   'history.diskActivity': 'Actividad de discos',

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -489,19 +490,20 @@ func TestExtrasLabelsEachValueWithItsDisk(t *testing.T) {
 		{Name: "Disk 1", Passed: yes(), PowerOnHours: ptr(10)},
 	})
 
-	if len(got) != 1 || got[0].ID != "smart" || got[0].Title != "Disk health" || got[0].Titles["de"] != "Laufwerkszustand" {
-		t.Fatalf("Extras() = %+v, want one group Disk health", got)
+	if len(got) != 2 || got[0].ID != "smart-checks" || got[0].Title != "SMART checks" || got[0].Titles["de"] != "SMART-Prüfungen" ||
+		got[1].ID != "smart" || got[1].Title != "Disk health" || got[1].Titles["de"] != "Laufwerkszustand" {
+		t.Fatalf("Extras() = %+v, want the groups SMART checks and Disk health", got)
 	}
-	items := got[0].Items
+	checks, items := got[0].Items, got[1].Items
 	var ids []string
-	for _, item := range items {
+	for _, item := range append(slices.Clone(checks), items...) {
 		ids = append(ids, item.ID)
 	}
-	wantIDs := []string{"s64dnx0r1-health", "s64dnx0r1-temperature", "s64dnx0r1-used", "disk-1-health", "disk-1-power-on-hours"}
+	wantIDs := []string{"s64dnx0r1-health", "disk-1-health", "s64dnx0r1-temperature", "s64dnx0r1-used", "disk-1-power-on-hours"}
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Errorf("ids = %v, want %v", ids, wantIDs)
 	}
-	failed := items[0]
+	failed := checks[0]
 	if failed.Unit != metrics.UnitText || failed.Text != "✗" || failed.History ||
 		failed.Label != "Samsung SSD 980 (nvme0): SMART check FAILED" ||
 		failed.Labels["de"] != "Samsung SSD 980 (nvme0): SMART-Prüfung NICHT BESTANDEN" ||
@@ -509,15 +511,15 @@ func TestExtrasLabelsEachValueWithItsDisk(t *testing.T) {
 		failed.Labels["es"] != "Samsung SSD 980 (nvme0): Comprobación SMART FALLIDA" {
 		t.Errorf("health = %+v, want FAILED in each language, as text without history", failed)
 	}
-	if passed := items[3]; passed.Text != "✓" || passed.Label != "Disk 1: SMART check passed" ||
+	if passed := checks[1]; passed.Text != "✓" || passed.Label != "Disk 1: SMART check passed" ||
 		passed.Labels["de"] != "Disk 1: SMART-Prüfung bestanden" {
 		t.Errorf("health = %+v, want passed", passed)
 	}
-	if temp := items[1]; temp.Unit != metrics.UnitCelsius || *temp.Value != 41 || !temp.History ||
+	if temp := items[0]; temp.Unit != metrics.UnitCelsius || *temp.Value != 41 || !temp.History ||
 		temp.Labels["es"] != "Samsung SSD 980 (nvme0): Temperatura" {
 		t.Errorf("temperature = %+v, want 41 °C with history", temp)
 	}
-	if hours := items[4]; hours.Label != "Disk 1: Power-on hours" {
+	if hours := items[2]; hours.Label != "Disk 1: Power-on hours" {
 		t.Errorf("label = %q, want the disk without a model", hours.Label)
 	}
 	if clean := metrics.CleanExtras(got, 64); !reflect.DeepEqual(clean, got) {
@@ -577,16 +579,32 @@ func TestExtrasLogsOnceThatTheDisksReportTooManyValues(t *testing.T) {
 		return Disk{Name: fmt.Sprintf("sd%c", 'a'+n), Passed: yes(), Celsius: ptr(30), PowerOnHours: ptr(1), ReallocatedSectors: ptr(0)}
 	}
 	var disks []Disk
-	for n := range 16 {
+	for n := range 21 {
 		disks = append(disks, disk(n))
 	}
 	Extras(disks)
 	if warnedTooMany.Load() {
-		t.Error("16 disks of 4 values each were logged as too many")
+		t.Error("21 disks of 3 values each were logged as too many")
 	}
-	Extras(append(disks, disk(16)))
+	Extras(append(disks, disk(21)))
 	if !warnedTooMany.Load() {
-		t.Error("17 disks of 4 values each were not logged as too many")
+		t.Error("22 disks of 3 values each were not logged as too many")
+	}
+}
+
+func TestExtrasKeepsEveryChecksWithMoreValuesThanKept(t *testing.T) {
+	var disks []Disk
+	for n := range 22 {
+		disks = append(disks, Disk{Name: fmt.Sprintf("sd%c", 'a'+n), Serial: fmt.Sprintf("S%02d", n), Passed: yes(), Celsius: ptr(30), PowerOnHours: ptr(1), ReallocatedSectors: ptr(0)})
+	}
+	disks[21].Passed = no()
+
+	clean := metrics.CleanExtras(Extras(disks), 64)
+	if len(clean) != 2 || clean[0].ID != "smart-checks" || len(clean[0].Items) != 22 || len(clean[1].Items) != 64 {
+		t.Fatalf("CleanExtras() kept %+v, want all 22 checks and 64 values", clean)
+	}
+	if last := clean[0].Items[21]; last.Text != "✗" {
+		t.Errorf("the failed check of the last disk = %+v, want it kept", last)
 	}
 }
 

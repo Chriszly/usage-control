@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -170,8 +171,10 @@ func (f *fetcher) fetch(ctx context.Context, minute time.Time) bool {
 			// stored again.
 			newest = newest.Add(-keptWithin)
 		} else {
-			// A device new to the hub starts now, not with what it kept for another.
-			newest = time.Now().Add(-history.SampleInterval)
+			// A device new to the hub starts now, not with what it kept for
+			// another: with the minute before this one, which it kept at its
+			// start and which the recorder leaves to the fetch.
+			newest = time.Now().Add(-history.SampleInterval).Truncate(history.SampleInterval).Add(-history.SampleInterval / 2)
 		}
 		// Not later than the device's time, which it refuses, with room for the
 		// difference of the clocks to vary.
@@ -341,7 +344,10 @@ func (f *fetcher) failed(stopping, ctx context.Context, err error, progressed bo
 	if stopping.Err() != nil {
 		return true
 	}
-	if ctx.Err() != nil {
+	// A device that takes longer than requestTimeout for an answer ran out
+	// of time too, before the fetch did.
+	var netErr net.Error
+	if ctx.Err() != nil || errors.As(err, &netErr) && netErr.Timeout() {
 		if progressed {
 			return true
 		}

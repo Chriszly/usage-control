@@ -461,6 +461,29 @@ describe('Dashboard', () => {
     expect(text()).not.toContain('12.5 %');
   });
 
+  it('asks whether a router that does not answer is on and set up right', () => {
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'router', name: 'Router', kind: 'server', address: '192.168.1.1', router: true },
+    ]);
+    devices.selectedId.set('router');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http
+      .expectOne('/api/metrics?device=router')
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    http
+      .expectOne('/api/availability?device=router')
+      .flush('down', { status: 502, statusText: 'Bad Gateway' });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Router has not answered recently. Is it on, and are its address');
+    expect(text()).not.toContain('usage-control running');
+  });
+
   it('points to HUB_DEVICES for a device at an address of the hub, without its availability', () => {
     vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
     respond(snapshot);

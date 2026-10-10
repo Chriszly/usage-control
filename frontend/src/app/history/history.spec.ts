@@ -310,6 +310,39 @@ describe('chartsOf for a router', () => {
       points: [{ time: 0, value: 12 }],
     });
   });
+
+  it('charts only the internet connection of a router that tells it', () => {
+    const series = [
+      { metric: 'network.receive:WAN', points: [{ time: 0, value: 100 }] },
+      { metric: 'network.receive:LAN', points: [{ time: 0, value: 12 }] },
+      { metric: 'network.receive:Wi-Fi 5 GHz', points: [{ time: 0, value: 30 }] },
+      { metric: 'network.send:WAN', points: [{ time: 0, value: 40 }] },
+      { metric: 'network.send:LAN', points: [{ time: 0, value: 90 }] },
+    ];
+    const t = (key: MessageKey, params?: TextParams) => translate('en-GB', key, params);
+
+    expect(chartsOf(series, t, true)[0].lines).toEqual([
+      { label: 'Received', points: [{ time: 0, value: 100 }] },
+      { label: 'Sent', points: [{ time: 0, value: 40 }] },
+    ]);
+    // A device's interfaces are added up.
+    expect(chartsOf(series, t)[0].lines[0].points).toEqual([{ time: 0, value: 142 }]);
+  });
+
+  it('gives each interface its own lines on a router that does not tell its internet connection', () => {
+    const series = [
+      { metric: 'network.receive:ether1', points: [{ time: 0, value: 100 }] },
+      { metric: 'network.receive:bridge', points: [{ time: 0, value: 12 }] },
+      { metric: 'network.send:ether1', points: [{ time: 0, value: 40 }] },
+    ];
+    const t = (key: MessageKey, params?: TextParams) => translate('en-GB', key, params);
+
+    expect(chartsOf(series, t, true)[0].lines.map((line) => line.label)).toEqual([
+      'ether1 received',
+      'bridge received',
+      'ether1 sent',
+    ]);
+  });
 });
 
 describe('chartsOf with swap and disk activity', () => {

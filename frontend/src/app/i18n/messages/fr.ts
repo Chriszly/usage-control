@@ -10,6 +10,8 @@ export const fr: Messages = {
   'dashboard.unreachable': 'Le backend est injoignable. Affichage des dernières valeurs connues.',
   'dashboard.deviceUnreachable':
     '{device} n’a pas répondu récemment. usage-control y est-il lancé ?',
+  'dashboard.routerUnreachable':
+    '{device} n’a pas répondu récemment. Est-il allumé, et son adresse et ses identifiants sont-ils corrects ?',
   'dashboard.deviceRefused':
     '{device} est à une adresse du hub lui-même, à laquelle le hub ne se connecte pas pour un appareil ajouté sur la page. Retirez-le avec « Conserver son historique » coché et ajoutez-le à HUB_DEVICES sous le même nom.',
   'dashboard.deviceNotInUse':
@@ -207,6 +209,8 @@ export const fr: Messages = {
   'history.network': 'Réseau',
   'history.received': 'Reçu',
   'history.sent': 'Envoyé',
+  'history.interfaceReceived': '{name} reçu',
+  'history.interfaceSent': '{name} envoyé',
   'history.disks': 'Disques',
   'history.swap': 'Swap',
   'history.diskActivity': 'Activité des disques',

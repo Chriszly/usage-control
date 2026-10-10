@@ -121,7 +121,10 @@ func run(ctx context.Context) error {
 	}
 	routers, err := routerDevices()
 	if err != nil {
-		return err
+		// A wrong router setting must not stop this device's own
+		// monitoring: it runs without the routers, and the log says why.
+		slog.Error("the routers in HUB_ROUTERS are left out", "error", err)
+		routers = nil
 	}
 	remotes = append(remotes, routers...)
 	if err := hub.CheckFixed(remotes); err != nil {
