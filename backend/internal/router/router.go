@@ -1,7 +1,7 @@
 // Package router reads the usage of routers, which cannot run usage-control,
 // in a language they already speak, so a hub can show them as devices of
-// their own: UPnP, which most home routers answer without a login, and the
-// web interface of ASUS routers, which needs one.
+// their own: UPnP, which most home routers answer without a login, SNMP,
+// TR-064 of a FRITZ!Box and the web interface of ASUS routers.
 //
 // It only reads: no request it sends changes a setting of the router. It
 // only connects to the local network, and nothing it reads leaves it.
@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,22 +40,41 @@ const (
 	// ASUS reads CPU, memory, traffic per port and Wi-Fi band, clients and
 	// temperatures from the web interface of an ASUS router, with a login.
 	ASUS Protocol = "asus"
+	// SNMP reads the traffic of every port and, where the router has them,
+	// CPU and memory over SNMPv2c, with a community (default public).
+	SNMP Protocol = "snmp"
+	// SNMPv3 reads the same over SNMPv3, with a user whose password signs
+	// and encrypts each request.
+	SNMPv3 Protocol = "snmpv3"
+	// FritzBox reads the internet traffic and line, the uptime and the
+	// clients of a FRITZ!Box over TR-064, with the login of a FRITZ!Box user.
+	FritzBox Protocol = "fritzbox"
 )
+
+// protocols are the protocols HUB_ROUTERS takes.
+var protocols = []Protocol{UPnP, ASUS, SNMP, SNMPv3, FritzBox}
 
 // Config is a router the hub reads, from HUB_ROUTERS.
 type Config struct {
 	Name     string
 	Protocol Protocol
-	// Address is the router's host name or IP address, with a port for ASUS
-	// when its web interface is not on port 80.
+	// Address is the router's host name or IP address, with a port where
+	// the router does not answer on the usual one (not for UPnP).
 	Address string
-	// User is the login of the web interface, for ASUS.
+	// User is the login, for the protocols that need one.
 	User string
 }
 
 // NeedsLogin reports whether the protocol needs a user and password.
 func (p Protocol) NeedsLogin() bool {
-	return p == ASUS
+	return p == ASUS || p == SNMPv3 || p == FritzBox
+}
+
+// HasSecret reports whether the protocol reads a secret from the passwords
+// file: the password of a login, or the community of SNMPv2c, which is
+// public when the file has none.
+func (p Protocol) HasSecret() bool {
+	return p.NeedsLogin() || p == SNMP
 }
 
 // hostPattern matches a host name or IPv4 address, or an IPv6 address in
@@ -66,7 +86,9 @@ var hostPattern = regexp.MustCompile(`^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::
 var userPattern = regexp.MustCompile(`^[^\s@=,:]{1,64}$`)
 
 // ParseConfigs reads the routers from a comma-separated list of entries such
-// as "Router=upnp:192.168.1.1" or "Router=asus:admin@192.168.1.1".
+// as "Router=upnp:192.168.1.1", "Router=asus:admin@192.168.1.1",
+// "Router=snmp:192.168.1.1", "Router=snmpv3:monitor@192.168.1.1" or
+// "Router=fritzbox:monitor@192.168.178.1".
 func ParseConfigs(value string) ([]Config, error) {
 	var configs []Config
 	for _, entry := range strings.Split(value, ",") {
@@ -93,15 +115,13 @@ func parseConfig(entry string) (Config, error) {
 		return Config{}, errors.New(`give the protocol before the address, such as upnp:192.168.1.1 or asus:admin@192.168.1.1`)
 	}
 	config := Config{Name: strings.TrimSpace(name), Protocol: Protocol(strings.ToLower(protocol))}
-	switch config.Protocol {
-	case UPnP, ASUS:
-	default:
-		return Config{}, fmt.Errorf("the protocol must be %q or %q", UPnP, ASUS)
+	if !slices.Contains(protocols, config.Protocol) {
+		return Config{}, fmt.Errorf("the protocol must be one of %v", protocols)
 	}
 	if config.Protocol.NeedsLogin() {
 		user, host, ok := strings.Cut(address, "@")
 		if !ok || !userPattern.MatchString(user) {
-			return Config{}, errors.New("give the user of the router's web interface before its address, such as asus:admin@192.168.1.1")
+			return Config{}, fmt.Errorf("give the router's user before its address, such as %s:admin@192.168.1.1", config.Protocol)
 		}
 		config.User, address = user, host
 	}
@@ -172,11 +192,20 @@ type Reader interface {
 }
 
 // New returns the reader for a router; password is the login for a
-// protocol that needs one.
+// protocol that needs one, or the community for SNMPv2c.
 func New(config Config, password string) Reader {
 	switch config.Protocol {
 	case ASUS:
 		return everyInterval(NewASUS(config.Address, config.User, password), asusInterval)
+	case SNMP:
+		if password == "" {
+			password = "public"
+		}
+		return everyInterval(NewSNMP(config.Address, password), snmpInterval)
+	case SNMPv3:
+		return everyInterval(NewSNMPv3(config.Address, config.User, password), snmpInterval)
+	case FritzBox:
+		return everyInterval(NewFritzBox(config.Address, config.User, password), fritzInterval)
 	default:
 		return NewUPnP(config.Address)
 	}
@@ -231,6 +260,11 @@ func readBody(body io.Reader) ([]byte, error) {
 // asusInterval is how often an ASUS router is read: its web interface runs
 // on a weak CPU, which a login keeps busy, so less often than a device.
 const asusInterval = 30 * time.Second
+
+// snmpInterval is how often a router is read over SNMP: a reading is a
+// few dozen requests, which an SNMP agent on a small router answers by
+// reading the kernel's tables again each time.
+const snmpInterval = 15 * time.Second
 
 // throttled reads a router at most once per interval, and answers with the
 // reading from before in between. A failed reading is not kept: the next one

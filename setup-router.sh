@@ -5,9 +5,10 @@
 #   docker compose up -d
 #
 # It asks which router it is, writes HUB_ROUTERS to .env and, for a router
-# that needs a login (ASUS), its password to router-secrets/router-passwords,
-# which only root and the container's user can read. The Linux archive's
-# install.sh asks the same and stores the password encrypted; Docker has no key store for that, so here it is protected by
+# that needs a login (ASUS, FRITZ!Box, SNMPv3) or an SNMP community other
+# than public, the password to router-secrets/router-passwords, which only
+# root and the container's user can read. The Linux archive's install.sh
+# asks the same and stores the password encrypted; Docker has no key store for that, so here it is protected by
 # the file's owner and permissions only.
 set -euo pipefail
 
@@ -26,21 +27,31 @@ if [[ ! -t 0 ]]; then
   exit 1
 fi
 
-echo "usage-control can show your router as a device: its internet traffic, and with an ASUS"
-echo "router's login its CPU, memory, ports, Wi-Fi, clients and temperatures."
+echo "usage-control can show your router as a device: its internet traffic, and depending on the"
+echo "router its line, ports, clients, CPU, memory and temperatures."
 echo "Privacy: the router is read over the local network only. No data is sent to any server;"
 echo "everything stays on this machine."
-echo "Which router is it?"
-echo "  1) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
-echo "  2) ASUS without a login, Technicolor, FRITZ!Box or another: internet traffic over UPnP,"
-echo "     which must be switched on in the router's settings"
-echo "  3) none: stop showing a router"
-read -r -p "[1/2/3, default 2] " kind
+echo "Which router is it? A login is only asked for where the router needs one."
+echo "  1) Any router with UPnP (Technicolor, most internet providers' boxes): internet traffic,"
+echo "     no login; UPnP must be switched on in the router's settings"
+echo "  2) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
+echo "  3) FRITZ!Box, with a FRITZ!Box user: internet traffic, line, noise margin and clients;"
+echo "     allow access for applications in Home Network > Network > Network Settings"
+echo "  4) A router with SNMP v2c (MikroTik, OpenWrt, Ubiquiti, business routers): traffic"
+echo "     of every port, CPU and memory, with its community"
+echo "  5) A router with SNMPv3: the same, with a user and password"
+echo "  6) none: stop showing a router"
+read -r -p "[1-6, default 1] " kind
+kind="${kind:-1}"
+if [[ ! "$kind" =~ ^[1-6]$ ]]; then
+  echo "Choose one of 1 to 6." >&2
+  exit 1
+fi
 
 entry=""
 password=""
 name=""
-if [[ "${kind:-2}" != 3 ]]; then
+if [[ "$kind" != 6 ]]; then
   gateway="$(ip -4 route show default 2> /dev/null | awk '{print $3; exit}' || true)"
   read -r -p "The router's address [default ${gateway:-none}] " address
   address="${address:-$gateway}"
@@ -54,23 +65,44 @@ if [[ "${kind:-2}" != 3 ]]; then
     echo "The router's name must start with a letter or digit and hold only letters, digits, spaces and . _ ( ) -, at most 64, and not be Local." >&2
     exit 1
   fi
-  if [[ "${kind:-2}" == 1 ]]; then
-    read -r -p "The user of its web interface [default admin] " user
-    user="${user:-admin}"
-    if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
-      echo "The user cannot hold spaces, @, =, , or :." >&2
-      exit 1
-    fi
-    IFS= read -r -s -p "Its password (not shown): " password
-    echo
-    if [[ -z "$password" ]]; then
-      echo "The ASUS router needs its password; run setup-router.sh again to enter it." >&2
-      exit 1
-    fi
-    entry="$name=asus:$user@$address"
-  else
-    entry="$name=upnp:$address"
-  fi
+  case "$kind" in
+    1)
+      entry="$name=upnp:$address"
+      ;;
+    2 | 3 | 5)
+      case "$kind" in
+        2) protocol=asus what="of its web interface" default_user=admin ;;
+        3) protocol=fritzbox what="of the FRITZ!Box (System > FRITZ!Box Users)" default_user="" ;;
+        5) protocol=snmpv3 what="of SNMPv3" default_user="" ;;
+      esac
+      read -r -p "The user $what${default_user:+ [default $default_user]} " user
+      user="${user:-$default_user}"
+      if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
+        echo "The user must be given, without spaces, @, =, , or :." >&2
+        exit 1
+      fi
+      IFS= read -r -s -p "Its password (not shown): " password
+      echo
+      if [[ -z "$password" ]]; then
+        echo "The router needs its password; run setup-router.sh again to enter it." >&2
+        exit 1
+      fi
+      if [[ "$protocol" == snmpv3 && ${#password} -lt 8 ]]; then
+        echo "An SNMPv3 password has at least 8 characters." >&2
+        exit 1
+      fi
+      entry="$name=$protocol:$user@$address"
+      ;;
+    4)
+      IFS= read -r -s -p "Its SNMP community (not shown) [default public] " password
+      echo
+      # The community public needs no secret.
+      if [[ "$password" == public ]]; then
+        password=""
+      fi
+      entry="$name=snmp:$address"
+      ;;
+  esac
 fi
 
 if [[ ! -f "$env_file" ]]; then

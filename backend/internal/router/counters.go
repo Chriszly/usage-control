@@ -53,3 +53,10 @@ func (c *counter) rate(value uint64, now time.Time, restarted bool) (float64, bo
 	}
 	return perSecond, true
 }
+
+// rate64 is rate for a counter of 64 bits, which does not wrap around in
+// practice: one that went down was reset, as when an interface was made
+// anew.
+func (c *counter) rate64(value uint64, now time.Time, restarted bool) (float64, bool) {
+	return c.rate(value, now, restarted || (c.known && value < c.value))
+}

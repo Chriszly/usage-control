@@ -18,10 +18,12 @@
 //	                comma-separated name=host:port entries (default none)
 //	HUB_ROUTERS     routers to read, which the hub shows as devices:
 //	                comma-separated name=protocol:address entries, such as
-//	                Router=upnp:192.168.1.1 or Router=asus:admin@192.168.1.1
-//	                (default none)
+//	                Router=upnp:192.168.1.1, Router=asus:admin@192.168.1.1,
+//	                Router=snmp:192.168.1.1, Router=snmpv3:user@192.168.1.1
+//	                or Router=fritzbox:user@192.168.178.1 (default none)
 //	ROUTER_PASSWORDS_FILE  file with the passwords of the routers that need a
-//	                login, one name=password per line (default the file
+//	                login, and the SNMPv2c community where it is not public,
+//	                one name=password per line (default the file
 //	                router-passwords in CREDENTIALS_DIRECTORY, where systemd
 //	                decrypts it for the service)
 //	DATA_ONLY       true to serve only the usage data for a hub, without the
@@ -46,6 +48,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -380,14 +383,21 @@ func routerDevices() ([]hub.Device, error) {
 	}
 	var passwords map[string]string
 	for _, config := range configs {
-		if !config.Protocol.NeedsLogin() || passwords != nil {
+		if !config.Protocol.HasSecret() || passwords != nil {
 			continue
 		}
 		path := router.PasswordsPath()
 		if path == "" {
+			if !config.Protocol.NeedsLogin() {
+				// SNMPv2c with the community public.
+				continue
+			}
 			return nil, fmt.Errorf("the router %q needs a password; run the installer again to enter it, or set ROUTER_PASSWORDS_FILE to a file with a line %s=<password>", config.Name, config.Name)
 		}
 		if passwords, err = router.ReadPasswords(path); err != nil {
+			if errors.Is(err, fs.ErrNotExist) && !config.Protocol.NeedsLogin() {
+				continue
+			}
 			return nil, fmt.Errorf("read the router passwords: %w", err)
 		}
 	}

@@ -9,7 +9,8 @@
 #   sudo ./install.sh --uninstall        # remove it; add --purge to delete settings and history too
 #
 # Run in a terminal, it also asks whether to read the router, and for its
-# login when the router needs one (ASUS). The login is stored encrypted with
+# login when the router needs one (ASUS, FRITZ!Box, SNMPv3) or its SNMP
+# community. The login is stored encrypted with
 # systemd-creds, and only the service can read it.
 #
 # Add-ons are optional programs that track more than usage-control itself,
@@ -159,8 +160,8 @@ if [[ -t 0 && "${1:-}" != --addons=* ]]; then
   # No settings file yet on a first install.
   current="$(sed -n 's/^HUB_ROUTERS=//p' "$settings" 2> /dev/null | tail -n 1 || true)"
   echo
-  echo "usage-control can also show your router: its internet traffic, and with an ASUS router's"
-  echo "login its CPU, memory, ports, Wi-Fi, clients and temperatures."
+  echo "usage-control can also show your router: its internet traffic, and depending on the router"
+  echo "its line, ports, clients, CPU, memory and temperatures."
   echo "Privacy: the router is read over the local network only. No data is sent to any server;"
   echo "everything stays on this machine, and the router's password is stored encrypted."
   if [[ -n "$current" ]]; then
@@ -170,21 +171,26 @@ if [[ -t 0 && "${1:-}" != --addons=* ]]; then
   fi
   read -r -p "$question" answer
   if [[ "${answer:-n}" == [yY]* ]]; then
-    echo "Which router is it?"
-    echo "  1) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
-    echo "  2) ASUS without a login, Technicolor, FRITZ!Box or another: internet traffic over UPnP,"
-    echo "     which must be switched on in the router's settings"
-    echo "  3) none: stop showing a router"
-    read -r -p "[1/2/3, default 2] " kind
-    kind="${kind:-2}"
-    if [[ ! "$kind" =~ ^[1-3]$ ]]; then
-      echo "Choose 1, 2 or 3." >&2
+    echo "Which router is it? A login is only asked for where the router needs one."
+    echo "  1) Any router with UPnP (Technicolor, most internet providers' boxes): internet traffic,"
+    echo "     no login; UPnP must be switched on in the router's settings"
+    echo "  2) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
+    echo "  3) FRITZ!Box, with a FRITZ!Box user: internet traffic, line, noise margin and clients;"
+    echo "     allow access for applications in Home Network > Network > Network Settings"
+    echo "  4) A router with SNMP v2c (MikroTik, OpenWrt, Ubiquiti, business routers): traffic"
+    echo "     of every port, CPU and memory, with its community"
+    echo "  5) A router with SNMPv3: the same, with a user and password"
+    echo "  6) none: stop showing a router"
+    read -r -p "[1-6, default 1] " kind
+    kind="${kind:-1}"
+    if [[ ! "$kind" =~ ^[1-6]$ ]]; then
+      echo "Choose one of 1 to 6." >&2
       exit 1
     fi
   fi
-  if [[ "${kind:-}" == 3 ]]; then
+  if [[ "$kind" == 6 ]]; then
     router_remove=1
-  elif [[ -n "${kind:-}" ]]; then
+  elif [[ -n "$kind" ]]; then
     gateway="$(ip -4 route show default 2> /dev/null | awk '{print $3; exit}' || true)"
     read -r -p "The router's address [default ${gateway:-none}] " address
     address="${address:-$gateway}"
@@ -198,23 +204,44 @@ if [[ -t 0 && "${1:-}" != --addons=* ]]; then
       echo "The router's name must start with a letter or digit and hold only letters, digits, spaces and . _ ( ) -, at most 64, and not be Local." >&2
       exit 1
     fi
-    if [[ "$kind" == 1 ]]; then
-      read -r -p "The user of its web interface [default admin] " user
-      user="${user:-admin}"
-      if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
-        echo "The user cannot hold spaces, @, =, , or :." >&2
-        exit 1
-      fi
-      IFS= read -r -s -p "Its password (not shown): " router_password
-      echo
-      if [[ -z "$router_password" ]]; then
-        echo "The ASUS router needs its password; run install.sh again to enter it." >&2
-        exit 1
-      fi
-      router_entry="$router_name=asus:$user@$address"
-    else
-      router_entry="$router_name=upnp:$address"
-    fi
+    case "$kind" in
+      1)
+        router_entry="$router_name=upnp:$address"
+        ;;
+      2 | 3 | 5)
+        case "$kind" in
+          2) protocol=asus what="of its web interface" default_user=admin ;;
+          3) protocol=fritzbox what="of the FRITZ!Box (System > FRITZ!Box Users)" default_user="" ;;
+          5) protocol=snmpv3 what="of SNMPv3" default_user="" ;;
+        esac
+        read -r -p "The user $what${default_user:+ [default $default_user]} " user
+        user="${user:-$default_user}"
+        if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
+          echo "The user must be given, without spaces, @, =, , or :." >&2
+          exit 1
+        fi
+        IFS= read -r -s -p "Its password (not shown): " router_password
+        echo
+        if [[ -z "$router_password" ]]; then
+          echo "The router needs its password; run install.sh again to enter it." >&2
+          exit 1
+        fi
+        if [[ "$protocol" == snmpv3 && ${#router_password} -lt 8 ]]; then
+          echo "An SNMPv3 password has at least 8 characters." >&2
+          exit 1
+        fi
+        router_entry="$router_name=$protocol:$user@$address"
+        ;;
+      4)
+        IFS= read -r -s -p "Its SNMP community (not shown) [default public] " router_password
+        echo
+        # The community public needs no secret.
+        if [[ "$router_password" == public ]]; then
+          router_password=""
+        fi
+        router_entry="$router_name=snmp:$address"
+        ;;
+    esac
   fi
 fi
 

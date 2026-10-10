@@ -13,13 +13,17 @@ import (
 )
 
 func TestParseConfigs(t *testing.T) {
-	configs, err := ParseConfigs(" Router=upnp:192.168.1.1, Office router = ASUS:admin@router.local:8080 ,")
+	configs, err := ParseConfigs(" Router=upnp:192.168.1.1, Office router = ASUS:admin@router.local:8080 ," +
+		"Switch=snmp:10.0.0.2:1161,Core=SNMPv3:monitor@10.0.0.1,Box=fritzbox:monitor@fritz.box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Config{
 		{Name: "Router", Protocol: UPnP, Address: "192.168.1.1"},
 		{Name: "Office router", Protocol: ASUS, Address: "router.local:8080", User: "admin"},
+		{Name: "Switch", Protocol: SNMP, Address: "10.0.0.2:1161"},
+		{Name: "Core", Protocol: SNMPv3, Address: "10.0.0.1", User: "monitor"},
+		{Name: "Box", Protocol: FritzBox, Address: "fritz.box", User: "monitor"},
 	}
 	if len(configs) != len(want) {
 		t.Fatalf("got %+v, want %+v", configs, want)
@@ -35,8 +39,10 @@ func TestParseConfigsRefusesWrongEntries(t *testing.T) {
 	for _, value := range []string{
 		"192.168.1.1",
 		"Router=192.168.1.1",
-		"Router=snmp:192.168.1.1",
+		"Router=telnet:192.168.1.1",
 		"Router=asus:192.168.1.1",
+		"Router=snmpv3:192.168.1.1",
+		"Router=fritzbox:192.168.178.1",
 		"Router=asus:ad min@192.168.1.1",
 		"Router=upnp:192.168.1.1:5000",
 		"Router=upnp:http://192.168.1.1/",
