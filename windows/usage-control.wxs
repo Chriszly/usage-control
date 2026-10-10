@@ -365,7 +365,7 @@
     -->
     <Component Id="RouterPasswords" Directory="INSTALLFOLDER" Guid="5B0E7D51-3C55-4E0B-9D7A-6E1A9C2F4B83"
                Condition='ROUTER_PASSWORDS AND WEBSITE = "1"' Transitive="yes">
-      <RegistryKey Root="HKLM" Key="SOFTWARE\Usage Control\Router">
+      <RegistryKey Root="HKLM" Key="SOFTWARE\Usage Control\Router" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
         <PermissionEx Sddl="D:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;0x2001b;;;LS)" />
         <RegistryValue Name="Passwords" Type="string" Value="[ROUTER_PASSWORDS]" KeyPath="yes" />
       </RegistryKey>
