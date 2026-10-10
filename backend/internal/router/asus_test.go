@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,7 @@ type fakeASUSRouter struct {
 	mu      sync.Mutex
 	paths   []string
 	logins  int
+	busy    bool
 	token   string
 	appGet  string
 	coretmp string
@@ -46,6 +48,10 @@ func newFakeASUSRouter(t *testing.T) *fakeASUSRouter {
 		}
 		if r.URL.Path == "/login.cgi" {
 			f.logins++
+			if f.busy {
+				http.Error(w, "<html>busy</html>", http.StatusServiceUnavailable)
+				return
+			}
 			_ = r.ParseForm()
 			if r.PostForm.Get("login_authorization") != base64.StdEncoding.EncodeToString([]byte("admin:right")) {
 				_, _ = w.Write([]byte(`{"error_status":"3"}`))
@@ -183,6 +189,32 @@ func TestASUSDoesNotRetryAWrongPasswordAtOnce(t *testing.T) {
 	defer router.mu.Unlock()
 	if router.logins != 1 {
 		t.Errorf("tried to log in %d times, want once until the backoff is over", router.logins)
+	}
+}
+
+func TestASUSRetriesALoginWithoutAnswerAtOnce(t *testing.T) {
+	router := newFakeASUSRouter(t)
+	router.busy = true
+	reader := router.reader("right")
+	if _, err := reader.Collect(t.Context()); err == nil || errors.Is(err, errASUSLogin) {
+		t.Fatalf("got %v, want an error that is not a refused login", err)
+	}
+	router.mu.Lock()
+	router.busy = false
+	router.mu.Unlock()
+	if _, err := reader.Collect(t.Context()); err != nil {
+		t.Errorf("the next reading: %v", err)
+	}
+}
+
+func TestASUSCPUAfterARestart(t *testing.T) {
+	reader := &ASUSReader{}
+	reader.cpu(map[string]string{"cpu1_total": "1000", "cpu1_usage": "500"})
+	if got := reader.cpu(map[string]string{"cpu1_total": "1100", "cpu1_usage": "550"}); got.UsagePercent != 50 {
+		t.Errorf("got %v, want 50", got.UsagePercent)
+	}
+	if got := reader.cpu(map[string]string{"cpu1_total": "100", "cpu1_usage": "90"}); got.Cores != 0 {
+		t.Errorf("after counters started again got %+v, want none", got)
 	}
 }
 

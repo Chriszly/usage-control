@@ -233,7 +233,8 @@ func readBody(body io.Reader) ([]byte, error) {
 const asusInterval = 30 * time.Second
 
 // throttled reads a router at most once per interval, and answers with the
-// reading from before in between.
+// reading from before in between. A failed reading is not kept: the next one
+// asks again, so a single lost answer is not an outage of a whole interval.
 type throttled struct {
 	reader   Reader
 	interval time.Duration
@@ -241,7 +242,6 @@ type throttled struct {
 	mu     sync.Mutex
 	latest metrics.Snapshot
 	at     time.Time
-	err    error
 }
 
 func everyInterval(reader Reader, interval time.Duration) Reader {
@@ -252,9 +252,13 @@ func (t *throttled) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.at.IsZero() && time.Since(t.at) < t.interval {
-		return t.latest, t.err
+		return t.latest, nil
 	}
-	t.latest, t.err = t.reader.Collect(ctx)
-	t.at = time.Now()
-	return t.latest, t.err
+	snapshot, err := t.reader.Collect(ctx)
+	if err != nil {
+		t.at = time.Time{}
+		return metrics.Snapshot{}, err
+	}
+	t.latest, t.at = snapshot, time.Now()
+	return snapshot, nil
 }

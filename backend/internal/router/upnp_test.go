@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Chriszly/usage-control/backend/internal/metrics"
 )
@@ -198,4 +199,26 @@ func extraItem(snapshot metrics.Snapshot, group, item string) *metrics.ExtraItem
 		}
 	}
 	return nil
+}
+
+func TestUPnPDoesNotSearchAgainAtOnce(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	// A router that never answers a search.
+	reader := NewUPnP("127.0.0.1")
+	reader.ssdpPort = uint16(conn.LocalAddr().(*net.UDPAddr).Port) //nolint:gosec // a port
+	reader.multicast = ""
+	if _, err := reader.Collect(t.Context()); err == nil {
+		t.Fatal("found a router that does not answer")
+	}
+	start := time.Now()
+	if _, err := reader.Collect(t.Context()); err == nil || !strings.Contains(err.Error(), "does not answer a UPnP search") {
+		t.Errorf("got %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("searched again at once")
+	}
 }

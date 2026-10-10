@@ -128,7 +128,12 @@ func (a *ASUSReader) login(ctx context.Context) error {
 		Token       string `json:"asus_token"`
 		ErrorStatus any    `json:"error_status"`
 	}
-	if json.Unmarshal(data, &answer) != nil || answer.Token == "" {
+	if json.Unmarshal(data, &answer) != nil {
+		// Not an answer to the login, as from a busy router: tried again at
+		// the next reading.
+		return fmt.Errorf("log in to %s: answered %s without a login answer", a.base, response.Status)
+	}
+	if answer.Token == "" {
 		a.refusedAt = time.Now()
 		if !a.refusedLogs {
 			// Only once, so the log does not fill while the login is wrong.
@@ -256,6 +261,7 @@ func (a *ASUSReader) cpu(values map[string]string) metrics.CPU {
 	previous := a.cores
 	a.cores = map[string][2]uint64{}
 	var cores []float64
+	reset := false
 	for n := 1; ; n++ {
 		core := "cpu" + strconv.Itoa(n)
 		total, totalErr := strconv.ParseUint(values[core+"_total"], 10, 64)
@@ -265,7 +271,13 @@ func (a *ASUSReader) cpu(values map[string]string) metrics.CPU {
 		}
 		a.cores[core] = [2]uint64{usage, total}
 		before := previous[core]
-		if before[1] > 0 && total >= before[1] && usage >= before[0] {
+		if before[1] > 0 {
+			if total < before[1] || usage < before[0] {
+				// The counters started again, as after a restart: this
+				// reading has no usage to tell.
+				reset = true
+				continue
+			}
 			usage, total = usage-before[0], total-before[1]
 		}
 		percent := 0.0
@@ -274,7 +286,7 @@ func (a *ASUSReader) cpu(values map[string]string) metrics.CPU {
 		}
 		cores = append(cores, percent)
 	}
-	if len(cores) == 0 {
+	if len(cores) == 0 || reset {
 		return metrics.CPU{}
 	}
 	var sum float64

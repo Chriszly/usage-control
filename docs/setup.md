@@ -239,7 +239,7 @@ The hub can show your router as a device of its own, with its availability and c
 Set it up:
 
 - **Docker:** run `sudo ./setup-router.sh` next to `compose.yaml`, then `docker compose up -d`. It asks for the router and writes `HUB_ROUTERS` to `.env`; an ASUS router's password goes to `router-secrets/router-passwords`, which only root and the container's user can read. Docker has no key store to encrypt it with, so it is protected by the file's owner and permissions.
-- **Linux service:** `sudo ./install.sh`, run in a terminal, asks for the router after the add-ons, also on an update. An ASUS router's password is encrypted with `systemd-creds` with the machine's own key (and its TPM, where there is one), so the file `/etc/usage-control-router-passwords.cred` is of no use on another machine; systemd decrypts it only for the service. Before systemd 250, which cannot encrypt, it is stored readable by root only. `--uninstall --purge` deletes it.
+- **Linux service:** `sudo ./install.sh`, run in a terminal, asks for the router after the add-ons, also on an update, where it can also stop showing it. An ASUS router's password is encrypted with `systemd-creds` with the machine's own key (and its TPM, where there is one), so the file `/etc/usage-control-router-passwords.cred` is of no use on another machine; systemd decrypts it only for the service. Before systemd 250, which cannot encrypt, it is stored readable by root only. `--uninstall --purge` deletes it.
 - **By hand:** list routers in `HUB_ROUTERS`, each as `name=protocol:address`, and for a login the user before the address. The passwords go in a file named by `ROUTER_PASSWORDS_FILE`, one `name=password` per line:
 
 ```bash

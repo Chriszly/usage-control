@@ -105,15 +105,29 @@ func (c *countingReader) Collect(context.Context) (metrics.Snapshot, error) {
 }
 
 func TestThrottledReadsOncePerInterval(t *testing.T) {
-	reader := &countingReader{err: errors.New("no answer")}
+	reader := &countingReader{}
 	throttle := everyInterval(reader, time.Hour)
 	for range 3 {
-		if _, err := throttle.Collect(t.Context()); err == nil {
-			t.Error("the error of the reading was not kept")
+		if snapshot, err := throttle.Collect(t.Context()); err != nil || snapshot.UptimeSeconds != 1 {
+			t.Errorf("got %+v, %v, want the first reading", snapshot, err)
 		}
 	}
 	if reader.calls != 1 {
 		t.Errorf("read %d times within the interval, want 1", reader.calls)
+	}
+}
+
+func TestThrottledAsksAgainAfterAnError(t *testing.T) {
+	reader := &countingReader{err: errors.New("no answer")}
+	throttle := everyInterval(reader, time.Hour)
+	for range 2 {
+		if _, err := throttle.Collect(t.Context()); err == nil {
+			t.Error("the error was not passed on")
+		}
+	}
+	reader.err = nil
+	if snapshot, err := throttle.Collect(t.Context()); err != nil || snapshot.UptimeSeconds != 3 {
+		t.Errorf("got %+v, %v, want a new reading", snapshot, err)
 	}
 }
 
@@ -145,5 +159,15 @@ func TestCounterRate(t *testing.T) {
 	c = counter{value: 1 << 31, at: start, known: true}
 	if _, ok := c.rate(1<<31-1, start.Add(time.Millisecond), false); ok {
 		t.Error("an impossible rate was taken")
+	}
+	// A counter that went down from the lower half was reset, not wrapped.
+	c = counter{value: 3_000_000, at: start, known: true}
+	if _, ok := c.rate(1000, start.Add(5*time.Second), false); ok {
+		t.Error("a reset from the lower half was taken for a wrap")
+	}
+	// Faster than the line is a reset too.
+	c = counter{value: 3_000_000_000, at: start, known: true, limit: 12_500_000}
+	if _, ok := c.rate(1_000_000, start.Add(5*time.Second), false); ok {
+		t.Error("a rate faster than the line was taken")
 	}
 }

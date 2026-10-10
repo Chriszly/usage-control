@@ -7,8 +7,7 @@
 # It asks which router it is, writes HUB_ROUTERS to .env and, for a router
 # that needs a login (ASUS), its password to router-secrets/router-passwords,
 # which only root and the container's user can read. The Linux archive's
-# install.sh and the Windows installer ask the same and store the password
-# encrypted; Docker has no key store for that, so here it is protected by
+# install.sh asks the same and stores the password encrypted; Docker has no key store for that, so here it is protected by
 # the file's owner and permissions only.
 set -euo pipefail
 
@@ -51,8 +50,8 @@ if [[ "${kind:-2}" != 3 ]]; then
   fi
   read -r -p "Its name on the page [default Router] " name
   name="${name:-Router}"
-  if [[ "$name" == *[=,]* ]]; then
-    echo "The router's name cannot hold = or ,." >&2
+  if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._()-]{0,63}$ || "${name,,}" == local ]]; then
+    echo "The router's name must start with a letter or digit and hold only letters, digits, spaces and . _ ( ) -, at most 64, and not be Local." >&2
     exit 1
   fi
   if [[ "${kind:-2}" == 1 ]]; then
@@ -62,7 +61,7 @@ if [[ "${kind:-2}" != 3 ]]; then
       echo "The user cannot hold spaces, @, =, , or :." >&2
       exit 1
     fi
-    read -r -s -p "Its password (not shown): " password
+    IFS= read -r -s -p "Its password (not shown): " password
     echo
     if [[ -z "$password" ]]; then
       echo "The ASUS router needs its password; run setup-router.sh again to enter it." >&2
@@ -76,6 +75,8 @@ fi
 
 if [[ ! -f "$env_file" ]]; then
   cp "$here/.env.example" "$env_file"
+  # Owned by whoever ran sudo, so it can be edited without it.
+  chown "${SUDO_UID:-0}:${SUDO_GID:-0}" "$env_file"
 fi
 if grep -q '^HUB_ROUTERS=' "$env_file"; then
   escaped="$(printf '%s' "$entry" | sed 's/[\\&|]/\\&/g')"

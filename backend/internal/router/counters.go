@@ -16,6 +16,10 @@ type counter struct {
 	value uint64
 	at    time.Time
 	known bool
+	// limit is the fastest traffic in bytes per second the counter can have
+	// counted, such as the line's speed with some room; 0 for
+	// maxBytesPerSecond.
+	limit float64
 }
 
 // rate takes a new reading of the counter at now and returns the bytes per
@@ -32,14 +36,19 @@ func (c *counter) rate(value uint64, now time.Time, restarted bool) (float64, bo
 	switch {
 	case value >= previous:
 		grown = value - previous
-	case previous <= 1<<32-1:
-		// A 32-bit counter that wrapped around.
+	case previous >= 1<<31 && previous <= 1<<32-1:
+		// A 32-bit counter that wrapped around; one that went down from
+		// lower was reset.
 		grown = value + (1<<32 - previous)
 	default:
 		return 0, false
 	}
 	perSecond := float64(grown) / seconds
-	if perSecond > maxBytesPerSecond {
+	limit := c.limit
+	if limit <= 0 {
+		limit = maxBytesPerSecond
+	}
+	if perSecond > limit {
 		return 0, false
 	}
 	return perSecond, true

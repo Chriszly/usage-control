@@ -29,6 +29,9 @@ const (
 	ssdpMulticast = "239.255.255.250:1900"
 	// ssdpWait is how long answers to a search are waited for.
 	ssdpWait = 2 * time.Second
+	// upnpSearchBackoff is how long a router that was not found is not
+	// searched for again.
+	upnpSearchBackoff = time.Minute
 )
 
 // The UPnP services that are read; the version after the last colon varies.
@@ -55,7 +58,12 @@ type UPnPReader struct {
 	mu sync.Mutex
 	// common and connection are the control URLs of the services, and their
 	// types, found in the description; empty until it was read.
-	common, connection   upnpService
+	common, connection upnpService
+	// notFound is when the router was last looked for in vain, and why: it
+	// is looked for again only after upnpSearchBackoff, as each search goes
+	// to every device on the local network.
+	notFoundAt           time.Time
+	notFound             error
 	received, sent       counter
 	connectionUptime     uint64
 	connectionUptimeRead bool
@@ -72,9 +80,14 @@ func (u *UPnPReader) Collect(ctx context.Context) (metrics.Snapshot, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.common.ControlURL == "" {
+		if !u.notFoundAt.IsZero() && time.Since(u.notFoundAt) < upnpSearchBackoff {
+			return metrics.Snapshot{}, u.notFound
+		}
 		if err := u.find(ctx); err != nil {
+			u.notFoundAt, u.notFound = time.Now(), err
 			return metrics.Snapshot{}, err
 		}
+		u.notFoundAt, u.notFound = time.Time{}, nil
 	}
 	snapshot, err := u.read(ctx)
 	if err != nil {
@@ -115,15 +128,26 @@ func (u *UPnPReader) read(ctx context.Context) (metrics.Snapshot, error) {
 	// A connection that is up for less time than before was made anew,
 	// usually as the router restarted, which may have reset the counters.
 	restarted := false
-	if uptime, err := strconv.ParseUint(status["NewUptime"], 10, 64); err == nil {
+	uptime, uptimeErr := strconv.ParseUint(status["NewUptime"], 10, 64)
+	if uptimeErr == nil {
 		restarted = u.connectionUptimeRead && uptime < u.connectionUptime
 		u.connectionUptime, u.connectionUptimeRead = uptime, true
 	}
 	now := time.Now()
+	down, downErr := strconv.ParseUint(link["NewLayer1DownstreamMaxBitRate"], 10, 64)
+	up, upErr := strconv.ParseUint(link["NewLayer1UpstreamMaxBitRate"], 10, 64)
+	// Traffic faster than the line, with room for a line that synchronized
+	// faster since, is a counter that was reset, not counted up.
+	u.received.limit, u.sent.limit = 0, 0
+	if downErr == nil && down > 0 {
+		u.received.limit = float64(down) / 8 * 2
+	}
+	if upErr == nil && up > 0 {
+		u.sent.limit = float64(up) / 8 * 2
+	}
 	wan := metrics.NetworkInterface{Name: "WAN", ReceivedBytes: receivedBytes, SentBytes: sentBytes}
 	wan.ReceiveBytesPerSecond, _ = u.received.rate(receivedBytes, now, restarted)
 	wan.SendBytesPerSecond, _ = u.sent.rate(sentBytes, now, restarted)
-	down, downErr := strconv.ParseUint(link["NewLayer1DownstreamMaxBitRate"], 10, 64)
 	if downErr == nil && down > 0 {
 		wan.LinkMbps = int(down / 1_000_000)
 	}
@@ -140,13 +164,13 @@ func (u *UPnPReader) read(ctx context.Context) (metrics.Snapshot, error) {
 			"de": "Download-Geschwindigkeit der Leitung", "fr": "Débit descendant de la ligne", "es": "Velocidad de bajada de la línea",
 		}, down))
 	}
-	if up, err := strconv.ParseUint(link["NewLayer1UpstreamMaxBitRate"], 10, 64); err == nil && up > 0 {
+	if upErr == nil && up > 0 {
 		items = append(items, bitRate("upload", "Upload speed of the line", map[string]string{
 			"de": "Upload-Geschwindigkeit der Leitung", "fr": "Débit montant de la ligne", "es": "Velocidad de subida de la línea",
 		}, up))
 	}
-	if u.connectionUptimeRead {
-		hours := float64(u.connectionUptime) / 3600
+	if uptimeErr == nil {
+		hours := float64(uptime) / 3600
 		items = append(items, metrics.ExtraItem{
 			ID: "connected-hours", Label: "Connected for (hours)", Unit: metrics.UnitNumber, Value: &hours,
 			Labels: map[string]string{"de": "Verbunden seit (Stunden)", "fr": "Connecté depuis (heures)", "es": "Conectado desde hace (horas)"},

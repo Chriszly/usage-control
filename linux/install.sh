@@ -114,8 +114,11 @@ fi
 router_entry=""
 router_password=""
 router_name=""
+router_remove=""
+kind=""
 if [[ -t 0 && "${1:-}" != --addons=* ]]; then
-  current="$(sed -n 's/^HUB_ROUTERS=//p' "$settings" 2> /dev/null | tail -n 1)"
+  # No settings file yet on a first install.
+  current="$(sed -n 's/^HUB_ROUTERS=//p' "$settings" 2> /dev/null | tail -n 1 || true)"
   echo
   echo "usage-control can also show your router: its internet traffic, and with an ASUS router's"
   echo "login its CPU, memory, ports, Wi-Fi, clients and temperatures."
@@ -132,7 +135,17 @@ if [[ -t 0 && "${1:-}" != --addons=* ]]; then
     echo "  1) ASUS, with its login: CPU, memory, ports, Wi-Fi, clients and temperatures"
     echo "  2) ASUS without a login, Technicolor, FRITZ!Box or another: internet traffic over UPnP,"
     echo "     which must be switched on in the router's settings"
-    read -r -p "[1/2, default 2] " kind
+    echo "  3) none: stop showing a router"
+    read -r -p "[1/2/3, default 2] " kind
+    kind="${kind:-2}"
+    if [[ ! "$kind" =~ ^[1-3]$ ]]; then
+      echo "Choose 1, 2 or 3." >&2
+      exit 1
+    fi
+  fi
+  if [[ "${kind:-}" == 3 ]]; then
+    router_remove=1
+  elif [[ -n "${kind:-}" ]]; then
     gateway="$(ip -4 route show default 2> /dev/null | awk '{print $3; exit}' || true)"
     read -r -p "The router's address [default ${gateway:-none}] " address
     address="${address:-$gateway}"
@@ -142,18 +155,18 @@ if [[ -t 0 && "${1:-}" != --addons=* ]]; then
     fi
     read -r -p "Its name on the page [default Router] " router_name
     router_name="${router_name:-Router}"
-    if [[ "$router_name" == *[=,]* ]]; then
-      echo "The router's name cannot hold = or ,." >&2
+    if [[ ! "$router_name" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._()-]{0,63}$ || "${router_name,,}" == local ]]; then
+      echo "The router's name must start with a letter or digit and hold only letters, digits, spaces and . _ ( ) -, at most 64, and not be Local." >&2
       exit 1
     fi
-    if [[ "${kind:-2}" == 1 ]]; then
+    if [[ "$kind" == 1 ]]; then
       read -r -p "The user of its web interface [default admin] " user
       user="${user:-admin}"
       if [[ ! "$user" =~ ^[^[:space:]@=,:]{1,64}$ ]]; then
         echo "The user cannot hold spaces, @, =, , or :." >&2
         exit 1
       fi
-      read -r -s -p "Its password (not shown): " router_password
+      IFS= read -r -s -p "Its password (not shown): " router_password
       echo
       if [[ -z "$router_password" ]]; then
         echo "The ASUS router needs its password; run install.sh again to enter it." >&2
@@ -194,7 +207,7 @@ for addon in "${!addon_descriptions[@]}"; do
     remove_addon "$addon"
   fi
 done
-if [[ -n "$router_entry" ]]; then
+if [[ -n "$router_entry" || -n "$router_remove" ]]; then
   # Settings files from before routers have no HUB_ROUTERS line yet.
   if grep -q '^HUB_ROUTERS=' "$settings"; then
     escaped="$(printf '%s' "$router_entry" | sed 's/[\\&|]/\\&/g')"
@@ -209,14 +222,15 @@ if [[ -n "$router_entry" ]]; then
     # one), so the file is of no use elsewhere; systemd decrypts it only for
     # the service, into a folder only the service can read.
     if command -v systemd-creds > /dev/null && printf '%s=%s\n' "$router_name" "$router_password" |
-      systemd-creds encrypt --name=router-passwords - "$router_passwords" 2> /dev/null; then
+      systemd-creds encrypt --name=router-passwords - "$router_passwords"; then
       chmod 600 "$router_passwords"
       printf '[Service]\nLoadCredentialEncrypted=router-passwords:%s\n' "$router_passwords" > "$router_dropin"
     else
-      # systemd before 250 cannot encrypt it: kept readable by root only.
+      # systemd before 250 cannot encrypt it: kept readable by root only
+      # (LoadCredential needs systemd 247 or newer).
       (umask 077 && printf '%s=%s\n' "$router_name" "$router_password" > "$router_passwords")
       printf '[Service]\nLoadCredential=router-passwords:%s\n' "$router_passwords" > "$router_dropin"
-      echo "This systemd cannot encrypt the router's password (systemd-creds needs systemd 250 or newer); it is stored readable by root only in $router_passwords." >&2
+      echo "The router's password could not be encrypted with systemd-creds (systemd 250 or newer); it is stored readable by root only in $router_passwords." >&2
     fi
   fi
 fi
@@ -238,5 +252,7 @@ if [[ ${#wanted[@]} -gt 0 ]]; then
 fi
 if [[ -n "$router_entry" ]]; then
   echo "Router: ${router_entry%%=*}, shown as a device on the page"
+elif [[ -n "$router_remove" ]]; then
+  echo "No router is shown any more."
 fi
 echo "Settings: $settings, then: sudo systemctl restart usage-control"
