@@ -354,3 +354,21 @@ func TestRouterDevicesNeedThePasswordOfALogin(t *testing.T) {
 		t.Errorf("got %+v", devices)
 	}
 }
+
+func TestRouterDevicesRefuseAShortSNMPv3Password(t *testing.T) {
+	t.Setenv("HUB_ROUTERS", "Core=snmpv3:monitor@192.168.1.3")
+	path := filepath.Join(t.TempDir(), "router-passwords")
+	if err := os.WriteFile(path, []byte("Core=short\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROUTER_PASSWORDS_FILE", path)
+	if _, err := routerDevices(); err == nil || !strings.Contains(err.Error(), "8 characters") {
+		t.Errorf("with a 5-character password: %v, want an error", err)
+	}
+	if err := os.WriteFile(path, []byte("Core=long enough\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routerDevices(); err != nil {
+		t.Error(err)
+	}
+}

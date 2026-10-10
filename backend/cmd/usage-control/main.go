@@ -432,6 +432,10 @@ func routerDevices() ([]hub.Device, error) {
 		if config.Protocol.NeedsLogin() && !ok {
 			return nil, fmt.Errorf("the router %q needs a password, but %s has none for it; run the installer again to enter it", config.Name, source)
 		}
+		if config.Protocol == router.SNMPv3 && len(password) < 8 {
+			// SNMPv3 makes its keys from at least 8 characters (RFC 3414).
+			return nil, fmt.Errorf("the SNMPv3 password of the router %q is shorter than 8 characters; run the installer again to enter it", config.Name)
+		}
 		device.Source = router.New(config, password)
 		devices = append(devices, device)
 	}
