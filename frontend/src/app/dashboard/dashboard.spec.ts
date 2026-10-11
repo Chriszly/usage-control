@@ -219,6 +219,7 @@ describe('Dashboard', () => {
             { id: 'cpu', label: 'CPU waiting', unit: 'percent', value: 3.25, history: true },
             { id: 'power', label: 'Package', unit: 'watts', value: 12.5 },
             { id: 'kernel', label: 'Kernel', unit: 'text', text: '6.12.1' },
+            { id: 'laptop', label: 'Laptop', unit: 'text', text: 'Cable', texts: { de: 'Kabel' } },
           ],
         },
       ],
@@ -233,6 +234,7 @@ describe('Dashboard', () => {
     fixture.detectChanges();
     expect(text()).toContain('Druck');
     expect(text()).toContain('12,5 W');
+    expect(text()).toContain('LaptopKabel');
     localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   });
 
@@ -560,9 +562,8 @@ describe('Dashboard', () => {
       (fixture.nativeElement as HTMLElement).querySelectorAll('.card h2'),
       (h) => h.textContent?.trim(),
     );
-    expect(titles).toEqual(['Network', 'Router', 'Availability']);
+    expect(titles).toEqual(['Network', 'Availability']);
     expect(text()).toContain('WAN');
-    expect(text()).toContain('No data is sent to any server');
   });
 
   it('shows how long another device was offline since it was added', () => {

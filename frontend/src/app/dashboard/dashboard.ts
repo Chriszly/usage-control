@@ -177,7 +177,7 @@ export class Dashboard {
   /** The value of an extra with its unit, in the page's language. */
   protected extraValue(item: ExtraItem): string {
     return item.unit === 'text' || item.value === undefined
-      ? (item.text ?? '')
+      ? localized(item.text ?? '', item.texts, this.i18n.language())
       : formatExtra(item.value, item.unit, this.i18n.language());
   }
 

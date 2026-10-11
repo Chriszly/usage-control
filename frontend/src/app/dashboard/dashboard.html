@@ -433,13 +433,6 @@
       </div>
     }
 
-    @if (isRouter()) {
-      <div class="card">
-        <h2>{{ i18n.t('dashboard.router') }}</h2>
-        <p class="detail">{{ i18n.t('dashboard.routerPrivacy') }}</p>
-      </div>
-    }
-
     @if (shownAvailability(); as a) {
       <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
     }

@@ -126,6 +126,16 @@ func TestASUSReadsTheRouter(t *testing.T) {
 	if wireless := extraItem(snapshot, "clients", "wireless"); wireless == nil || *wireless.Value != 1 {
 		t.Errorf("clients on Wi-Fi %+v", wireless)
 	}
+	// By name: the nickname where the owner gave one.
+	if laptop := extraItem(snapshot, "connected", "client-1"); laptop == nil || laptop.Label != "Laptop" || laptop.Text != "5 GHz" {
+		t.Errorf("first client %+v", laptop)
+	}
+	if nas := extraItem(snapshot, "connected", "client-2"); nas == nil || nas.Label != "nas" || nas.Text != "Cable" || nas.Texts["de"] != "Kabel" {
+		t.Errorf("second client %+v", nas)
+	}
+	if extraItem(snapshot, "connected", "client-3") != nil {
+		t.Error("a client that is offline is listed")
+	}
 	var sensors []string
 	for _, temperature := range snapshot.Temperatures {
 		sensors = append(sensors, temperature.Sensor)

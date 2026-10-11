@@ -300,7 +300,7 @@ func (f *FritzBoxReader) read(ctx context.Context) (metrics.Snapshot, error) {
 		})
 	}
 	if clients, ok := f.clients(ctx); ok {
-		snapshot.Extras = append(snapshot.Extras, clients)
+		snapshot.Extras = append(snapshot.Extras, clients...)
 	}
 	return snapshot, nil
 }
@@ -320,49 +320,64 @@ type fritzHostList struct {
 	Items []struct {
 		Active        string `xml:"Active"`
 		InterfaceType string `xml:"InterfaceType"`
+		HostName      string `xml:"HostName"`
+		IPAddress     string `xml:"IPAddress"`
+		Port          string `xml:"X_AVM-DE_Port"`
+		Guest         string `xml:"X_AVM-DE_Guest"`
 	} `xml:"Item"`
 }
 
 // clients counts the clients in the home network that are online, on a
-// cable and on Wi-Fi.
-func (f *FritzBoxReader) clients(ctx context.Context) (metrics.Extra, bool) {
+// cable and on Wi-Fi, and lists them by name with how each is connected.
+func (f *FritzBoxReader) clients(ctx context.Context) ([]metrics.Extra, bool) {
 	if _, ok := f.services[fritzHosts]; !ok {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	path, err := f.call(ctx, fritzHosts, "X_AVM-DE_GetHostListPath")
 	if err != nil {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	location, err := sameHost(f.base, path["NewX_AVM-DE_HostListPath"], f.routerIP)
 	if err != nil {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	response, err := f.client.Do(request)
 	if err != nil {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	defer func() { _ = response.Body.Close() }()
 	data, err := readBody(response.Body)
 	var list fritzHostList
 	if err != nil || response.StatusCode != http.StatusOK || xml.Unmarshal(data, &list) != nil {
-		return metrics.Extra{}, false
+		return nil, false
 	}
 	var wired, wireless float64
+	var online []client
 	for _, item := range list.Items {
 		if item.Active != "1" {
 			continue
 		}
+		c := client{name: clientName(item.HostName, item.IPAddress), guest: item.Guest == "1"}
 		if strings.HasPrefix(item.InterfaceType, "802.11") {
 			wireless++
 		} else {
 			wired++
+			c.wired = true
+			c.port, _ = strconv.Atoi(item.Port)
+		}
+		if c.name != "" {
+			online = append(online, c)
 		}
 	}
-	return clientsExtra(wired, wireless), true
+	extras := []metrics.Extra{clientsExtra(wired, wireless)}
+	if len(online) > 0 {
+		extras = append(extras, connectedExtra(online))
+	}
+	return extras, true
 }
 
 // call calls a TR-064 action that only reads, logged in with HTTP digest,

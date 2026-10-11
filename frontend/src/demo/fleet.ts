@@ -1701,6 +1701,16 @@ const clientLabels = {
   wireless: { de: 'Per WLAN', fr: 'En Wi-Fi', es: 'Por Wi-Fi' },
 };
 
+/** The home router's clients online, with how each is connected in each language. */
+const homeClients: [string, string, string, string, string][] = [
+  ['Desktop', 'Cable, LAN 1', 'Kabel, LAN 1', 'Câble, LAN 1', 'Cable, LAN 1'],
+  ['Laptop', '5 GHz', '5 GHz', '5 GHz', '5 GHz'],
+  ['NAS', 'Cable, LAN 2', 'Kabel, LAN 2', 'Câble, LAN 2', 'Cable, LAN 2'],
+  ['Phone', '5 GHz', '5 GHz', '5 GHz', '5 GHz'],
+  ['Printer', '2.4 GHz', '2,4 GHz', '2,4 GHz', '2,4 GHz'],
+  ['Visitor phone', 'Guest, 2.4 GHz', 'Gast, 2,4 GHz', 'Invité, 2,4 GHz', 'Invitado, 2,4 GHz'],
+];
+
 const homeRouter: DemoMachine = {
   device: {
     id: 'home-router',
@@ -1732,6 +1742,18 @@ const homeRouter: DemoMachine = {
         { id: 'wired', label: 'On a cable', labels: clientLabels.wired, unit: 'number' },
         { id: 'wireless', label: 'On Wi-Fi', labels: clientLabels.wireless, unit: 'number' },
       ],
+    },
+    {
+      id: 'connected',
+      title: 'Online now',
+      titles: { de: 'Gerade online', fr: 'En ligne maintenant', es: 'En línea ahora' },
+      items: homeClients.map(([name, en, de, fr, es], i) => ({
+        id: `client-${i + 1}`,
+        label: name,
+        unit: 'text' as const,
+        text: en,
+        texts: { de, fr, es },
+      })),
     },
   ],
   bootedDaysAgo: 23,

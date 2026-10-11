@@ -46,10 +46,10 @@ const fritzDescription = `<?xml version="1.0"?>
 </root>`
 
 const fakeHostList = `<?xml version="1.0"?><List>
-<Item><Index>1</Index><Active>1</Active><InterfaceType>Ethernet</InterfaceType></Item>
-<Item><Index>2</Index><Active>1</Active><InterfaceType>802.11</InterfaceType></Item>
-<Item><Index>3</Index><Active>1</Active><InterfaceType>802.11</InterfaceType></Item>
-<Item><Index>4</Index><Active>0</Active><InterfaceType>802.11</InterfaceType></Item>
+<Item><Index>1</Index><Active>1</Active><HostName>nas</HostName><InterfaceType>Ethernet</InterfaceType><X_AVM-DE_Port>2</X_AVM-DE_Port></Item>
+<Item><Index>2</Index><Active>1</Active><HostName>Phone</HostName><InterfaceType>802.11</InterfaceType><X_AVM-DE_Port>0</X_AVM-DE_Port><X_AVM-DE_Guest>1</X_AVM-DE_Guest></Item>
+<Item><Index>3</Index><Active>1</Active><HostName></HostName><IPAddress>192.168.178.30</IPAddress><InterfaceType>802.11</InterfaceType></Item>
+<Item><Index>4</Index><Active>0</Active><HostName>Tablet</HostName><InterfaceType>802.11</InterfaceType></Item>
 </List>`
 
 // fakeFritzBox answers TR-064 as a FRITZ!Box does, with an HTTP digest
@@ -186,6 +186,8 @@ func TestFritzBoxReadsTheBox(t *testing.T) {
 		"internet/state": "Connected", "internet/download": "31250000", "internet/upload": "5000000",
 		"internet/connected-hours": "1", "internet/noise-margin-down": "6.5", "internet/noise-margin-up": "8",
 		"clients/online": "3", "clients/wired": "1", "clients/wireless": "2",
+		"connected/client-1": "Wi-Fi", "connected/client-2": "Cable, LAN 2",
+		"connected/client-3": "Guest, Wi-Fi",
 	}
 	for key, value := range want {
 		if values[key] != value {

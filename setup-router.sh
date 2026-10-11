@@ -29,8 +29,9 @@ fi
 
 echo "usage-control can show your router as a device: its internet traffic, and depending on the"
 echo "router its line, ports, clients, CPU, memory and temperatures."
-echo "Privacy: the router is read over the local network only. No data is sent to any server;"
-echo "everything stays on this machine."
+echo "Read from the router over the local network only. No data is sent to any server;"
+echo "everything stays on your own devices, and a router password is stored encrypted where"
+echo "the system allows it."
 echo "Which router is it? A login is only asked for where the router needs one."
 echo "  1) Any router with UPnP (Technicolor, most internet providers' boxes): internet traffic,"
 echo "     no login; UPnP must be switched on in the router's settings"

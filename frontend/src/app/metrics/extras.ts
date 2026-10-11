@@ -38,6 +38,8 @@ export interface ExtraItem {
   unit: ExtraUnit;
   value?: number;
   text?: string;
+  /** The text in other languages, by language code. */
+  texts?: Record<string, string>;
   /** Whether the hub keeps its history, which is then drawn as a chart. */
   history?: boolean;
 }

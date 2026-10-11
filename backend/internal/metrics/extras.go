@@ -33,9 +33,11 @@ type ExtraItem struct {
 	Label  string            `json:"label"`
 	Labels map[string]string `json:"labels,omitempty"`
 	Unit   Unit              `json:"unit"`
-	// Value is set for every unit but UnitText, which sets Text instead.
-	Value *float64 `json:"value,omitempty"`
-	Text  string   `json:"text,omitempty"`
+	// Value is set for every unit but UnitText, which sets Text instead, and
+	// Texts the same text in other languages by language code.
+	Value *float64          `json:"value,omitempty"`
+	Text  string            `json:"text,omitempty"`
+	Texts map[string]string `json:"texts,omitempty"`
 	// History asks a hub to keep the value's history and draw it as a chart.
 	History bool `json:"history,omitempty"`
 }
@@ -131,7 +133,9 @@ func cleanItems(items []ExtraItem, maxEntries int) []ExtraItem {
 		}
 		if item.Unit == UnitText {
 			item.Text, item.Value, item.History = cut(item.Text), nil, false
+			item.Texts = cleanTranslations(item.Texts)
 		} else {
+			item.Texts = nil
 			if item.Value == nil || math.IsNaN(*item.Value) || math.IsInf(*item.Value, 0) {
 				continue
 			}
