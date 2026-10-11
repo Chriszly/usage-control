@@ -164,8 +164,9 @@ if [[ -t 0 && "${1:-}" != --addons=* && ! "$data_only" =~ ^(1|t|T|true|TRUE|True
   echo
   echo "usage-control can also show your router: its internet traffic, and depending on the router"
   echo "its line, ports, clients, CPU, memory and temperatures."
-  echo "Privacy: the router is read over the local network only. No data is sent to any server;"
-  echo "everything stays on this machine, and the router's password is stored encrypted."
+  echo "Read from the router over the local network only. No data is sent to any server;"
+  echo "everything stays on your own devices, and a router password is stored encrypted where"
+  echo "the system allows it."
   if [[ -n "$current" ]]; then
     question="Set up the router again? It is now $current. [y/n, default n] "
   else

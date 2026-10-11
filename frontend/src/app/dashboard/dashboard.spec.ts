@@ -560,9 +560,8 @@ describe('Dashboard', () => {
       (fixture.nativeElement as HTMLElement).querySelectorAll('.card h2'),
       (h) => h.textContent?.trim(),
     );
-    expect(titles).toEqual(['Network', 'Router', 'Availability']);
+    expect(titles).toEqual(['Network', 'Availability']);
     expect(text()).toContain('WAN');
-    expect(text()).toContain('No data is sent to any server');
   });
 
   it('shows how long another device was offline since it was added', () => {

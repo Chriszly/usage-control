@@ -37,9 +37,6 @@ export const fr: Messages = {
   'dashboard.noTemperature': 'Non disponible sur cette machine',
   'dashboard.time': 'Heure',
   'dashboard.uptime': 'Temps de fonctionnement',
-  'dashboard.router': 'Routeur',
-  'dashboard.routerPrivacy':
-    'Lu sur le routeur uniquement par le réseau local. Aucune donnée n’est envoyée à un serveur ; tout reste sur vos propres appareils, et le mot de passe d’un routeur est stocké chiffré là où le système le permet.',
   'dashboard.loading': 'Chargement…',
   'dashboard.uptimeDays': '{days} j {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',

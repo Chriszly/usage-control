@@ -240,7 +240,7 @@ The hub can show your router as a device of its own, with its availability and c
 
 A login is asked for only for a router that needs one: none for UPnP, the community for SNMPv2c, a user and password for ASUS, FRITZ!Box and SNMPv3.
 
-**Privacy:** the router is read over the local network only. No data is sent to any server; everything stays on your own devices. The hub only reads: it never changes a setting of the router.
+**Privacy:** Read from the router over the local network only. No data is sent to any server; everything stays on your own devices, and a router password is stored encrypted where the system allows it. The hub only reads: it never changes a setting of the router. The installers show this before they ask for the router.
 
 Set it up:
 

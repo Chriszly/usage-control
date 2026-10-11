@@ -38,9 +38,6 @@ export const de: Messages = {
   'dashboard.noTemperature': 'Auf diesem Gerät nicht verfügbar',
   'dashboard.time': 'Uhrzeit',
   'dashboard.uptime': 'Laufzeit',
-  'dashboard.router': 'Router',
-  'dashboard.routerPrivacy':
-    'Nur über das lokale Netz vom Router gelesen. Es werden keine Daten an einen Server gesendet; alles bleibt auf den eigenen Geräten, und ein Router-Passwort wird verschlüsselt gespeichert, wo das System es erlaubt.',
   'dashboard.loading': 'Wird geladen…',
   'dashboard.uptimeDays': '{days} Tg. {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',

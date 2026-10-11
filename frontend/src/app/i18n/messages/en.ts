@@ -39,9 +39,6 @@ export const en = {
   'dashboard.noTemperature': 'Not available on this machine',
   'dashboard.time': 'Time',
   'dashboard.uptime': 'Uptime',
-  'dashboard.router': 'Router',
-  'dashboard.routerPrivacy':
-    'Read from the router over the local network only. No data is sent to any server; everything stays on your own devices, and a router password is stored encrypted where the system allows it.',
   'dashboard.loading': 'Loading…',
   'dashboard.uptimeDays': '{days} d {hours} h',
   'dashboard.uptimeHours': '{hours} h {minutes} min',
