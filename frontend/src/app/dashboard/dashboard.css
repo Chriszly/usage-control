@@ -138,7 +138,8 @@ progress {
   background: var(--mat-sys-primary);
 }
 
-.sensor.swap {
+.sensor.swap,
+.sensor.availability {
   margin-top: 1rem;
 }
 
