@@ -8,6 +8,7 @@ import { HubConnection } from '../connection/connection';
 import { Availability, DeviceService, LOCAL_DEVICE, deviceName } from '../devices/devices';
 import { I18n } from '../i18n/i18n';
 import { EvenColumns } from '../layout/even-columns';
+import { ScrollRows } from '../layout/scroll-rows';
 import { BytesPipe } from '../metrics/bytes.pipe';
 import { ExtraItem, formatExtra, localized } from '../metrics/extras';
 import {
@@ -45,7 +46,7 @@ type Problem = 'backend' | 'device';
 /** Shows the current usage of the picked device and refreshes it every few seconds. */
 @Component({
   selector: 'app-dashboard',
-  imports: [BytesPipe, DecimalPipe, EvenColumns, FitLabels, NgTemplateOutlet],
+  imports: [BytesPipe, DecimalPipe, EvenColumns, FitLabels, NgTemplateOutlet, ScrollRows],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })

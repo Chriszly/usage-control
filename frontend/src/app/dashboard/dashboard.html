@@ -189,86 +189,90 @@
     @if (!isRouter() || s.disks.length > 0) {
       <div class="card">
         <h2>{{ i18n.t('dashboard.disks') }}</h2>
-        @for (d of s.disks; track d.path) {
-          <div class="disk">
-            <p class="sensor">
-              <span class="label" [title]="d.path">{{ d.path }}</span
-              ><span>{{ d.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
-            </p>
-            <progress
-              max="100"
-              [value]="d.usedPercent"
-              [attr.aria-label]="i18n.t('dashboard.diskUsage', { path: d.path })"
-            ></progress>
-            <p class="detail">
-              {{
-                i18n.t('dashboard.usedOfTotal', {
-                  used: (d.usedBytes | bytes: i18n.language()),
-                  total: (d.totalBytes | bytes: i18n.language()),
-                })
-              }}
-            </p>
-            @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
-              <p class="detail speeds">
-                <span>{{
-                  i18n.t('dashboard.diskRead', {
-                    speed: (d.readBytesPerSecond | bytes: i18n.language()),
-                  })
-                }}</span>
-                <span>{{
-                  i18n.t('dashboard.diskWrite', {
-                    speed: (d.writeBytesPerSecond | bytes: i18n.language()),
-                  })
-                }}</span>
+        <app-scroll-rows>
+          @for (d of s.disks; track d.path) {
+            <div class="disk">
+              <p class="sensor">
+                <span class="label" [title]="d.path">{{ d.path }}</span
+                ><span>{{ d.usedPercent | number: '1.0-1' : i18n.language() }} %</span>
               </p>
-            }
-            @if (d.operationsPerSecond !== undefined) {
-              <p class="detail speeds">
-                <span>{{
-                  i18n.t('dashboard.diskOperations', {
-                    count: decimal(d.operationsPerSecond, '1.0-0'),
+              <progress
+                max="100"
+                [value]="d.usedPercent"
+                [attr.aria-label]="i18n.t('dashboard.diskUsage', { path: d.path })"
+              ></progress>
+              <p class="detail">
+                {{
+                  i18n.t('dashboard.usedOfTotal', {
+                    used: (d.usedBytes | bytes: i18n.language()),
+                    total: (d.totalBytes | bytes: i18n.language()),
                   })
-                }}</span>
-                @if (d.busyPercent !== undefined && d.latencyMs !== undefined) {
+                }}
+              </p>
+              @if (d.readBytesPerSecond !== undefined && d.writeBytesPerSecond !== undefined) {
+                <p class="detail speeds">
                   <span>{{
-                    i18n.t('dashboard.diskBusy', { percent: decimal(d.busyPercent, '1.0-0') })
+                    i18n.t('dashboard.diskRead', {
+                      speed: (d.readBytesPerSecond | bytes: i18n.language()),
+                    })
                   }}</span>
-                  <span [title]="i18n.t('dashboard.diskLatencyHint')">{{
-                    i18n.t('dashboard.diskLatency', { ms: decimal(d.latencyMs, '1.1-1') })
+                  <span>{{
+                    i18n.t('dashboard.diskWrite', {
+                      speed: (d.writeBytesPerSecond | bytes: i18n.language()),
+                    })
                   }}</span>
-                }
-              </p>
-            }
-          </div>
-        } @empty {
-          <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
-        }
+                </p>
+              }
+              @if (d.operationsPerSecond !== undefined) {
+                <p class="detail speeds">
+                  <span>{{
+                    i18n.t('dashboard.diskOperations', {
+                      count: decimal(d.operationsPerSecond, '1.0-0'),
+                    })
+                  }}</span>
+                  @if (d.busyPercent !== undefined && d.latencyMs !== undefined) {
+                    <span>{{
+                      i18n.t('dashboard.diskBusy', { percent: decimal(d.busyPercent, '1.0-0') })
+                    }}</span>
+                    <span [title]="i18n.t('dashboard.diskLatencyHint')">{{
+                      i18n.t('dashboard.diskLatency', { ms: decimal(d.latencyMs, '1.1-1') })
+                    }}</span>
+                  }
+                </p>
+              }
+            </div>
+          } @empty {
+            <p class="detail">{{ i18n.t('dashboard.noDisk') }}</p>
+          }
+        </app-scroll-rows>
       </div>
     }
 
     <div class="card">
       <h2>{{ i18n.t('dashboard.network') }}</h2>
       @let network = activeInterfaces(s);
-      @for (n of network.shown; track n.name) {
-        <div class="interface">
-          <span class="label" [title]="n.name">{{ n.name }}</span>
-          <span class="rate">↓ {{ n.receiveBytesPerSecond | bytes: i18n.language() }}/s</span>
-          <span class="rate">↑ {{ n.sendBytesPerSecond | bytes: i18n.language() }}/s</span>
-          @if (n.addresses?.length || n.linkMbps) {
-            <span class="link">{{ linkDetails(n) }}</span>
-          }
-          @if (n.errors || n.dropped) {
-            <span class="problems" [title]="i18n.t('dashboard.networkProblemsHint')">{{
-              i18n.t('dashboard.networkProblems', {
-                errors: n.errors ?? 0,
-                dropped: n.dropped ?? 0,
-              })
-            }}</span>
-          }
-        </div>
-      } @empty {
-        <p class="detail">{{ i18n.t('dashboard.noNetwork') }}</p>
-      }
+      <app-scroll-rows>
+        @for (n of network.shown; track n.name) {
+          <div class="interface">
+            <span class="label" [title]="n.name">{{ n.name }}</span>
+            <span class="rate">↓ {{ n.receiveBytesPerSecond | bytes: i18n.language() }}/s</span>
+            <span class="rate">↑ {{ n.sendBytesPerSecond | bytes: i18n.language() }}/s</span>
+            @if (n.addresses?.length || n.linkMbps) {
+              <span class="link">{{ linkDetails(n) }}</span>
+            }
+            @if (n.errors || n.dropped) {
+              <span class="problems" [title]="i18n.t('dashboard.networkProblemsHint')">{{
+                i18n.t('dashboard.networkProblems', {
+                  errors: n.errors ?? 0,
+                  dropped: n.dropped ?? 0,
+                })
+              }}</span>
+            }
+          </div>
+        } @empty {
+          <p class="detail">{{ i18n.t('dashboard.noNetwork') }}</p>
+        }
+      </app-scroll-rows>
       @if (network.idle > 0) {
         <p class="detail">
           {{ i18n.plural(network.idle, 'dashboard.idleHidden.one', 'dashboard.idleHidden.other') }}
@@ -279,58 +283,64 @@
     @if (s.gpus?.length) {
       <div class="card">
         <h2>{{ i18n.t('dashboard.gpu') }}</h2>
-        @for (g of s.gpus; track g.name) {
-          <div class="gpu">
-            <p class="label" [title]="g.name">{{ g.name }}</p>
-            <p class="sensor">
-              <span>{{ g.usagePercent | number: '1.0-1' : i18n.language() }} %</span>
-              @if (g.celsius !== undefined) {
-                <span>{{ g.celsius | number: '1.0-1' : i18n.language() }} °C</span>
-              }
-            </p>
-            <progress
-              max="100"
-              [value]="g.usagePercent"
-              [attr.aria-label]="i18n.t('dashboard.gpuUsage', { name: g.name })"
-            ></progress>
-            @if (g.memoryTotalBytes) {
-              <p class="detail">
-                {{
-                  i18n.t('dashboard.gpuMemory', {
-                    used: (g.memoryUsedBytes ?? 0 | bytes: i18n.language()),
-                    total: (g.memoryTotalBytes | bytes: i18n.language()),
-                  })
-                }}
+        <app-scroll-rows>
+          @for (g of s.gpus; track g.name) {
+            <div class="gpu">
+              <p class="label" [title]="g.name">{{ g.name }}</p>
+              <p class="sensor">
+                <span>{{ g.usagePercent | number: '1.0-1' : i18n.language() }} %</span>
+                @if (g.celsius !== undefined) {
+                  <span>{{ g.celsius | number: '1.0-1' : i18n.language() }} °C</span>
+                }
               </p>
-            }
-          </div>
-        }
+              <progress
+                max="100"
+                [value]="g.usagePercent"
+                [attr.aria-label]="i18n.t('dashboard.gpuUsage', { name: g.name })"
+              ></progress>
+              @if (g.memoryTotalBytes) {
+                <p class="detail">
+                  {{
+                    i18n.t('dashboard.gpuMemory', {
+                      used: (g.memoryUsedBytes ?? 0 | bytes: i18n.language()),
+                      total: (g.memoryTotalBytes | bytes: i18n.language()),
+                    })
+                  }}
+                </p>
+              }
+            </div>
+          }
+        </app-scroll-rows>
       </div>
     }
 
     @if (!isRouter() || s.temperatures.length > 0) {
       <div class="card" [appFitLabels]="s.temperatures">
         <h2>{{ i18n.t('dashboard.temperature') }}</h2>
-        @for (t of s.temperatures; track t.sensor) {
-          <p class="sensor">
-            <span class="label" [title]="t.sensor">{{ t.sensor }}</span
-            ><span>{{ t.celsius | number: '1.0-1' : i18n.language() }} °C</span>
-          </p>
-        } @empty {
-          <p class="detail">{{ i18n.t('dashboard.noTemperature') }}</p>
-        }
+        <app-scroll-rows>
+          @for (t of s.temperatures; track t.sensor) {
+            <p class="sensor">
+              <span class="label" [title]="t.sensor">{{ t.sensor }}</span
+              ><span>{{ t.celsius | number: '1.0-1' : i18n.language() }} °C</span>
+            </p>
+          } @empty {
+            <p class="detail">{{ i18n.t('dashboard.noTemperature') }}</p>
+          }
+        </app-scroll-rows>
       </div>
     }
 
     @if (s.fans?.length) {
       <div class="card">
         <h2>{{ i18n.t('dashboard.fans') }}</h2>
-        @for (f of s.fans; track f.name) {
-          <p class="sensor">
-            <span class="label" [title]="f.name">{{ f.name }}</span
-            ><span>{{ i18n.t('dashboard.rpm', { rpm: decimal(f.rpm, '1.0-0') }) }}</span>
-          </p>
-        }
+        <app-scroll-rows>
+          @for (f of s.fans; track f.name) {
+            <p class="sensor">
+              <span class="label" [title]="f.name">{{ f.name }}</span
+              ><span>{{ i18n.t('dashboard.rpm', { rpm: decimal(f.rpm, '1.0-0') }) }}</span>
+            </p>
+          }
+        </app-scroll-rows>
       </div>
     }
 
@@ -392,14 +402,16 @@
     @for (group of s.extras; track group.id) {
       <div class="card">
         <h2>{{ extraText(group.title, group.titles) }}</h2>
-        @for (item of group.items; track item.id) {
-          <p class="sensor">
-            <span class="label" [title]="extraText(item.label, item.labels)">{{
-              extraText(item.label, item.labels)
-            }}</span
-            ><span>{{ extraValue(item) }}</span>
-          </p>
-        }
+        <app-scroll-rows>
+          @for (item of group.items; track item.id) {
+            <p class="sensor">
+              <span class="label" [title]="extraText(item.label, item.labels)">{{
+                extraText(item.label, item.labels)
+              }}</span
+              ><span>{{ extraValue(item) }}</span>
+            </p>
+          }
+        </app-scroll-rows>
       </div>
     }
 

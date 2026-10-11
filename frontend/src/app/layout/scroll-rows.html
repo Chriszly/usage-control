@@ -1,0 +1,15 @@
+<div #list class="list" (scroll)="update()"><ng-content /></div>
+@if (scrolls()) {
+  <button
+    type="button"
+    class="more"
+    [class.hidden]="!more()"
+    [attr.aria-label]="i18n.t('dashboard.moreBelow')"
+    [title]="i18n.t('dashboard.moreBelow')"
+    (click)="scrollDown()"
+  >
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="currentColor" />
+    </svg>
+  </button>
+}
