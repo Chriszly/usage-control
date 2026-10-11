@@ -208,7 +208,7 @@
     }
 
     @if (!isRouter() || s.disks.length > 0) {
-      <div class="card">
+      <div class="card" [appFitLabels]="s.disks">
         <h2>{{ i18n.t('dashboard.disks') }}</h2>
         <app-scroll-rows>
           @for (d of s.disks; track d.path) {
@@ -269,9 +269,9 @@
       </div>
     }
 
-    <div class="card">
+    @let network = activeInterfaces(s);
+    <div class="card" [appFitLabels]="network.shown">
       <h2>{{ i18n.t('dashboard.network') }}</h2>
-      @let network = activeInterfaces(s);
       <app-scroll-rows>
         @for (n of network.shown; track n.name) {
           <div class="interface">
@@ -302,7 +302,7 @@
     </div>
 
     @if (s.gpus?.length) {
-      <div class="card">
+      <div class="card" [appFitLabels]="s.gpus">
         <h2>{{ i18n.t('dashboard.gpu') }}</h2>
         <app-scroll-rows>
           @for (g of s.gpus; track g.name) {
@@ -352,7 +352,7 @@
     }
 
     @if (s.fans?.length) {
-      <div class="card">
+      <div class="card" [appFitLabels]="s.fans">
         <h2>{{ i18n.t('dashboard.fans') }}</h2>
         <app-scroll-rows>
           @for (f of s.fans; track f.name) {
@@ -421,7 +421,7 @@
 
     <!-- Values beyond the fixed ones, which the device describes itself, so newer devices' values show too. -->
     @for (group of s.extras; track group.id) {
-      <div class="card">
+      <div class="card" [appFitLabels]="group.items">
         <h2>{{ extraText(group.title, group.titles) }}</h2>
         <app-scroll-rows>
           @for (item of group.items; track item.id) {

@@ -48,7 +48,8 @@ progress {
   white-space: nowrap;
 }
 
-/* Cards that fit their names (appFitLabels) set a smaller scale when the longest name is too long. */
+/* Every card with names fits them (appFitLabels): it sets a smaller scale when the longest name
+   is too long, and all names of the card shrink together. */
 .sensor > .label {
   font-size: calc(var(--label-scale, 1) * 1em);
 }
@@ -79,6 +80,7 @@ progress {
 .gpu > .label {
   margin: 0.25rem 0 0;
   font: var(--mat-sys-label-large);
+  font-size: calc(var(--label-scale, 1) * var(--mat-sys-label-large-size));
 }
 
 /* Each interface: its name on one line, then its two speeds on one line below it. */
@@ -99,6 +101,7 @@ progress {
 .interface .label {
   grid-column: 1 / -1;
   font: var(--mat-sys-label-large);
+  font-size: calc(var(--label-scale, 1) * var(--mat-sys-label-large-size));
 }
 
 .rate {
