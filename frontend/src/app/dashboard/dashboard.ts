@@ -127,6 +127,11 @@ export class Dashboard {
       .subscribe((availability) => this.availability.set(availability));
   }
 
+  /** Whether the device tells its uptime: a router read over UPnP may not. */
+  protected showsUptime(s: Snapshot): boolean {
+    return !this.isRouter() || s.uptimeSeconds > 0;
+  }
+
   /**
    * The share of the time the device was watched that it answered, rounded down: its
    * availability for a server, how much of the time it was in use for a PC or laptop.

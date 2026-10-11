@@ -1,45 +1,66 @@
-<!-- A server's times without an answer are outages; a PC's or laptop's are times it was not in use. -->
-<ng-template #availabilityCard let-a>
+<!--
+  How long the device has been up, then how much of the time since it was added it answered.
+  A server's times without an answer are outages; a PC's or laptop's are times it was not in use.
+  Without an uptime (a device that does not answer, or a router that does not tell it), the
+  availability is the card's title and value.
+-->
+<ng-template #uptimeCard let-s let-a="availability">
   <div class="card">
-    <h2>{{ i18n.t(a.kind === 'pc' ? 'dashboard.usage' : 'dashboard.availability') }}</h2>
-    <p class="value">{{ availablePercent(a) | number: '1.0-2' : i18n.language() }} %</p>
-    <p class="detail">
-      @if (a.kind === 'pc') {
-        {{
-          i18n.t(a.outages > 0 ? 'dashboard.notInUseSince' : 'dashboard.alwaysInUseSince', {
-            duration: formatDuration(a.offlineSeconds),
-            date: when(a.since),
-          })
-        }}
-      } @else if (a.outages > 0) {
-        {{
-          i18n.t('dashboard.offlineSince', {
-            duration: formatDuration(a.offlineSeconds),
-            date: when(a.since),
-          })
-        }}
-      } @else {
-        {{
-          i18n.t('dashboard.noOutageSince', {
-            date: when(a.since),
-          })
-        }}
+    @if (s) {
+      <h2>{{ i18n.t('dashboard.uptime') }}</h2>
+      <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
+      @if (s.version) {
+        <p class="detail">{{ i18n.t('dashboard.version', { version: s.version }) }}</p>
       }
-    </p>
-    @if (a.lastOutage; as last) {
+    }
+    @if (a) {
+      @if (s) {
+        <p class="sensor availability">
+          <span>{{ i18n.t(a.kind === 'pc' ? 'dashboard.usage' : 'dashboard.availability') }}</span
+          ><span>{{ availablePercent(a) | number: '1.0-2' : i18n.language() }} %</span>
+        </p>
+      } @else {
+        <h2>{{ i18n.t(a.kind === 'pc' ? 'dashboard.usage' : 'dashboard.availability') }}</h2>
+        <p class="value">{{ availablePercent(a) | number: '1.0-2' : i18n.language() }} %</p>
+      }
       <p class="detail">
-        {{
-          a.kind === 'pc'
-            ? i18n.plural(a.outages, 'dashboard.offTimes.one', 'dashboard.offTimes.other')
-            : i18n.plural(a.outages, 'dashboard.outages.one', 'dashboard.outages.other')
-        }}
-        {{
-          i18n.t(a.kind === 'pc' ? 'dashboard.lastOff' : 'dashboard.lastOutage', {
-            date: when(last.start),
-            duration: outageLength(last),
-          })
-        }}
+        @if (a.kind === 'pc') {
+          {{
+            i18n.t(a.outages > 0 ? 'dashboard.notInUseSince' : 'dashboard.alwaysInUseSince', {
+              duration: formatDuration(a.offlineSeconds),
+              date: when(a.since),
+            })
+          }}
+        } @else if (a.outages > 0) {
+          {{
+            i18n.t('dashboard.offlineSince', {
+              duration: formatDuration(a.offlineSeconds),
+              date: when(a.since),
+            })
+          }}
+        } @else {
+          {{
+            i18n.t('dashboard.noOutageSince', {
+              date: when(a.since),
+            })
+          }}
+        }
       </p>
+      @if (a.lastOutage; as last) {
+        <p class="detail">
+          {{
+            a.kind === 'pc'
+              ? i18n.plural(a.outages, 'dashboard.offTimes.one', 'dashboard.offTimes.other')
+              : i18n.plural(a.outages, 'dashboard.outages.one', 'dashboard.outages.other')
+          }}
+          {{
+            i18n.t(a.kind === 'pc' ? 'dashboard.lastOff' : 'dashboard.lastOutage', {
+              date: when(last.start),
+              duration: outageLength(last),
+            })
+          }}
+        </p>
+      }
     }
   </div>
 </ng-template>
@@ -423,16 +444,6 @@
       </div>
     }
 
-    @if (!isRouter() || s.uptimeSeconds > 0) {
-      <div class="card">
-        <h2>{{ i18n.t('dashboard.uptime') }}</h2>
-        <p class="value">{{ formatUptime(s.uptimeSeconds) }}</p>
-        @if (s.version) {
-          <p class="detail">{{ i18n.t('dashboard.version', { version: s.version }) }}</p>
-        }
-      </div>
-    }
-
     @if (isRouter()) {
       <div class="card">
         <h2>{{ i18n.t('dashboard.router') }}</h2>
@@ -440,13 +451,21 @@
       </div>
     }
 
-    @if (shownAvailability(); as a) {
-      <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
+    @if (showsUptime(s) || shownAvailability()) {
+      <ng-container
+        *ngTemplateOutlet="
+          uptimeCard;
+          context: {
+            $implicit: showsUptime(s) ? s : null,
+            availability: shownAvailability(),
+          }
+        "
+      />
     }
   </div>
 } @else if (problem() === 'device' && shownAvailability(); as a) {
   <div class="cards alone">
-    <ng-container *ngTemplateOutlet="availabilityCard; context: { $implicit: a }" />
+    <ng-container *ngTemplateOutlet="uptimeCard; context: { $implicit: null, availability: a }" />
   </div>
 } @else if (!problem()) {
   <p>{{ i18n.t('dashboard.loading') }}</p>

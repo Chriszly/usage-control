@@ -637,6 +637,44 @@ describe('Dashboard', () => {
   it('leaves out the availability for this device', () => {
     respond(snapshot);
 
+    expect(text()).toContain('3 d 4 h');
     expect(text()).not.toContain('Availability');
+  });
+
+  it("shows another device's uptime and availability in one card", () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    respond(snapshot);
+    const devices = TestBed.inject(DeviceService);
+    devices.devices.set([
+      { id: 'local', name: '' },
+      { id: 'living-room-pi', name: 'Living room Pi' },
+    ]);
+    devices.selectedId.set('living-room-pi');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+
+    http.expectOne('/api/metrics?device=living-room-pi').flush(snapshot);
+    http.expectOne('/api/availability?device=living-room-pi').flush({
+      kind: 'server',
+      since: '2026-10-01T12:00:00Z',
+      countedSince: '2026-10-01T12:00:00Z',
+      offlineSeconds: 864,
+      outages: 1,
+      lastOutage: { start: '2026-10-02T11:00:00Z', end: '2026-10-02T11:14:24Z' },
+    });
+    fixture.detectChanges();
+
+    const card = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.card'),
+    ).find((c) => c.querySelector('h2')?.textContent?.trim() === 'Uptime');
+    expect(card?.textContent).toContain('3 d 4 h');
+    expect(card?.querySelector('.availability')?.textContent).toContain('Availability');
+    expect(card?.querySelector('.availability')?.textContent).toContain('99 %');
+    expect(card?.textContent).toContain('1 outage, the last on');
+    const titles = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.card h2'),
+      (h) => h.textContent?.trim(),
+    );
+    expect(titles).not.toContain('Availability');
   });
 });
