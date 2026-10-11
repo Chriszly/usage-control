@@ -16,7 +16,7 @@ Every device with a website keeps its history in one SQLite file. A hub keeps th
 | --- | --- |
 | Docker | `/data/usage-control.db` in the container, on the `data` volume, so it survives updates and recreated containers |
 | Linux service | `/var/lib/usage-control/usage-control.db` |
-| Windows | `C:\ProgramData\Usage Control\usage-control.db`; uninstalling keeps it |
+| Windows | `C:\ProgramData\Usage Control\usage-control.db`; updates keep it, uninstalling deletes it |
 | From source | `usage-control.db` in the folder the program was started from |
 
 `DATABASE_PATH` moves it. The driver is a pure-Go SQLite, so the binary needs no C library. The file uses write-ahead logging (WAL), so the page can read while the recorders write; next to it you will see `usage-control.db-wal` and `usage-control.db-shm`, which belong to it.
