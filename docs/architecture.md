@@ -238,7 +238,7 @@ The requests must be `application/json`. A browser does not send JSON to another
 | --- | --- | --- |
 | Current usage (dashboard) | 2 s | matches the sampler |
 | Device list and online dots | 5 s | |
-| Availability or Usage card | 10 s | only for another device |
+| Availability or Usage in the Uptime card | 10 s | only for another device |
 | Charts, up to 30 min | 5 s | from memory |
 | Charts, up to a day | 1 min | from the database, per minute |
 | Charts, longer | 5 min | from the hourly averages |
