@@ -260,7 +260,7 @@ func (a *ASUSReader) snapshot(values map[string]json.RawMessage, now time.Time) 
 
 	var clients map[string]json.RawMessage
 	if json.Unmarshal(values["get_clientlist"], &clients) == nil && clients != nil {
-		snapshot.Extras = append(snapshot.Extras, clientExtras(clients))
+		snapshot.Extras = append(snapshot.Extras, clientExtras(clients)...)
 	}
 	return snapshot, nil
 }
@@ -394,28 +394,45 @@ func parseHex(value string) (uint64, error) {
 	return strconv.ParseUint(value, 10, 64)
 }
 
+// asusBands are the Wi-Fi bands by isWL in get_clientlist; other values
+// than 0, a cable, are a Wi-Fi band the model numbers its own way.
+var asusBands = map[string]string{"1": "2.4 GHz", "2": "5 GHz"}
+
 // clientExtras counts the clients of the router that are online, on a
-// cable and on Wi-Fi, from get_clientlist.
-func clientExtras(list map[string]json.RawMessage) metrics.Extra {
+// cable and on Wi-Fi, and lists them by name with how each is connected,
+// from get_clientlist.
+func clientExtras(list map[string]json.RawMessage) []metrics.Extra {
 	var wired, wireless float64
+	var online []client
 	for key, raw := range list {
 		if key == "maclist" || key == "ClientAPILevel" {
 			continue
 		}
-		var client struct {
-			Online string `json:"isOnline"`
-			WL     string `json:"isWL"`
+		var entry struct {
+			Online   string `json:"isOnline"`
+			WL       string `json:"isWL"`
+			Name     string `json:"name"`
+			NickName string `json:"nickName"`
+			IP       string `json:"ip"`
 		}
-		if json.Unmarshal(raw, &client) != nil || client.Online != "1" {
+		if json.Unmarshal(raw, &entry) != nil || entry.Online != "1" {
 			continue
 		}
-		if client.WL == "" || client.WL == "0" {
+		c := client{name: clientName(entry.NickName, entry.Name, entry.IP, key)}
+		if entry.WL == "" || entry.WL == "0" {
 			wired++
+			c.wired = true
 		} else {
 			wireless++
+			c.band = asusBands[entry.WL]
 		}
+		online = append(online, c)
 	}
-	return clientsExtra(wired, wireless)
+	extras := []metrics.Extra{clientsExtra(wired, wireless)}
+	if len(online) > 0 {
+		extras = append(extras, connectedExtra(online))
+	}
+	return extras
 }
 
 // clientsExtra is the group of the clients online, on a cable and on Wi-Fi.

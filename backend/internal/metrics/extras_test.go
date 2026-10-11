@@ -30,12 +30,12 @@ func TestCleanExtrasLeavesOutWhatCannotBeShown(t *testing.T) {
 		{ID: "Bad ID", Title: "x", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(1)}}},
 		{ID: "empty", Title: "No values"},
 		{ID: "ok", Title: strings.Repeat("t", 200), Titles: map[string]string{"german": "x", "de": "y"}, Items: []ExtraItem{
-			{ID: "a", Label: "A", Unit: UnitNumber, Value: number(1)},
+			{ID: "a", Label: "A", Unit: UnitNumber, Value: number(1), Texts: map[string]string{"de": "x"}},
 			{ID: "a", Label: "Again", Unit: UnitNumber, Value: number(2)},
 			{ID: "missing", Label: "No value", Unit: UnitWatts},
 			{ID: "nan", Label: "NaN", Unit: UnitWatts, Value: number(math.NaN())},
 			{ID: "future", Label: "New unit", Unit: "lux", Value: number(300), History: true},
-			{ID: "text", Label: "Text", Unit: UnitText, Text: "hi", Value: number(1), History: true},
+			{ID: "text", Label: "Text", Unit: UnitText, Text: "hi", Texts: map[string]string{"de": "hallo", "german": "x"}, Value: number(1), History: true},
 		}},
 		{ID: "ok", Title: "Same id", Items: []ExtraItem{{ID: "a", Unit: UnitNumber, Value: number(1)}}},
 	}
@@ -45,7 +45,7 @@ func TestCleanExtrasLeavesOutWhatCannotBeShown(t *testing.T) {
 	want := []Extra{{ID: "ok", Title: strings.Repeat("t", MaxTextLength), Titles: map[string]string{"de": "y"}, Items: []ExtraItem{
 		{ID: "a", Label: "A", Unit: UnitNumber, Value: number(1)},
 		{ID: "future", Label: "New unit", Unit: UnitNumber, Value: number(300), History: true},
-		{ID: "text", Label: "Text", Unit: UnitText, Text: "hi"},
+		{ID: "text", Label: "Text", Unit: UnitText, Text: "hi", Texts: map[string]string{"de": "hallo"}},
 	}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CleanExtras() = %+v, want %+v", got, want)

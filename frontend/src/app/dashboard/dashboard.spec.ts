@@ -219,6 +219,7 @@ describe('Dashboard', () => {
             { id: 'cpu', label: 'CPU waiting', unit: 'percent', value: 3.25, history: true },
             { id: 'power', label: 'Package', unit: 'watts', value: 12.5 },
             { id: 'kernel', label: 'Kernel', unit: 'text', text: '6.12.1' },
+            { id: 'laptop', label: 'Laptop', unit: 'text', text: 'Cable', texts: { de: 'Kabel' } },
           ],
         },
       ],
@@ -233,6 +234,7 @@ describe('Dashboard', () => {
     fixture.detectChanges();
     expect(text()).toContain('Druck');
     expect(text()).toContain('12,5 W');
+    expect(text()).toContain('LaptopKabel');
     localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   });
 
