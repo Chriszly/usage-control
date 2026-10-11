@@ -74,7 +74,8 @@
                     remembered: the service encrypts them with DPAPI into
                     router-passwords.dpapi in its data folder at its next
                     start and deletes them from the registry. Routers it
-                    already has a password for keep it without this
+                    already has a password for keep it without this, until
+                    uninstalling deletes the file
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
     HISTORY_MAX_ENTRIES  with WEBSITE=1, how many disks, sensors, network cards
                     and GPUs each the history keeps per device (default 64)
@@ -236,6 +237,23 @@
                   Execute="deferred" Impersonate="no" HideTarget="yes" Return="check" />
     <InstallExecuteSequence>
       <Custom Action="StoreRouterPasswords" Before="StartServices" Condition='ROUTER_PASSWORDS AND WEBSITE = "1" AND REMOVE &lt;&gt; "ALL"' />
+    </InstallExecuteSequence>
+
+    <!--
+      Uninstalling deletes the encrypted router passwords and the add-on
+      reports from the data folder, once the services are stopped, and keeps
+      only the history. The passwords' names go with the remembered options,
+      so nothing would use them again. An update also uninstalls the version
+      before it (UPGRADINGPRODUCTCODE), which keeps them, so an empty
+      password in an update still keeps the one stored for that name.
+    -->
+    <SetProperty Id="DeleteDataFiles" Before="DeleteDataFiles" Sequence="execute"
+                 Value='"[System64Folder]cmd.exe" /d /c del /f /q "[DATAFOLDER]router-passwords.dpapi" "[ADDONSFOLDER]*.json"'
+                 Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
+    <CustomAction Id="DeleteDataFiles" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="DeleteDataFiles" After="StopServices" Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
     </InstallExecuteSequence>
 
     <!--
@@ -672,7 +690,8 @@
       The database: the history with WEBSITE=1, otherwise the minutes kept for
       a hub that cannot reach this PC (BUFFER_HOURS). Only the service,
       administrators and the system can read or change it. Uninstalling keeps
-      it, so reinstalling keeps the history.
+      it, so reinstalling keeps the history, and deletes the rest of the
+      folder's files (DeleteDataFiles).
     -->
     <Component Id="DataFolder" Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
       <CreateFolder>
