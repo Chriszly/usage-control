@@ -16,8 +16,8 @@
 # reduced user interface leave the tray icon running, and that a full repair
 # keeps the add-ons and closes the tray icon, checks a bad remembered
 # UPDATE_CHECK is refused with the repair that fixes it, which does, but does
-# not hold up the uninstall, uninstalls it and checks it keeps only the
-# history in the data folder, then installs it with the defaults
+# not hold up the uninstall, uninstalls it and checks it deletes the data
+# folder, then installs it with the defaults
 # and checks it only serves the usage data, and last installs it with a
 # router and its password, checks the service encrypted the password and
 # deleted it from the registry, and checks that an update with WEBSITE=0
@@ -289,6 +289,7 @@ $installed = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion
     Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Usage Control' })
 if ($installed.Count -ne 1) { throw "The update left $($installed.Count) installs of Usage Control, not 1" }
 Assert-Website 8091
+if (-not (Test-Path "$env:ProgramData\Usage Control\usage-control.db")) { throw 'The update deleted the history' }
 Assert-ServiceSetting DISK_PATHS "$env:SystemDrive\"
 Assert-ServiceSetting UPDATE_CHECK 'false'
 Assert-ServiceSetting RESET_PASSWORD ''
@@ -428,8 +429,7 @@ if (Get-NetFirewallRule -DisplayName 'Usage Control' -ErrorAction SilentlyContin
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Usage Control' -Name PORT -ErrorAction SilentlyContinue) { throw 'The remembered options are still there' }
 if (Test-Path $trayExe) { throw 'The tray program is still there' }
 if (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name 'Usage Control' -ErrorAction SilentlyContinue) { throw 'The tray icon still starts at login' }
-if (@(Get-ChildItem "$env:ProgramData\Usage Control\addons" -Filter *.json -ErrorAction SilentlyContinue).Count -gt 0) { throw 'The add-on reports are still there' }
-if (-not (Test-Path "$env:ProgramData\Usage Control\usage-control.db")) { throw 'Uninstalling deleted the history' }
+if (Test-Path "$env:ProgramData\Usage Control") { throw 'The data folder is still there' }
 
 Write-Host 'Installing with the defaults serves only the usage data'
 Invoke-Installer "/i `"$Msi`""
@@ -482,6 +482,6 @@ $status = Get-StatusCode 'http://127.0.0.1:9393/'
 if ($status -ne 404) { throw "The website answered $status after the update with WEBSITE=0; it should be off" }
 if (-not (Test-Path $protected)) { throw 'The update deleted the stored router password' }
 Invoke-Installer "/x `"$NewerMsi`""
-if (Test-Path $protected) { throw 'Uninstalling left the router password behind' }
+if (Test-Path "$env:ProgramData\Usage Control") { throw 'Uninstalling left the data folder, with the router password, behind' }
 
 Write-Host 'The installer works'

@@ -75,7 +75,7 @@
                     router-passwords.dpapi in its data folder at its next
                     start and deletes them from the registry. Routers it
                     already has a password for keep it without this, until
-                    uninstalling deletes the file
+                    uninstalling deletes the data folder
     RETENTION_DAYS  with WEBSITE=1, days of history to keep (default 30)
     HISTORY_MAX_ENTRIES  with WEBSITE=1, how many disks, sensors, network cards
                     and GPUs each the history keeps per device (default 64)
@@ -240,20 +240,21 @@
     </InstallExecuteSequence>
 
     <!--
-      Uninstalling deletes the encrypted router passwords and the add-on
-      reports from the data folder, once the services are stopped, and keeps
-      only the history. The passwords' names go with the remembered options,
-      so nothing would use them again. An update also uninstalls the version
-      before it (UPGRADINGPRODUCTCODE), which keeps them, so an empty
-      password in an update still keeps the one stored for that name.
+      Uninstalling deletes the data folder with everything in it, once the
+      services are stopped: the history, the encrypted router passwords and
+      the add-on reports. An update also uninstalls the version before it
+      (UPGRADINGPRODUCTCODE), which keeps them, so an update keeps the
+      history, and an empty password in an update still keeps the one stored
+      for that name. The path is spelled out from CommonAppDataFolder rather
+      than DATAFOLDER, which a command line could point elsewhere.
     -->
-    <SetProperty Id="DeleteDataFiles" Before="DeleteDataFiles" Sequence="execute"
-                 Value='"[System64Folder]cmd.exe" /d /c del /f /q "[DATAFOLDER]router-passwords.dpapi" "[ADDONSFOLDER]*.json"'
+    <SetProperty Id="DeleteDataFolder" Before="DeleteDataFolder" Sequence="execute"
+                 Value='"[System64Folder]cmd.exe" /d /c rmdir /s /q "[CommonAppDataFolder]Usage Control"'
                  Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
-    <CustomAction Id="DeleteDataFiles" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+    <CustomAction Id="DeleteDataFolder" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="DeleteDataFiles" After="StopServices" Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
+      <Custom Action="DeleteDataFolder" After="StopServices" Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />
     </InstallExecuteSequence>
 
     <!--
@@ -689,9 +690,8 @@
     <!--
       The database: the history with WEBSITE=1, otherwise the minutes kept for
       a hub that cannot reach this PC (BUFFER_HOURS). Only the service,
-      administrators and the system can read or change it. Uninstalling keeps
-      it, so reinstalling keeps the history, and deletes the rest of the
-      folder's files (DeleteDataFiles).
+      administrators and the system can read or change it. An update keeps
+      it; uninstalling deletes it with the folder (DeleteDataFolder).
     -->
     <Component Id="DataFolder" Directory="DATAFOLDER" Guid="C3AF9720-FF5B-4D29-AA9B-A3FB303E3586">
       <CreateFolder>
